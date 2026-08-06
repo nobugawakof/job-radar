@@ -1,0 +1,77 @@
+# Social Job Radar — example configuration.
+#
+# Copy to config.toml and edit. Secrets (API tokens) do NOT belong here
+# (DR-6); set them in the environment instead:
+#
+#   export JOBRADAR_TELEGRAM_BOT_TOKEN=123:abc         # delivery + Telegram source
+#   export JOBRADAR_REDDIT_CLIENT_ID=...               # Reddit OAuth (D-1)
+#   export JOBRADAR_REDDIT_CLIENT_SECRET=...
+#
+# Every value below is optional; omitting it uses the SRS default.
+
+db_path = "jobradar.db"
+
+run_interval_hours = 4            # FR-1
+catchup_lookback_hours = 72       # FR-5
+non_posting_retention_days = 7    # FR-9
+posting_retention_days = 90       # DR-3
+review_expiry_days = 14           # FR-25
+tier_b_failure_threshold = 3      # SR-4
+default_request_interval_seconds = 5   # SR-6
+
+web_host = "127.0.0.1"            # IR-8: localhost only by default
+web_port = 8080
+
+backup_dir = "backups"           # NFR-7
+backup_interval_hours = 24
+
+# Defaults applied to a newly created member.
+default_keywords = ["web3", "web2", "backend", "frontend", "ai", "fullstack"]
+default_remote_only = true
+default_eligible_countries = []   # Q-1: fill in ISO codes or country names
+
+# --- Sources (SR-1: enable/disable and configure without code changes) ----
+# Each [[sources]] block becomes a live collector. `type` selects the
+# collector; remaining keys are passed to it as config.
+
+[[sources]]
+name = "bluesky-hiring"
+type = "bluesky"
+tier = "A"
+query = "hiring remote developer"
+
+[[sources]]
+name = "hn-whoishiring"
+type = "hn"
+tier = "A"
+query = "remote"
+classifier_prior = 1.0            # a jobs-only context; keep short posts (FR-8)
+
+[[sources]]
+name = "weworkremotely"
+type = "rss"
+tier = "A"
+url = "https://weworkremotely.com/categories/remote-programming-jobs.rss"
+
+[[sources]]
+name = "reddit-forhire"
+type = "reddit"
+tier = "A"
+subreddit = "forhire"
+listing = "new"
+
+# Telegram channel the bot has been added to (Bot API, D-2).
+[[sources]]
+name = "tg-remotejobs"
+type = "telegram"
+tier = "A"
+channel = "remotejobs"
+
+# Tier B — best effort; expected to break, auto-disables after 3 failures (SR-4).
+[[sources]]
+name = "example-scrape"
+type = "scrape"
+tier = "B"
+enabled = false                  # off by default; enable knowingly
+url = "https://example.com/jobs"
+block_pattern = "<article[^>]*>(.*?)</article>"
