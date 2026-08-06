@@ -17,13 +17,29 @@ run_interval_hours = 4                                      # how often to check
 use_ai = false
 # anthropic_api_key = "sk-ant-..."   # only needed if use_ai = true
 
+# --- Optional: API tokens (fill in only the ones you use) ----------------
+# All tokens live here in the file — no environment variables needed.
+# Reddit: create an app at https://www.reddit.com/prefs/apps (type "script").
+# reddit_client_id     = ""
+# reddit_client_secret = ""
+# Twitter/X: requires a PAID X API plan (the free read tier was discontinued).
+# x_bearer_token       = ""
+#
+# Facebook and TikTok are NOT supported: there is no working way to search
+# public job posts on them (Facebook has no public post-search API at any price;
+# TikTok's API is restricted to accredited academics). No token would help.
+
 # --- Optional: extra job sources -----------------------------------------
 # Leave this out to use the built-in sources (Bluesky, Hacker News,
-# WeWorkRemotely) — they need no extra keys. Add a block only to monitor
-# something specific, e.g. a subreddit or a Telegram channel your bot joined.
-# A Reddit source also needs: export JOBRADAR_REDDIT_CLIENT_ID / _SECRET
+# WeWorkRemotely) — they need no keys. Add a block to monitor something
+# specific. The credentials above are used automatically.
 #
 # [[sources]]
 # name = "reddit-forhire"
 # type = "reddit"
 # subreddit = "forhire"
+#
+# [[sources]]
+# name = "x-hiring"
+# type = "twitter"                 # needs x_bearer_token above (paid)
+# query = "hiring remote developer -is:retweet"

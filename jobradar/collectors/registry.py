@@ -34,7 +34,7 @@ def build_collector(
 
 # Importing the collector modules populates the registry via @register.
 def load_builtin_collectors() -> None:
-    from . import bluesky, hackernews, rss, reddit, telegram, scrape  # noqa: F401
+    from . import bluesky, hackernews, rss, reddit, telegram, scrape, twitter  # noqa: F401
 
 
 load_builtin_collectors()

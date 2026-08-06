@@ -138,6 +138,10 @@ class Pipeline:
         http = HttpClient(self.config.user_agent, request_interval_s=interval)
         cfg = {k: v for k, v in sdef.items()
                if k not in ("name", "type", "tier", "enabled", "request_interval_s")}
+        # Make credentials from the config file available to collectors that
+        # need them (Reddit, X). A source block can still override per source.
+        for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token"):
+            cfg.setdefault(key, getattr(self.config, key, None))
         ctx = FetchContext(since=since, now=now, user_agent=self.config.user_agent,
                            request_interval_s=interval, config=cfg)
 

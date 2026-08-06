@@ -40,12 +40,13 @@ class RedditCollector(Collector):
         self._token: str | None = None
 
     def _get_token(self, user_agent: str) -> str:
-        cid = os.environ.get("JOBRADAR_REDDIT_CLIENT_ID")
-        secret = os.environ.get("JOBRADAR_REDDIT_CLIENT_SECRET")
+        # Prefer credentials from the config file; fall back to env vars.
+        cid = self.config.get("reddit_client_id") or os.environ.get("JOBRADAR_REDDIT_CLIENT_ID")
+        secret = self.config.get("reddit_client_secret") or os.environ.get("JOBRADAR_REDDIT_CLIENT_SECRET")
         if not cid or not secret:
             raise CollectorError(
-                "Reddit credentials missing: set JOBRADAR_REDDIT_CLIENT_ID and "
-                "JOBRADAR_REDDIT_CLIENT_SECRET (DR-6)"
+                "Reddit credentials missing: set reddit_client_id and "
+                "reddit_client_secret in config.toml"
             )
         auth = base64.b64encode(f"{cid}:{secret}".encode()).decode()
         data = urllib.parse.urlencode({"grant_type": "client_credentials"}).encode()

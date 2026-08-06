@@ -89,9 +89,15 @@ if you want to monitor something specific:
 | `bluesky` | A | `query` | Public AT Protocol API, no key |
 | `hn` | A | `query`, `classifier_prior` | Reads the monthly "Who Is Hiring" thread |
 | `rss` | A | `url` | Any RSS/Atom feed |
-| `reddit` | A | `subreddit`, `listing` | Needs `JOBRADAR_REDDIT_CLIENT_ID` / `_SECRET` |
+| `reddit` | A | `subreddit`, `listing` | Set `reddit_client_id` / `reddit_client_secret` in config |
+| `twitter` (`x`) | A | `query` | Set `x_bearer_token` in config — **requires a paid X API plan** |
 | `telegram` | A | `channel` | Bot must be in the channel |
 | `scrape` | B | `url`, `block_pattern` | Best-effort HTML; expected to break |
+
+All API tokens go in `config.toml` (see the "API tokens" section of
+`config.example.toml`) — no environment variables needed. **Facebook and TikTok
+are not supported**: neither offers a usable way to search public job posts, so
+no token would help.
 
 Tier A is expected to work. Tier B is best-effort: it's fetched politely (honest
 `User-Agent`, rate-limited, respects `robots.txt` / HTTP 429), and if it breaks

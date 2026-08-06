@@ -37,6 +37,12 @@ class Config:
     ai_max_chars: int = 6000             # cap post text sent to the API
     anthropic_api_key: str | None = None
 
+    # Source credentials — configured here (in the file), no env vars needed.
+    # Only fill in the ones for sources you actually use.
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    x_bearer_token: str | None = None    # Twitter/X — requires a PAID X API plan
+
     # How it runs.
     state_path: str = "jobradar-state.json"
     run_interval_hours: float = 4.0
@@ -80,15 +86,20 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
     cfg = Config(**kwargs)
 
     # Secrets from the environment win and are never persisted here.
-    token = os.environ.get("JOBRADAR_TELEGRAM_BOT_TOKEN") or data.get("telegram_bot_token")
-    chat = os.environ.get("JOBRADAR_TELEGRAM_CHAT_ID") or data.get("telegram_chat_id")
-    ai_key = os.environ.get("JOBRADAR_ANTHROPIC_API_KEY") or data.get("anthropic_api_key")
-    if token:
-        cfg = replace(cfg, telegram_bot_token=token)
-    if chat:
-        cfg = replace(cfg, telegram_chat_id=str(chat))
-    if ai_key:
-        cfg = replace(cfg, anthropic_api_key=ai_key)
+    # Secrets: config-file value is used as-is; an environment variable, if set,
+    # overrides it (handy on servers, unnecessary for the desktop .exe).
+    overrides = {
+        "telegram_bot_token": os.environ.get("JOBRADAR_TELEGRAM_BOT_TOKEN"),
+        "telegram_chat_id": os.environ.get("JOBRADAR_TELEGRAM_CHAT_ID"),
+        "anthropic_api_key": os.environ.get("JOBRADAR_ANTHROPIC_API_KEY"),
+        "reddit_client_id": os.environ.get("JOBRADAR_REDDIT_CLIENT_ID"),
+        "reddit_client_secret": os.environ.get("JOBRADAR_REDDIT_CLIENT_SECRET"),
+        "x_bearer_token": os.environ.get("JOBRADAR_X_BEARER_TOKEN"),
+    }
+    for field_name, env_value in overrides.items():
+        value = env_value or data.get(field_name)
+        if value:
+            cfg = replace(cfg, **{field_name: str(value)})
     return cfg
 
 
