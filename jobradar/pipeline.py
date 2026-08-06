@@ -253,7 +253,8 @@ class Pipeline:
     # --------------------------------------------------------------- format
     def _as_dict(self, p: Posting) -> dict[str, Any]:
         return {
-            "title": p.title, "source": p.source, "source_tier": p.source_tier,
+            "title": p.title, "description": p.description, "contact": p.contact,
+            "source": p.source, "source_tier": p.source_tier,
             "source_url": p.source_url, "origins": p.origins, "is_remote": p.is_remote,
             "location": p.location, "is_worldwide": p.is_worldwide,
             "salary_raw": p.salary.raw, "salary_min": p.salary.min, "salary_max": p.salary.max,

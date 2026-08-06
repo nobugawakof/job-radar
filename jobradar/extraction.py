@@ -190,9 +190,11 @@ def parse_salary(text: str) -> Salary:
     # A plausible salary snippet: a currency symbol immediately followed by a
     # number (optionally a range). Requiring the digit avoids grabbing prose
     # like "$" inside a word or a lone symbol.
+    cur_tok = r"(?:[$€£]|\b(?:USD|EUR|GBP|CAD|AUD|SGD|HKD)\b)"
     m = re.search(
-        r"[$€£]\s?\d[\d.,]*\s?[kK]?(?:\s?[-–—to]{1,3}\s?[$€£]?\s?\d[\d.,]*\s?[kK]?)?",
-        text,
+        cur_tok + r"\s?\d[\d.,]*\s?[kK]?"
+        r"(?:\s?[-–—to]{1,3}\s?" + cur_tok + r"?\s?\d[\d.,]*\s?[kK]?)?",
+        text, re.I,
     )
     window = m.group(0) if m else None
     if window is None:
