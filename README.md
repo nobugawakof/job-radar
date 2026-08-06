@@ -111,19 +111,7 @@ jobradar/
   cli.py             entry point
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
-tests/               unittest suite (stdlib only)
 ```
-
-## Tests
-
-```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
-```
-
-Covers the pipeline end-to-end (scrape → filter → dedup → send), the
-already-sent memory across runs, outage retry, cross-source dedup, Tier B
-auto-disable, failure isolation, and the state file — plus unit tests for the
-classifier, extraction, filters, dedup, digest, and state.
 
 ## Notes
 
