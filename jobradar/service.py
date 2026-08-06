@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 
 from .config import Config, source_definitions
 from .delivery import TelegramTransport
@@ -17,7 +18,12 @@ class Service:
     def __init__(self, config: Config, config_path: str | None = None):
         self.config = config
         self.config_path = config_path
-        self.state = State(config.state_path, max_sent=config.max_sent_remembered)
+        # Resolve a relative state path next to the config file, so a packaged
+        # .exe keeps its state beside config.toml rather than in a random cwd.
+        state_path = Path(config.state_path)
+        if not state_path.is_absolute() and config_path:
+            state_path = Path(config_path).resolve().parent / state_path
+        self.state = State(str(state_path), max_sent=config.max_sent_remembered)
         self.source_defs = source_definitions(config_path)
         self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
         self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport)

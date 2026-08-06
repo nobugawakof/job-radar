@@ -101,6 +101,11 @@ class Pipeline:
 
         # One message per posting (sent separately, oldest first).
         fresh.sort(key=lambda p: p.posted_at)
+        # Optional AI enrichment — only for the postings we're about to send, so
+        # the API is called at most once per delivered posting.
+        if self.config.use_ai and self.config.anthropic_api_key:
+            for p in fresh:
+                self._enrich(p)
         summary.sent = fresh
         summary.messages = [format_message(self._as_dict(p)) for p in fresh]
 
@@ -251,6 +256,30 @@ class Pipeline:
                 log.exception("owner alert send failed")
 
     # --------------------------------------------------------------- format
+    def _enrich(self, p: Posting) -> None:
+        """Improve a posting's fields with Claude; leave it untouched on failure."""
+        from . import ai
+
+        result = ai.enrich(
+            p.description, api_key=self.config.anthropic_api_key or "",
+            model=self.config.ai_model, max_chars=self.config.ai_max_chars,
+        )
+        if result is None:
+            return
+        if result.title:
+            p.title = result.title
+        if result.location:
+            p.location = result.location
+        if result.is_remote in ("remote", "hybrid", "onsite", "unknown"):
+            p.is_remote = result.is_remote
+        p.is_worldwide = p.is_worldwide or result.is_worldwide
+        if result.salary and not p.salary.raw:
+            p.salary.raw = result.salary
+        if result.apply and not p.contact:
+            p.contact = result.apply
+        p.responsibilities = result.responsibilities
+        p.requirements = result.requirements
+
     def _as_dict(self, p: Posting) -> dict[str, Any]:
         return {
             "title": p.title, "description": p.description, "contact": p.contact,
@@ -259,4 +288,5 @@ class Pipeline:
             "location": p.location, "is_worldwide": p.is_worldwide,
             "salary_raw": p.salary.raw, "salary_min": p.salary.min, "salary_max": p.salary.max,
             "salary_currency": p.salary.currency, "matched_keywords": p.matched_keywords,
+            "responsibilities": p.responsibilities, "requirements": p.requirements,
         }

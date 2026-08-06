@@ -29,6 +29,14 @@ class Config:
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
 
+    # Optional AI extraction (off by default). When on, each posting about to be
+    # sent is enriched by Claude into cleaner fields + responsibilities/
+    # requirements. Needs JOBRADAR_ANTHROPIC_API_KEY in the environment.
+    use_ai: bool = False
+    ai_model: str = "claude-opus-5"      # set "claude-haiku-4-5" to cut cost
+    ai_max_chars: int = 6000             # cap post text sent to the API
+    anthropic_api_key: str | None = None
+
     # How it runs.
     state_path: str = "jobradar-state.json"
     run_interval_hours: float = 4.0
@@ -63,10 +71,13 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
     # Secrets from the environment win and are never persisted here.
     token = os.environ.get("JOBRADAR_TELEGRAM_BOT_TOKEN") or data.get("telegram_bot_token")
     chat = os.environ.get("JOBRADAR_TELEGRAM_CHAT_ID") or data.get("telegram_chat_id")
+    ai_key = os.environ.get("JOBRADAR_ANTHROPIC_API_KEY") or data.get("anthropic_api_key")
     if token:
         cfg = replace(cfg, telegram_bot_token=token)
     if chat:
         cfg = replace(cfg, telegram_chat_id=str(chat))
+    if ai_key:
+        cfg = replace(cfg, anthropic_api_key=ai_key)
     return cfg
 
 

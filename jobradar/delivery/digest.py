@@ -82,13 +82,29 @@ def format_message(posting: dict[str, Any]) -> str:
     elif posting.get("location"):
         lines.append(f"📍  工作地点：{_esc(str(posting['location']))}")
 
-    # 📝 Details (the original post body — carries responsibilities/requirements
-    # for rich posts, and the full text for scraped ones).
-    body = _clean_body(posting.get("description") or "")
-    if body:
+    # 🌱 Responsibilities / 🌵 Requirements — populated only when AI extraction
+    # is on; otherwise the full post body carries them under 职位详情.
+    resp = posting.get("responsibilities") or []
+    reqs = posting.get("requirements") or []
+    if resp:
         lines.append("")
-        lines.append("📝  职位详情：")
-        lines.append(body)
+        lines.append("🌱  岗位职责：")
+        lines.extend(f"{i}️⃣ {_esc(r)}" if i <= 9 else f"• {_esc(r)}"
+                     for i, r in enumerate(resp[:9], start=1))
+    if reqs:
+        lines.append("")
+        lines.append("🌵  岗位要求：")
+        lines.extend(f"{i}️⃣ {_esc(r)}" if i <= 9 else f"• {_esc(r)}"
+                     for i, r in enumerate(reqs[:9], start=1))
+
+    # 📝 Details: the original post body. Skipped when AI already split the post
+    # into the responsibilities/requirements sections above.
+    if not (resp or reqs):
+        body = _clean_body(posting.get("description") or "")
+        if body:
+            lines.append("")
+            lines.append("📝  职位详情：")
+            lines.append(body)
 
     # 📮 How to apply.
     contact = posting.get("contact")

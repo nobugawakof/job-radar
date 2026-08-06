@@ -54,3 +54,6 @@ class Posting:
     # Telegram message).
     origins: list[str] = field(default_factory=list)
     matched_keywords: list[str] = field(default_factory=list)
+    # Optional AI-extracted detail (empty unless use_ai is on).
+    responsibilities: list[str] = field(default_factory=list)
+    requirements: list[str] = field(default_factory=list)

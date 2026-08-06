@@ -22,6 +22,14 @@ remote_only = true
 #   regions = ["Hong Kong", "Malaysia", "Worldwide"]
 regions = []
 
+# Optional AI extraction (off by default). When on, each posting about to be
+# sent is enriched by Claude into cleaner fields plus separate 岗位职责/岗位要求
+# (responsibilities/requirements) lists. Costs money per posting; needs a key in
+# the environment: export JOBRADAR_ANTHROPIC_API_KEY=sk-ant-...
+use_ai = false
+ai_model = "claude-opus-5"             # set "claude-haiku-4-5" to cut cost
+ai_max_chars = 6000                    # cap post text sent to the API
+
 # How it runs.
 state_path = "jobradar-state.json"     # the only persistence: remembers what was sent
 run_interval_hours = 4

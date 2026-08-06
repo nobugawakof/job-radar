@@ -10,10 +10,33 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+from pathlib import Path
 
 from .config import load
 from .service import Service
+
+
+def _frozen() -> bool:
+    """True when running as a PyInstaller-built executable."""
+    return getattr(sys, "frozen", False)
+
+
+def base_dir() -> Path:
+    """Directory to resolve config/state against.
+
+    For a packaged .exe this is the folder the executable sits in, so a user can
+    drop config.toml next to jobradar.exe and double-click it. Otherwise it's the
+    current working directory.
+    """
+    if _frozen():
+        return Path(sys.executable).resolve().parent
+    return Path.cwd()
+
+
+def default_config_path() -> str:
+    return str(base_dir() / "config.toml")
 
 
 def _service(args: argparse.Namespace) -> Service:
@@ -70,7 +93,7 @@ def cmd_test_telegram(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jobradar", description="Social Job Radar (Telegram-only)")
-    p.add_argument("--config", default="config.toml", help="path to config TOML")
+    p.add_argument("--config", default=default_config_path(), help="path to config TOML")
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("run", help="one collection cycle + Telegram digest").set_defaults(func=cmd_run)
@@ -81,12 +104,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    # Double-clicking the .exe passes no arguments — default to the daemon so it
+    # just starts sending jobs, rather than printing an argparse error.
+    if not argv and _frozen():
+        argv = ["serve"]
+
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    return args.func(args)
+    try:
+        return args.func(args)
+    except Exception as e:  # noqa: BLE001 - keep the console window open on error
+        logging.getLogger("jobradar").error("%s", e)
+        if _frozen():
+            print(f"\nError: {e}")
+            input("Press Enter to close...")
+        return 1
 
 
 if __name__ == "__main__":

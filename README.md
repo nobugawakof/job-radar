@@ -99,6 +99,46 @@ hiring?"* thread and returns its top-level comments — the real job posts — s
 titles and locations come out clean and you don't get discussion comments or
 job-seeker posts.
 
+## Optional AI extraction
+
+Off by default. With `use_ai = true` and an Anthropic API key in the
+environment, each posting *about to be sent* is enriched by Claude into cleaner
+fields plus separate **岗位职责 / 岗位要求** (responsibilities / requirements)
+lists — the parts rule-based parsing can't reliably split out of free-form text.
+
+```toml
+use_ai = true
+ai_model = "claude-opus-5"     # or "claude-haiku-4-5" to cut cost
+```
+```bash
+export JOBRADAR_ANTHROPIC_API_KEY=sk-ant-...
+```
+
+It costs money per posting, so the API is called only for postings that already
+passed the filter and dedup (at most once each), and any failure — no key,
+network error, refusal — silently falls back to the rule-based fields. The core
+app still needs no third-party packages; the AI call goes over stdlib `urllib`.
+
+## Build a standalone executable (.exe)
+
+You can package Job Radar as a single double-clickable file so it runs without a
+Python install.
+
+```bash
+python build.py          # produces dist/jobradar (or dist/jobradar.exe on Windows)
+```
+
+PyInstaller doesn't cross-compile — run `build.py` **on Windows** to get a
+`.exe`. If you don't have a Windows machine, the included GitHub Actions
+workflow (`.github/workflows/build-exe.yml`) builds it on a `windows-latest`
+runner and uploads `jobradar-windows` (the `.exe` + a `config.toml`) as a
+downloadable artifact on every push, or from the Actions tab via "Run workflow".
+
+Put a `config.toml` next to the executable (copy `config.example.toml`) and run
+it — a double-clicked `.exe` with no arguments starts the daemon (`serve`), and
+its state file is written next to the executable. Secrets still come from
+environment variables, not the config file.
+
 ## Filtering
 
 Three stages, in order; a posting must pass all the ones you've configured:

@@ -12,9 +12,9 @@ dependencies = []
 jobradar = "jobradar.cli:main"
 
 [project.optional-dependencies]
-# Only needed if you swap the stdlib collectors/dashboard for richer libraries.
-# The shipped implementation does not require any of these.
-extras = []
+# Only needed to build a standalone executable (see build.py). The app itself
+# runs on the standard library alone.
+build = ["pyinstaller>=6"]
 
 [tool.setuptools.packages.find]
 where = ["."]
