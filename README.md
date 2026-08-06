@@ -99,6 +99,26 @@ All API tokens go in `config.toml` (see the "API tokens" section of
 are not supported**: neither offers a usable way to search public job posts, so
 no token would help.
 
+**You manage sources entirely from the config file — no code changes.** Adding a
+`[[sources]]` block adds a site; listing any of them replaces the built-in
+defaults, so the file fully controls what's searched (this applies to `reddit`,
+`twitter`, `rss`, everything). Only a site with its own special API would need a
+new collector class.
+
+### Chinese (and other non-English) jobs
+
+The classifier, remote detection, and keywords understand **Chinese** as well as
+English — a post like "招聘后端工程师，全球远程" is detected, and the keyword
+`backend` also matches `后端` (likewise `前端`, `全栈`, `远程`, `算法`…). See
+`config.china.example.toml` for a ready starting config with Chinese-developer
+RSS sources (V2EX 酷工作 / 远程, Ruby China) plus global remote boards.
+
+Note: big Chinese job sites like BOSS直聘 (zhipin), 拉勾 (lagou), 猎聘 (liepin),
+智联 (zhaopin), Weibo, and Douban are **not scrapable** — they're JavaScript-
+rendered and behind bot-blocking login walls, so no free method reaches their
+listings. Sites that publish an RSS feed (V2EX, Ruby China, …) work with the
+`rss` type and no keys.
+
 Tier A is expected to work. Tier B is best-effort: it's fetched politely (honest
 `User-Agent`, rate-limited, respects `robots.txt` / HTTP 429), and if it breaks
 three runs in a row it auto-disables itself and pings you on Telegram. Adding a

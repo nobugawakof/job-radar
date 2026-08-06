@@ -46,6 +46,23 @@ _STRONG_RE = re.compile("|".join(re.escape(p) for p in HIRING_PHRASES), re.I)
 _ROLE_RE = re.compile(r"\b(" + "|".join(ROLE_TERMS) + r")s?\b", re.I)
 _CONTEXT_RE = re.compile("|".join(re.escape(t) for t in CONTEXT_TERMS), re.I)
 
+# Chinese signals. Chinese has no word boundaries, so these are matched as plain
+# substrings rather than with \b. Lets the pipeline detect Chinese job posts
+# (e.g. from v2ex, ruby-china) instead of dropping them as "not a job".
+CHINESE_HIRING = [
+    "招聘", "诚聘", "热招", "急聘", "招募", "招人", "内推", "在招", "招贤",
+    "岗位", "职位", "求贤", "职位描述", "岗位职责", "任职要求", "岗位要求",
+    "工作职责", "职责", "我们在招", "正在招",
+]
+CHINESE_ROLE = [
+    "工程师", "开发", "程序员", "架构师", "设计师", "产品经理", "运维",
+    "测试", "前端", "后端", "全栈", "算法", "数据", "运营",
+]
+CHINESE_CONTEXT = [
+    "远程", "远端", "在家办公", "居家办公", "薪资", "薪酬", "月薪", "年薪",
+    "福利", "全职", "兼职", "实习", "股权", "期权", "简历", "投递", "面试",
+]
+
 
 @dataclass(frozen=True)
 class Classification:
@@ -67,12 +84,12 @@ def classify(text: str, *, source_prior: float = 0.0) -> Classification:
     signals: list[str] = []
     score = source_prior
 
-    if _STRONG_RE.search(text):
+    if _STRONG_RE.search(text) or any(t in text for t in CHINESE_HIRING):
         score += 1.0
         signals.append("hiring_phrase")
 
-    has_role = bool(_ROLE_RE.search(text))
-    has_context = bool(_CONTEXT_RE.search(text))
+    has_role = bool(_ROLE_RE.search(text)) or any(t in text for t in CHINESE_ROLE)
+    has_context = bool(_CONTEXT_RE.search(text)) or any(t in text for t in CHINESE_CONTEXT)
     if has_role:
         score += 0.5
         signals.append("role_term")

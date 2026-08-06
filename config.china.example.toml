@@ -1,0 +1,64 @@
+# Job Radar — a starting config tuned for Chinese remote jobs.
+# Copy to config.toml, fill in the two Telegram lines, and adjust the sources.
+#
+# You manage sources ENTIRELY from this file: each [[sources]] block is one site.
+# When you list any [[sources]] here, they REPLACE the built-in defaults, so this
+# file fully controls what gets searched. No code changes needed.
+
+telegram_bot_token = "PASTE-YOUR-BOT-TOKEN"
+telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
+
+# Keywords work in English AND Chinese. The English ones already match common
+# Chinese equivalents (backend↔后端, frontend↔前端, fullstack↔全栈, ai↔算法…),
+# and you can add Chinese words directly.
+keywords    = ["backend", "frontend", "fullstack", "ai", "远程", "后端", "前端", "全栈"]
+remote_only = true
+regions     = []            # e.g. ["中国", "香港", "Worldwide"]; empty = anywhere
+run_interval_hours = 4
+
+# --- Chinese-developer sources with a public RSS feed (no login, no key) ----
+[[sources]]
+name = "v2ex-jobs"          # V2EX 酷工作
+type = "rss"
+url  = "https://www.v2ex.com/feed/jobs.xml"
+
+[[sources]]
+name = "v2ex-remote"        # V2EX 远程工作
+type = "rss"
+url  = "https://www.v2ex.com/feed/remote.xml"
+
+[[sources]]
+name = "ruby-china"         # Ruby China (remote-friendly)
+type = "rss"
+url  = "https://ruby-china.org/topics/feed"
+
+# --- Global remote boards (English, but many hire from anywhere) ------------
+[[sources]]
+name = "hackernews"         # HN "Who is hiring?" monthly thread
+type = "hn"
+tier = "A"
+
+[[sources]]
+name = "weworkremotely"
+type = "rss"
+url  = "https://weworkremotely.com/categories/remote-programming-jobs.rss"
+
+[[sources]]
+name = "remoteok"
+type = "rss"
+url  = "https://remoteok.com/remote-jobs.rss"
+
+# --- Best-effort scraping (Tier B; expected to break, off by default) -------
+# Most big Chinese job sites (BOSS直聘 / zhipin, 拉勾 / lagou, 猎聘 / liepin,
+# 智联 / zhaopin, bossjob) render with JavaScript and block bots behind login,
+# so plain scraping returns nothing — they are not supported. Weibo and Douban
+# need an account/API and aren't supported either. If a smaller site serves
+# plain HTML, you can try a scrape block like this (tune block_pattern to the
+# page, and it will auto-disable after 3 failures):
+#
+# [[sources]]
+# name = "eleduck"
+# type = "scrape"
+# tier = "B"
+# url  = "https://eleduck.com/"
+# block_pattern = "<article[^>]*>(.*?)</article>"

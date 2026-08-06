@@ -61,13 +61,18 @@ def _pattern_for(keyword: str) -> re.Pattern[str]:
     return p
 
 
-# Known variant expansions so "fullstack" matches "full stack" and vice-versa.
+# Known variant expansions so "fullstack" matches "full stack" and vice-versa,
+# and so the English keywords also match common Chinese equivalents.
 _VARIANTS: dict[str, list[str]] = {
-    "fullstack": ["fullstack", "full-stack", "full stack"],
-    "frontend": ["frontend", "front-end", "front end"],
-    "backend": ["backend", "back-end", "back end"],
+    "fullstack": ["fullstack", "full-stack", "full stack", "全栈"],
+    "frontend": ["frontend", "front-end", "front end", "前端"],
+    "backend": ["backend", "back-end", "back end", "后端"],
     "web3": ["web3", "web 3"],
     "web2": ["web2", "web 2"],
+    "ai": ["ai", "人工智能", "机器学习", "算法"],
+    "remote": ["remote", "远程"],
+    "devops": ["devops", "运维"],
+    "designer": ["designer", "设计师"],
 }
 
 

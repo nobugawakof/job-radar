@@ -27,6 +27,11 @@ _REMOTE_RE = re.compile(
 _HYBRID_RE = re.compile(r"\bhybrid\b", re.I)
 _ONSITE_RE = re.compile(r"\b(on[- ]?site|onsite|in[- ]?office|in person|relocat)\w*\b", re.I)
 
+# Chinese equivalents (plain substrings — Chinese has no word boundaries).
+_ZH_REMOTE = ["远程", "远端", "在家办公", "居家办公", "远程办公"]
+_ZH_HYBRID = ["混合办公", "混合办公制"]
+_ZH_ONSITE = ["坐班", "到岗", "现场办公", "驻场", "需到岗"]
+
 
 def detect_remote(text: str) -> str:
     """Return one of remote/hybrid/onsite/unknown.
@@ -37,9 +42,9 @@ def detect_remote(text: str) -> str:
     """
     if not text:
         return "unknown"
-    hybrid = bool(_HYBRID_RE.search(text))
-    onsite = bool(_ONSITE_RE.search(text))
-    remote = bool(_REMOTE_RE.search(text))
+    hybrid = bool(_HYBRID_RE.search(text)) or any(t in text for t in _ZH_HYBRID)
+    onsite = bool(_ONSITE_RE.search(text)) or any(t in text for t in _ZH_ONSITE)
+    remote = bool(_REMOTE_RE.search(text)) or any(t in text for t in _ZH_REMOTE)
     if remote and not hybrid and not onsite:
         return "remote"
     if hybrid:

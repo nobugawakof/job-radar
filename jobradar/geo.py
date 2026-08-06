@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import re
 
-# Phrases that mean "hire from anywhere on Earth".
+# Phrases that mean "hire from anywhere on Earth" (English + Chinese).
 WORLDWIDE_TERMS = [
     "worldwide", "world wide", "world-wide", "global", "globally",
     "anywhere in the world", "remote anywhere", "anywhere remote",
     "work from anywhere", "location independent", "fully remote worldwide",
     "remote (worldwide)", "remote - worldwide", "remote, worldwide",
     "anywhere", "any location", "any country", "international",
+    "全球远程", "全球招聘", "全球", "不限地区", "地点不限", "工作地点不限", "全球范围",
 ]
 _WORLDWIDE_RE = re.compile("|".join(re.escape(t) for t in WORLDWIDE_TERMS), re.I)
 
