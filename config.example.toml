@@ -1,97 +1,29 @@
-# Social Job Radar — configuration.
-#
-# Copy this file to config.toml and fill in your details. This file holds
-# EVERYTHING the app needs, including your Telegram bot token and chat id below.
-#
-# Security note: those tokens are secrets. config.toml is git-ignored so it is
-# never committed — keep this file private and don't share it. If you'd rather
-# not store secrets in a file at all, you can instead leave them blank here and
-# set them as environment variables (which override the file values):
-#   export JOBRADAR_TELEGRAM_BOT_TOKEN=...  JOBRADAR_TELEGRAM_CHAT_ID=...
-#   export JOBRADAR_ANTHROPIC_API_KEY=...   # only if use_ai = true
-#   export JOBRADAR_REDDIT_CLIENT_ID=...    # only if using the Reddit source
-#   export JOBRADAR_REDDIT_CLIENT_SECRET=...
+# Job Radar — copy this to config.toml and fill in the two Telegram lines.
+# That's all most people need; everything below has sensible defaults.
 
-# --- Telegram (required to receive jobs) ---------------------------------
-# Create a bot with @BotFather to get the token. To find your chat id: message
-# your bot once, open
-#   https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
-# and read message.chat.id from the response.
-telegram_bot_token = "123456:ABC-your-bot-token-here"
-telegram_chat_id   = "987654321"
+# --- Telegram (required) -------------------------------------------------
+# Bot token from @BotFather. Chat id: message your bot, then open
+# https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates and read message.chat.id
+telegram_bot_token = "PASTE-YOUR-BOT-TOKEN"
+telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
 
-# What to look for.
-keywords = ["web3", "web2", "backend", "frontend", "ai", "fullstack"]
-remote_only = true
+# --- What you want -------------------------------------------------------
+keywords    = ["backend", "frontend", "fullstack", "ai"]   # send jobs matching any of these
+remote_only = true                                          # only remote roles
+regions     = []                                            # e.g. ["Hong Kong", "Worldwide"]; empty = anywhere
+run_interval_hours = 4                                      # how often to check
 
-# Regions of interest — countries, cities, or blocs, typed however you like.
-# Leave empty ([]) for no region filter. When set, a posting is kept only if it
-# hires worldwide/anywhere OR its location names one of these. Example: living
-# in Malaysia and wanting Hong Kong-remote plus hire-from-anywhere roles:
-#   regions = ["Hong Kong", "Malaysia", "Worldwide"]
-regions = []
-
-# Optional AI extraction (off by default). When on, each posting about to be
-# sent is enriched by Claude into cleaner fields plus separate 岗位职责/岗位要求
-# (responsibilities/requirements) lists. Costs money per posting.
+# --- Optional: nicer messages via AI (costs money) -----------------------
 use_ai = false
-ai_model = "claude-opus-5"             # set "claude-haiku-4-5" to cut cost
-# anthropic_api_key = "sk-ant-..."     # uncomment and fill in if use_ai = true
-ai_max_chars = 6000                    # cap post text sent to the API
+# anthropic_api_key = "sk-ant-..."   # only needed if use_ai = true
 
-# How it runs.
-state_path = "jobradar-state.json"     # the only persistence: remembers what was sent
-run_interval_hours = 4
-catchup_lookback_hours = 72            # cap how far back a source looks per run
-default_request_interval_seconds = 5   # politeness: min gap between requests
-message_interval_seconds = 0.5         # gap between per-posting Telegram sends
-tier_b_failure_threshold = 3           # auto-disable a scraper after N failures
-max_sent_remembered = 5000             # bound the state file size
-
-# --- Sources -------------------------------------------------------------
-# Each [[sources]] block is one collector. `type` selects it; the remaining
-# keys are passed to that collector.
-
-[[sources]]
-name = "bluesky-hiring"
-type = "bluesky"
-tier = "A"
-query = "hiring remote developer"
-
-[[sources]]
-name = "hn-whoishiring"
-type = "hn"
-tier = "A"
-# Reads the current monthly "Ask HN: Who is hiring?" thread and yields its
-# top-level comments (the actual job posts). `query` optionally narrows them.
-# query = "remote"
-classifier_prior = 1.0                 # thread is jobs-only; keep short posts
-
-[[sources]]
-name = "weworkremotely"
-type = "rss"
-tier = "A"
-url = "https://weworkremotely.com/categories/remote-programming-jobs.rss"
-
-[[sources]]
-name = "reddit-forhire"
-type = "reddit"
-tier = "A"
-subreddit = "forhire"
-listing = "new"
-
-[[sources]]
-name = "tg-remotejobs"
-type = "telegram"
-tier = "A"
-channel = "remotejobs"                 # a channel the bot has been added to
-
-# Tier B — best-effort HTML scrape; expected to break, auto-disables after 3
-# consecutive failures. Off by default; enable knowingly.
-[[sources]]
-name = "example-scrape"
-type = "scrape"
-tier = "B"
-enabled = false
-url = "https://example.com/jobs"
-block_pattern = "<article[^>]*>(.*?)</article>"
+# --- Optional: extra job sources -----------------------------------------
+# Leave this out to use the built-in sources (Bluesky, Hacker News,
+# WeWorkRemotely) — they need no extra keys. Add a block only to monitor
+# something specific, e.g. a subreddit or a Telegram channel your bot joined.
+# A Reddit source also needs: export JOBRADAR_REDDIT_CLIENT_ID / _SECRET
+#
+# [[sources]]
+# name = "reddit-forhire"
+# type = "reddit"
+# subreddit = "forhire"

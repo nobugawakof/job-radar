@@ -57,6 +57,17 @@ class Config:
 _KNOWN = set(Config.__dataclass_fields__)
 
 
+# Built-in sources used when the config file lists no [[sources]] of its own.
+# These need no extra credentials, so a fresh config with just a Telegram token
+# works out of the box. Add [[sources]] to the config to override this list.
+DEFAULT_SOURCES: list[dict[str, Any]] = [
+    {"name": "bluesky", "type": "bluesky", "tier": "A", "query": "hiring remote developer"},
+    {"name": "hackernews", "type": "hn", "tier": "A", "classifier_prior": 1.0},
+    {"name": "weworkremotely", "type": "rss", "tier": "A",
+     "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss"},
+]
+
+
 def load(path: str | os.PathLike[str] | None = None) -> Config:
     data: dict[str, Any] = {}
     if path is not None:
@@ -82,12 +93,16 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
 
 
 def source_definitions(path: str | os.PathLike[str] | None) -> list[dict[str, Any]]:
-    """Return the raw [[sources]] entries from the config file."""
-    if path is None:
-        return []
-    p = Path(path)
-    if not p.exists():
-        return []
-    with p.open("rb") as fh:
-        data = tomllib.load(fh)
-    return list(data.get("sources", []))
+    """Return the [[sources]] from the config file, or the built-in defaults.
+
+    If the config lists no sources of its own, DEFAULT_SOURCES is used so the app
+    works with nothing more than a Telegram token configured.
+    """
+    data: dict[str, Any] = {}
+    if path is not None:
+        p = Path(path)
+        if p.exists():
+            with p.open("rb") as fh:
+                data = tomllib.load(fh)
+    sources = list(data.get("sources", []))
+    return sources if sources else [dict(s) for s in DEFAULT_SOURCES]

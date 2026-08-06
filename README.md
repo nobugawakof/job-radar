@@ -41,8 +41,8 @@ sent on the next run.
 Requires Python 3.11+. Nothing to install.
 
 ```bash
-# 1. Configure — this one file holds everything, including your Telegram token
-cp config.example.toml config.toml      # edit telegram_bot_token, telegram_chat_id, keywords, [[sources]]
+# 1. Configure — just fill in the two Telegram lines; the rest has defaults
+cp config.example.toml config.toml      # edit telegram_bot_token + telegram_chat_id
 
 # 2. Check the wiring
 python3 -m jobradar.cli --config config.toml test-telegram
@@ -79,14 +79,17 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 
 ## Sources
 
-Enable/disable and configure sources as data in `config.toml` — no code changes.
+**You don't have to configure any.** If `config.toml` has no `[[sources]]`
+blocks, Job Radar uses three built-in sources that need no extra keys — Bluesky,
+Hacker News ("Who Is Hiring"), and WeWorkRemotely. Add a `[[sources]]` block only
+if you want to monitor something specific:
 
 | Type | Tier | Config keys | Notes |
 |---|---|---|---|
 | `bluesky` | A | `query` | Public AT Protocol API, no key |
-| `hn` | A | `query`, `classifier_prior` | Algolia "Who Is Hiring" search |
+| `hn` | A | `query`, `classifier_prior` | Reads the monthly "Who Is Hiring" thread |
 | `rss` | A | `url` | Any RSS/Atom feed |
-| `reddit` | A | `subreddit`, `listing` | Needs a Reddit OAuth app |
+| `reddit` | A | `subreddit`, `listing` | Needs `JOBRADAR_REDDIT_CLIENT_ID` / `_SECRET` |
 | `telegram` | A | `channel` | Bot must be in the channel |
 | `scrape` | B | `url`, `block_pattern` | Best-effort HTML; expected to break |
 
