@@ -15,6 +15,7 @@ keywords    = ["backend", "frontend", "fullstack", "ai", "远程", "后端", "�
 remote_only = true
 regions     = []            # e.g. ["中国", "香港", "Worldwide"]; empty = anywhere
 run_interval_hours = 4
+max_posting_age_days = 15   # ignore anything older than 15 days (0 = no limit)
 
 # --- Chinese-developer sources with a public RSS feed (no login, no key) ----
 [[sources]]

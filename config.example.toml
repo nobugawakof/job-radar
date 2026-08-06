@@ -12,6 +12,7 @@ keywords    = ["backend", "frontend", "fullstack", "ai"]   # send jobs matching 
 remote_only = true                                          # only remote roles
 regions     = []                                            # e.g. ["Hong Kong", "Worldwide"]; empty = anywhere
 run_interval_hours = 4                                      # how often to check
+max_posting_age_days = 30                                   # ignore postings older than this (0 = no limit)
 
 # --- Optional: nicer messages via AI (costs money) -----------------------
 use_ai = false

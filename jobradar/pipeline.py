@@ -43,6 +43,7 @@ class RunSummary:
     trigger: str
     started_at: datetime
     items_fetched: int = 0
+    skipped_old: int = 0
     postings_detected: int = 0
     passed_filter: int = 0
     rejected_keyword: int = 0
@@ -88,9 +89,16 @@ class Pipeline:
         kept: list[Posting] = []
         settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only,
                             regions=self.config.regions)
+        max_age = self.config.max_posting_age_days
+        age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
             posting = self._to_posting(sdef, item, now)
             if posting is None:
+                continue
+            # Skip postings older than the configured age limit (dated ones only;
+            # undated posts can't be aged out and are kept).
+            if age_cutoff and posting.posted_at and posting.posted_at < age_cutoff:
+                summary.skipped_old += 1
                 continue
             summary.postings_detected += 1
             result = evaluate(posting, settings)

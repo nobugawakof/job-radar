@@ -55,6 +55,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"  - {name}: BLOCKED — {meta.get('error')}")
         else:
             print(f"  - {name}: {meta.get('items', 0)} fetched")
+    if s.skipped_old:
+        print(f"Skipped {s.skipped_old} posting(s) older than "
+              f"{svc.config.max_posting_age_days} days.")
     # Filter funnel, so it's clear why postings were or weren't sent.
     print(f"Detected {s.postings_detected} posting(s) → {s.passed_filter} passed filters "
           f"(rejected: {s.rejected_keyword} keyword, {s.rejected_remote} remote, "
