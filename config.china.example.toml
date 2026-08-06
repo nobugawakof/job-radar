@@ -1,9 +1,10 @@
-# Job Radar — a starting config tuned for Chinese remote jobs.
-# Copy to config.toml, fill in the two Telegram lines, and adjust the sources.
+# Job Radar — searches GLOBAL + CHINA remote jobs together.
+# Copy to config.toml and fill in the two Telegram lines.
 #
-# You manage sources ENTIRELY from this file: each [[sources]] block is one site.
-# When you list any [[sources]] here, they REPLACE the built-in defaults, so this
-# file fully controls what gets searched. No code changes needed.
+# Every run fetches ALL the [[sources]] below and combines them into one feed,
+# so Chinese and global jobs arrive together — that's the "concurrent" search.
+# You manage sources entirely from this file; listing any [[sources]] here
+# replaces the built-in defaults. No code changes needed.
 
 telegram_bot_token = "PASTE-YOUR-BOT-TOKEN"
 telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
@@ -13,7 +14,10 @@ telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
 # and you can add Chinese words directly.
 keywords    = ["backend", "frontend", "fullstack", "ai", "远程", "后端", "前端", "全栈"]
 remote_only = true
-regions     = []            # e.g. ["中国", "香港", "Worldwide"]; empty = anywhere
+# regions empty = accept remote jobs from ANYWHERE (global + China). To narrow,
+# e.g. only China-region and hire-from-anywhere roles:
+#   regions = ["中国", "China", "香港", "Hong Kong", "Worldwide"]
+regions     = []
 run_interval_hours = 4
 max_posting_age_days = 15   # ignore anything older than 15 days (0 = no limit)
 
