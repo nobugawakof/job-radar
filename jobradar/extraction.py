@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from . import geo
+
 
 # --- Remote / work-arrangement detection (feeds FR-16) --------------------
 _REMOTE_RE = re.compile(
@@ -52,24 +54,47 @@ def detect_remote(text: str) -> str:
 
 # --- Title extraction ------------------------------------------------------
 _TITLE_STRIP_RE = re.compile(r"^\s*(\[[^\]]*\]\s*|hiring[:\- ]+|we'?re hiring[:\- ]*)", re.I)
+# A first line that is really a structured field label, not a title.
+_FIELD_LABEL_RE = re.compile(
+    r"^(location|remote|onsite|hybrid|willing to relocate|technologies|tech stack|"
+    r"salary|compensation|comp|visa|url|website|apply|email)\b\s*[:\-]",
+    re.I,
+)
 
 
-def extract_title(text: str, fallback_max: int = 80) -> str:
+def _structured_field(text: str, names: str) -> str | None:
+    """Pull a labelled field's value, e.g. Company: / Role: / Position:."""
+    m = re.search(rf"^\s*(?:{names})\s*[:\-]\s*(.+)$", text, re.I | re.M)
+    return m.group(1).strip() if m else None
+
+
+def extract_title(text: str, fallback_max: int = 120) -> str:
     """Best-effort role title.
 
-    Falls back to a generated one-line summary when the post has no clear
-    title line (Section 5: title "falls back to a generated summary").
+    Handles the common "Who Is Hiring" header shape — ``Company | Role | …`` —
+    by keeping the header line, and the field-structured shape by combining the
+    Company and Role fields. Falls back to a one-line summary otherwise.
     """
+    first = ""
     for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        cleaned = _TITLE_STRIP_RE.sub("", line).strip()
-        if cleaned:
-            return cleaned[:fallback_max]
-    # Whole thing is blank-ish; summarise the raw text.
-    flat = " ".join(text.split())
-    return flat[:fallback_max] if flat else "(untitled posting)"
+        s = line.strip()
+        if s:
+            first = _TITLE_STRIP_RE.sub("", s).strip()
+            break
+    if not first:
+        flat = " ".join(text.split())
+        return flat[:fallback_max] if flat else "(untitled posting)"
+
+    # A field-structured post (starts with "Location:" etc.): build the title
+    # from Company / Role fields instead of the label line.
+    if _FIELD_LABEL_RE.match(first):
+        company = _structured_field(text, "company|employer")
+        role = _structured_field(text, "role|position|title|job")
+        parts = [p for p in (company, role) if p]
+        if parts:
+            return " — ".join(parts)[:fallback_max]
+
+    return first[:fallback_max]
 
 
 # --- Contact extraction (DR-4 personal data — minimise, never log) --------
@@ -110,15 +135,30 @@ def _normalise_url(url: str) -> str:
 
 # --- Location / hiring geography ------------------------------------------
 _LOCATION_LABEL_RE = re.compile(
-    r"(?:location|based in|hiring in|located in|region|geo)\s*[:\-]?\s*([^\n.]+)",
+    r"(?:location|based in|hiring in|located in|region|geo)\s*[:\-]?\s*([^\n.|]+)",
+    re.I,
+)
+# "Remote (US)", "REMOTE - EU", "Remote: Worldwide" → capture the qualifier.
+_REMOTE_QUALIFIER_RE = re.compile(
+    r"remote\s*[:\-(]\s*([A-Za-z][A-Za-z ,/&\-]{1,40})\)?",
     re.I,
 )
 
 
 def extract_location(text: str) -> str | None:
+    """Best-effort hiring location string (for display and region matching)."""
     m = _LOCATION_LABEL_RE.search(text)
     if m:
-        return m.group(1).strip()[:120]
+        loc = m.group(1).strip(" -")[:120]
+        if loc:
+            return loc
+    # e.g. "Remote (US)" / "Remote: Worldwide".
+    q = _REMOTE_QUALIFIER_RE.search(text)
+    if q:
+        val = q.group(1).strip()
+        # Avoid swallowing sentence fragments like "Remote is great because…".
+        if len(val.split()) <= 5 and val.lower() not in ("is", "work", "position", "role"):
+            return val[:120]
     return None
 
 
@@ -147,15 +187,18 @@ def parse_salary(text: str) -> Salary:
     only when a numeric range/amount with a currency is confidently found.
     """
     sal = Salary()
-    # Find a plausible salary snippet: a currency-marked number.
-    window = None
-    for m in re.finditer(r"[$€£][^\n]{0,40}", text):
-        window = m.group(0)
-        break
+    # A plausible salary snippet: a currency symbol immediately followed by a
+    # number (optionally a range). Requiring the digit avoids grabbing prose
+    # like "$" inside a word or a lone symbol.
+    m = re.search(
+        r"[$€£]\s?\d[\d.,]*\s?[kK]?(?:\s?[-–—to]{1,3}\s?[$€£]?\s?\d[\d.,]*\s?[kK]?)?",
+        text,
+    )
+    window = m.group(0) if m else None
     if window is None:
-        # Try "salary: ..." labelled lines.
+        # A "Salary:/Compensation:" label whose value contains a digit.
         lab = re.search(r"(?:salary|compensation|comp|pay)\s*[:\-]?\s*([^\n]{1,60})", text, re.I)
-        if lab:
+        if lab and re.search(r"\d", lab.group(1)):
             window = lab.group(1)
     if not window:
         return sal
@@ -209,6 +252,7 @@ class Extracted:
     contact: str | None
     location: str | None
     is_remote: str
+    is_worldwide: bool = False
     apply_url: str | None = None
     salary: Salary = field(default_factory=Salary)
 
@@ -223,6 +267,7 @@ def extract(text: str, *, given_title: str | None = None, given_location: str | 
     description = text  # unmodified — the record of truth
     title = (given_title or "").strip() or extract_title(text)
     location = (given_location or "").strip() or extract_location(text)
+    worldwide = geo.is_worldwide(location) or geo.is_worldwide(text)
 
     return Extracted(
         title=title,
@@ -230,6 +275,7 @@ def extract(text: str, *, given_title: str | None = None, given_location: str | 
         contact=extract_contact(text),
         location=location,
         is_remote=detect_remote(text),
+        is_worldwide=worldwide,
         apply_url=extract_apply_url(text),
         salary=parse_salary(text),
     )

@@ -1,18 +1,14 @@
-"""Digest formatting.
+"""Message formatting.
 
-FR-31: Telegram delivery is batched into one digest per run, never one message
-per posting. IR-4: a digest line must be readable on a phone without expansion
-— title, salary if known, source, and link. NFR-12: an empty digest is never
-sent; silence means nothing matched.
+Each posting is sent as its own Telegram message (the user asked for separate
+messages, not a batched digest). A message is phone-readable at a glance:
+title, salary if known, location if known, source(s), and a link back to the
+original post.
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-
-# Telegram hard-limits a message to 4096 chars; keep a margin for batching.
-MAX_MESSAGE_CHARS = 3500
 
 
 def format_salary(posting: dict[str, Any]) -> str | None:
@@ -28,54 +24,39 @@ def format_salary(posting: dict[str, Any]) -> str | None:
     return None
 
 
-def format_posting_line(posting: dict[str, Any], index: int | None = None) -> str:
-    """One phone-readable line per posting (IR-4)."""
-    prefix = f"{index}. " if index is not None else "• "
+def format_message(posting: dict[str, Any]) -> str:
+    """One self-contained Telegram message for a single posting."""
     title = posting.get("title") or "(untitled)"
-    parts = [f"{prefix}<b>{_esc(title)}</b>"]
+    lines = [f"🛰️ <b>{_esc(title)}</b>"]
+
     sal = format_salary(posting)
     if sal:
-        parts.append(f"   💰 {_esc(sal)}")
+        lines.append(f"💰 {_esc(sal)}")
+
+    loc = posting.get("location")
+    if posting.get("is_worldwide"):
+        lines.append("🌍 Remote — worldwide")
+    elif loc:
+        lines.append(f"📍 {_esc(str(loc))}")
+
     origins = posting.get("origins") or [posting.get("source")]
-    src = ", ".join(o for o in origins if o)  # FR-29: show all merged origins
+    src = ", ".join(o for o in origins if o)  # show all merged origins
     tier = posting.get("source_tier", "")
     remote = posting.get("is_remote")
-    meta = f"   📡 {_esc(src)} [{tier}]"
+    meta = f"📡 {_esc(src)} [{tier}]"
     if remote and remote != "unknown":
         meta += f" · {remote}"
-    parts.append(meta)
+    lines.append(meta)
+
+    kws = posting.get("matched_keywords") or []
+    if kws:
+        lines.append("🏷️ " + ", ".join(_esc(k) for k in kws))
+
     url = posting.get("source_url")
     if url:
-        parts.append(f"   🔗 {_esc(url)}")  # FR-32: link back to the original
-    return "\n".join(parts)
-
-
-def build_digest(postings: list[dict[str, Any]]) -> list[str]:
-    """Return one or more digest messages, or an empty list if nothing to send.
-
-    Multiple messages are only produced when a single run's digest exceeds
-    Telegram's length limit — it is still one digest per run, chunked for
-    transport, not one message per posting. An empty run sends nothing.
-    """
-    if not postings:
-        return []  # never send an empty digest.
-
-    header = f"🛰️ <b>Job Radar</b> — {len(postings)} new posting(s)"
-    lines = [format_posting_line(p, i + 1) for i, p in enumerate(postings)]
-
-    messages: list[str] = []
-    buf = header
-    for line in lines:
-        candidate = f"{buf}\n\n{line}"
-        if len(candidate) > MAX_MESSAGE_CHARS:
-            messages.append(buf)
-            buf = line
-        else:
-            buf = candidate
-    if buf:
-        messages.append(buf)
-    return messages
+        lines.append(f"🔗 {_esc(url)}")
+    return "\n".join(lines)
 
 
 def _esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

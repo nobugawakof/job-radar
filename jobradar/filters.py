@@ -1,22 +1,26 @@
 """Filtering — keyword then remote.
 
-A posting must pass both to be sent:
+A posting must pass all configured stages to be sent:
 
 1. Keyword filter — case-insensitive, variant-aware (``fullstack`` also matches
-   ``full-stack`` / ``full stack``). At least one keyword must match.
+   ``full-stack`` / ``full stack``). At least one keyword must match. An empty
+   keyword set disables this stage (send everything).
 2. Remote filter — when remote-only is on, a posting passes if it is explicitly
    remote or if its work arrangement is unknown; explicit on-site/hybrid is
    rejected.
-
-Eligibility/country filtering and the review queue from the original spec were
-dropped for the Telegram-only build.
+3. Region filter — when one or more regions of interest are configured, a
+   posting passes only if it hires worldwide/anywhere OR its location names one
+   of those regions. This is what makes "enter Hong Kong → get Hong Kong-remote
+   and remote-worldwide jobs, not US-only ones" work. An empty region list
+   disables this stage.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from . import geo
 from .models import Posting
 
 
@@ -28,6 +32,7 @@ REJECT = "reject"
 class Settings:
     keywords: list[str]
     remote_only: bool
+    regions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -87,6 +92,16 @@ def remote_stage(posting: Posting, settings: Settings) -> bool:
     return posting.is_remote in ("remote", "unknown")
 
 
+def region_stage(posting: Posting, settings: Settings) -> bool:
+    """Pass if no regions configured, or the posting is worldwide, or its
+    location names one of the user's regions (match OR worldwide)."""
+    if not settings.regions:
+        return True
+    if posting.is_worldwide:
+        return True
+    return geo.region_matches(posting.location, posting.description, settings.regions)
+
+
 def evaluate(posting: Posting, settings: Settings) -> FilterResult:
     # An empty keyword set means "send everything" (no keyword gate).
     if settings.keywords:
@@ -99,4 +114,7 @@ def evaluate(posting: Posting, settings: Settings) -> FilterResult:
     if not remote_stage(posting, settings):
         return FilterResult(REJECT, matched, "remote", f"remote_only_rejects_{posting.is_remote}")
 
-    return FilterResult(PASS, matched, "remote", "ok")
+    if not region_stage(posting, settings):
+        return FilterResult(REJECT, matched, "region", "outside_regions_and_not_worldwide")
+
+    return FilterResult(PASS, matched, "region", "ok")

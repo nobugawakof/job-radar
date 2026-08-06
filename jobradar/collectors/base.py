@@ -107,11 +107,13 @@ class HttpClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return resp.status, resp.read()
         except urllib.error.HTTPError as e:
-            if e.code == 429:  # C-4: honour rate limiting / Retry-After
+            if e.code == 429:  # honour rate limiting / Retry-After
                 retry_after = e.headers.get("Retry-After") if e.headers else None
                 raise CollectorError(f"429 rate limited (Retry-After={retry_after})") from e
-            if e.code == 403:  # treat an explicit forbid as a block (NFR-18)
-                raise SourceBlocked(f"403 forbidden for {host}") from e
+            # A 403 is treated as a *retryable* failure, not a permanent block:
+            # public APIs (e.g. Bluesky) return transient 403s, and one blip
+            # should not permanently kill a Tier A source. A real, persistent
+            # block surfaces as repeated failures (and Tier B auto-disables).
             raise CollectorError(f"HTTP {e.code} for {url}") from e
         except urllib.error.URLError as e:
             raise CollectorError(f"network error for {url}: {e.reason}") from e

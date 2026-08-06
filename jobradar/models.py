@@ -46,6 +46,7 @@ class Posting:
     contact: str | None = None
     location: str | None = None
     is_remote: str = "unknown"
+    is_worldwide: bool = False
     salary: Salary = field(default_factory=Salary)
     apply_url: str | None = None
     content_hash: str = ""

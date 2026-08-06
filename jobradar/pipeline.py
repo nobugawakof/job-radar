@@ -30,7 +30,7 @@ from .classifier import classify
 from .collectors.base import CollectorError, FetchContext, HttpClient, SourceBlocked
 from .collectors.registry import build_collector
 from .config import Config
-from .delivery import build_digest
+from .delivery import format_message
 from .filters import PASS, Settings, evaluate
 from .models import Posting
 from .state import State, parse_iso, utcnow
@@ -81,7 +81,8 @@ class Pipeline:
 
         # Classify → extract → filter.
         kept: list[Posting] = []
-        settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only)
+        settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only,
+                            regions=self.config.regions)
         for sdef, item in raw_items:
             posting = self._to_posting(sdef, item, now)
             if posting is None:
@@ -98,10 +99,12 @@ class Pipeline:
         deduped = self._merge_duplicates(kept, summary)
         fresh = [p for p in deduped if not self._already_sent(p, summary)]
 
+        # One message per posting (sent separately, oldest first).
+        fresh.sort(key=lambda p: p.posted_at)
         summary.sent = fresh
-        summary.messages = build_digest([self._as_dict(p) for p in fresh])
+        summary.messages = [format_message(self._as_dict(p)) for p in fresh]
 
-        delivered_ok = self._deliver(summary)
+        delivered_ok = self._deliver(fresh, summary)
 
         # Advance each source's watermark ONLY once this run's postings are
         # safely delivered. If a send failed (or no Telegram is configured yet),
@@ -171,9 +174,9 @@ class Pipeline:
         posted = item.posted_at or now
         return Posting(
             title=ext.title, description=ext.description, contact=ext.contact,
-            location=ext.location, is_remote=ext.is_remote, salary=ext.salary,
-            apply_url=ext.apply_url, source=item.source, source_tier=sdef.get("tier", "A"),
-            source_url=item.url or "", origins=[item.source],
+            location=ext.location, is_remote=ext.is_remote, is_worldwide=ext.is_worldwide,
+            salary=ext.salary, apply_url=ext.apply_url, source=item.source,
+            source_tier=sdef.get("tier", "A"), source_url=item.url or "", origins=[item.source],
             content_hash=dedup.content_hash(item.raw_text), posted_at=posted, collected_at=now,
         )
 
@@ -201,28 +204,40 @@ class Pipeline:
         return False
 
     # -------------------------------------------------------------- deliver
-    def _deliver(self, summary: RunSummary) -> bool:
-        """Send the digest. Returns True when nothing needed sending or the
-        whole digest went out; False when postings are left undelivered (no
-        Telegram configured, or a send failed) so the caller holds the source
-        watermarks and retries next run."""
-        if not summary.messages:
+    def _deliver(self, postings: list[Posting], summary: RunSummary) -> bool:
+        """Send one Telegram message per posting, oldest first.
+
+        Each posting is marked sent the instant its own message goes out, so a
+        failure part-way through never re-sends the ones already delivered. A
+        short gap between messages keeps us under Telegram's per-chat flood
+        limit. Returns True only if everything (that needed sending) went out.
+        """
+        if not postings:
             return True  # nothing new; safe to advance watermarks
         if not (self.transport and self.config.telegram_chat_id):
             log.info("no Telegram configured; %d posting(s) detected but not sent "
-                     "(they will be sent once a token/chat is set)", len(summary.sent))
+                     "(they will be sent once a token/chat is set)", len(postings))
             return False
-        try:
-            for msg in summary.messages:
-                self.transport.send_message(self.config.telegram_chat_id, msg)
-            # Mark as sent only after the whole digest goes out (retry on failure).
-            for p in summary.sent:
-                self.state.mark_sent(p.content_hash)
-            return True
-        except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
-            log.warning("Telegram send failed; will retry next run: %s", e)
-            summary.alerts.append(f"telegram send failed: {e}")
-            return False
+
+        chat = self.config.telegram_chat_id
+        for i, posting in enumerate(postings):
+            try:
+                self.transport.send_message(chat, format_message(self._as_dict(posting)))
+                self.state.mark_sent(posting.content_hash)  # mark per message
+            except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
+                log.warning("Telegram send failed after %d/%d; will retry the rest "
+                            "next run: %s", i, len(postings), e)
+                summary.alerts.append(f"telegram send failed: {e}")
+                return False
+            if i + 1 < len(postings):
+                self._pause(self.config.message_interval_seconds)
+        return True
+
+    def _pause(self, seconds: float) -> None:
+        if seconds > 0:
+            import time
+
+            time.sleep(seconds)
 
     # --------------------------------------------------------------- alerts
     def _alert(self, summary: RunSummary, message: str) -> None:
@@ -240,6 +255,7 @@ class Pipeline:
         return {
             "title": p.title, "source": p.source, "source_tier": p.source_tier,
             "source_url": p.source_url, "origins": p.origins, "is_remote": p.is_remote,
+            "location": p.location, "is_worldwide": p.is_worldwide,
             "salary_raw": p.salary.raw, "salary_min": p.salary.min, "salary_max": p.salary.max,
             "salary_currency": p.salary.currency, "matched_keywords": p.matched_keywords,
         }

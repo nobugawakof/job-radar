@@ -88,13 +88,40 @@ Tier A is expected to work. Tier B is best-effort: it's fetched politely (honest
 three runs in a row it auto-disables itself and pings you on Telegram. Adding a
 new source is one class implementing the `Collector` interface.
 
+A transient HTTP error (including a one-off `403`) is treated as a retryable
+failure, not a permanent block — a single blip won't kill a source. If a source
+does get disabled after repeated failures, re-enable it by deleting its entry
+under `"sources"` in the state file (or just delete the state file to reset
+everything; you'll only risk re-sending recent postings once).
+
+The **HN** source specifically reads the current monthly *"Ask HN: Who is
+hiring?"* thread and returns its top-level comments — the real job posts — so
+titles and locations come out clean and you don't get discussion comments or
+job-seeker posts.
+
 ## Filtering
+
+Three stages, in order; a posting must pass all the ones you've configured:
 
 1. **Keyword** — case-insensitive, variant-aware (`fullstack` also matches
    `full-stack` / `full stack`). At least one keyword must match. An empty
    `keywords` list means "send everything".
 2. **Remote** — with `remote_only = true`, on-site/hybrid roles are dropped;
    explicit-remote and unknown-arrangement roles pass.
+3. **Region** — set `regions` to the countries/cities/blocs you care about
+   (e.g. `["Hong Kong", "Malaysia", "Worldwide"]`). A posting then passes only
+   if it hires **worldwide/anywhere** OR its **location names one of your
+   regions**. So if you live in Malaysia and set `regions = ["Hong Kong"]`, you
+   get Hong Kong-remote roles and hire-from-anywhere roles, but not US-only
+   ones. Leave `regions = []` to skip this stage.
+
+## Delivery
+
+Each matching posting is sent as its **own Telegram message** (not a batched
+digest), oldest first, with a small gap between messages to stay under
+Telegram's flood limit. A posting is recorded as "sent" the moment its message
+goes out, so nothing is ever sent twice and an outage only retries what didn't
+make it.
 
 ## Project layout
 
