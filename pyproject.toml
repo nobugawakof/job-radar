@@ -1,7 +1,7 @@
 [project]
 name = "job-radar"
 version = "0.1.0"
-description = "Social Job Radar - collects job postings from social platforms, filters them, and delivers them via Telegram and a web dashboard"
+description = "Social Job Radar - scrapes job postings from social platforms, filters them by keyword and remote preference, and delivers them via Telegram"
 readme = "README.md"
 requires-python = ">=3.11"
 # Phase 1 core is intentionally pure standard-library so it runs on a personal

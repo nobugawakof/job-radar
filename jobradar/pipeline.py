@@ -1,22 +1,21 @@
-"""Collection pipeline — one run across all enabled sources.
+"""Collection pipeline — one run, Telegram-only.
 
-Responsibilities, mapped to requirements:
+Straight line, no database:
 
-* Query each enabled source for content since its last success (FR-2/FR-3).
-* Store every raw item before parsing (FR-6). Raw items are durable the moment
-  they are fetched, so a crash mid-processing loses nothing: the next run
-  reprocesses anything still marked unprocessed (NFR-4, AC-9).
-* Classify (FR-7/8), extract (FR-10-12), deduplicate (FR-27-29), then fan the
-  survivor out to each member through their own filter (Section 4.4), so two
-  members get different digests (AC-6).
-* Isolate failures: one source failing never halts the run (SR-3); one
-  malformed post never aborts its batch (NFR-6).
-* Auto-disable a Tier B source after three consecutive failures and alert the
-  owner (SR-4), while Tier A failures are surfaced as defects but retried.
+    for each enabled source:
+        fetch new items since its last success   (failures isolated per source)
+    classify each item                           (recall-first)
+    extract fields                               (title, remote, salary, …)
+    keep those passing keyword + remote filter
+    merge near-duplicates across sources
+    drop any whose fingerprint is already in the JSON state (already sent)
+    send the survivors as one batched Telegram digest
+    on a successful send, record their fingerprints in the state
 
-Fetching (network) happens outside any DB transaction; each raw item is stored
-in its own atomic statement; each item's processing is wrapped in a
-transaction. This ordering is what gives the clean crash-resume story.
+A source that fails does not stop the others. A Tier B scraper that fails three
+runs in a row is disabled in the state file and the owner is notified. A crash
+mid-run loses nothing that matters: unsent postings simply aren't marked, so
+the next run re-detects and sends them.
 """
 
 from __future__ import annotations
@@ -31,273 +30,216 @@ from .classifier import classify
 from .collectors.base import CollectorError, FetchContext, HttpClient, SourceBlocked
 from .collectors.registry import build_collector
 from .config import Config
-from .db import parse_iso, utcnow
-from .filters import PASS, REVIEW, evaluate
-from .models import (
-    Posting,
-    STATUS_NEW,
-    STATUS_PENDING_REVIEW,
-    RawItem,
-)
-from .repos import Store
+from .delivery import build_digest
+from .filters import PASS, Settings, evaluate
+from .models import Posting
+from .state import State, parse_iso, utcnow
 
 log = logging.getLogger("jobradar.pipeline")
-
-# How far back to look for duplicates when merging (FR-27/28).
-DEDUP_WINDOW_DAYS = 30
 
 
 @dataclass
 class RunSummary:
-    run_id: int
     trigger: str
-    window_start: datetime | None
-    window_end: datetime
+    started_at: datetime
     items_fetched: int = 0
     postings_detected: int = 0
     duplicates_merged: int = 0
-    per_source: dict[str, dict[str, Any]] = field(default_factory=dict)
+    already_sent_skipped: int = 0
+    sent: list[Posting] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
+    per_source: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class Pipeline:
     def __init__(
         self,
-        store: Store,
         config: Config,
+        state: State,
+        source_defs: list[dict[str, Any]],
         *,
-        notifier: Callable[[str, str], None] | None = None,
+        transport: Any | None = None,
     ):
-        self.store = store
         self.config = config
-        # notifier(owner_chat_or_name, message) — used for SR-4 owner alerts.
-        self.notifier = notifier
+        self.state = state
+        self.source_defs = source_defs
+        self.transport = transport  # send-only Telegram transport, or None
 
     # ------------------------------------------------------------------ run
-    def run(self, trigger: str = "scheduled", since_override: datetime | None = None) -> RunSummary:
+    def run(self, trigger: str = "manual") -> RunSummary:
         now = utcnow()
-        window_start = since_override
-        run_id = self.store.start_run(trigger, window_start, now)
-        summary = RunSummary(run_id=run_id, trigger=trigger, window_start=window_start, window_end=now)
+        summary = RunSummary(trigger=trigger, started_at=now)
 
-        http_prototype = HttpClient(self.config.user_agent)
+        raw_items: list[tuple[dict[str, Any], Any]] = []
+        for sdef in self.source_defs:
+            if not sdef.get("enabled", True) or self.state.is_disabled(sdef["name"]):
+                continue
+            raw_items.extend((sdef, item) for item in self._collect(sdef, now, summary))
 
-        for source in self.store.list_sources(enabled_only=True):
-            self._collect_source(source, now, since_override, run_id, summary, http_prototype)
+        summary.items_fetched = len(raw_items)
 
-        # Process everything not yet processed (includes crash leftovers).
-        detected = self._process_pending(now, summary)
-        for src, count in detected.items():
-            ps = summary.per_source.setdefault(src, {})
-            ps["postings_detected"] = count
-            self.store.record_run_source(
-                run_id, src,
-                items_fetched=ps.get("items_fetched", 0),
-                postings_detected=count,
-                status=ps.get("status", "ok"),
-                error=ps.get("error"),
-            )
-            summary.postings_detected += count
+        # Classify → extract → filter.
+        kept: list[Posting] = []
+        settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only)
+        for sdef, item in raw_items:
+            posting = self._to_posting(sdef, item, now)
+            if posting is None:
+                continue
+            summary.postings_detected += 1
+            result = evaluate(posting, settings)
+            if result.decision != PASS:
+                continue
+            posting.matched_keywords = result.matched_keywords
+            kept.append(posting)
 
-        self.store.finish_run(run_id)
+        # Merge near-duplicates within this run (cross-source), then drop those
+        # already sent on a previous run.
+        deduped = self._merge_duplicates(kept, summary)
+        fresh = [p for p in deduped if not self._already_sent(p, summary)]
+
+        summary.sent = fresh
+        summary.messages = build_digest([self._as_dict(p) for p in fresh])
+
+        delivered_ok = self._deliver(summary)
+
+        # Advance each source's watermark ONLY once this run's postings are
+        # safely delivered. If a send failed (or no Telegram is configured yet),
+        # we hold the watermarks so the unsent postings are re-fetched and
+        # retried next run rather than skipped forever. The sent-fingerprint set
+        # prevents anything already delivered from being sent twice.
+        if delivered_ok:
+            for name, meta in summary.per_source.items():
+                if meta.get("status") == "ok":
+                    self.state.record_success(name, meta.get("latest"))
+
+        self.state.mark_run(now)
+        self.state.save()
         return summary
 
     # -------------------------------------------------------------- collect
-    def _collect_source(
-        self,
-        source: dict[str, Any],
-        now: datetime,
-        since_override: datetime | None,
-        run_id: int,
-        summary: RunSummary,
-        http_prototype: HttpClient,
-    ) -> None:
-        name = source["name"]
-        interval = source["request_interval_s"] or self.config.default_request_interval_seconds
-        # Per-source window: since last success, but never further back than the
-        # catch-up lookback cap (FR-5). A manual override wins.
+    def _collect(self, sdef: dict[str, Any], now: datetime, summary: RunSummary) -> list[Any]:
+        name = sdef["name"]
+        tier = sdef.get("tier", "A")
+        interval = sdef.get("request_interval_s") or self.config.default_request_interval_seconds
         floor = now - timedelta(hours=self.config.catchup_lookback_hours)
-        since = since_override or parse_iso(source["last_success_at"]) or floor
+        since = self.state.source_last_success(name) or floor
         if since < floor:
             since = floor
 
         http = HttpClient(self.config.user_agent, request_interval_s=interval)
-        ctx = FetchContext(
-            since=since, now=now, user_agent=self.config.user_agent,
-            request_interval_s=interval, config=source["config"],
-        )
+        cfg = {k: v for k, v in sdef.items()
+               if k not in ("name", "type", "tier", "enabled", "request_interval_s")}
+        ctx = FetchContext(since=since, now=now, user_agent=self.config.user_agent,
+                           request_interval_s=interval, config=cfg)
 
-        ps = summary.per_source.setdefault(name, {})
+        ps = summary.per_source.setdefault(name, {"tier": tier})
         try:
-            collector = build_collector(
-                name=name, type_=source["type"], tier=source["tier"],
-                config=source["config"], http=http,
-            )
-            fetched = 0
-            latest_at = since
-            for item in collector.fetch(ctx):
-                # Store raw before parsing (FR-6); idempotent on (source, ext_id).
-                self.store.store_raw_item(item)
-                fetched += 1
-                if item.posted_at and item.posted_at > latest_at:
-                    latest_at = item.posted_at
-            self.store.record_source_success(name, latest_at)
-            ps.update(items_fetched=fetched, status="ok")
-            summary.items_fetched += fetched
-            self.store.record_run_source(run_id, name, items_fetched=fetched, status="ok")
-
+            collector = build_collector(name=name, type_=sdef["type"], tier=tier, config=cfg, http=http)
+            items = list(collector.fetch(ctx))
+            latest = since
+            for it in items:
+                if it.posted_at and it.posted_at > latest:
+                    latest = it.posted_at
+            # Watermark is committed later, only if delivery succeeds (see run()).
+            ps.update(items=len(items), status="ok", latest=latest)
+            return items
         except SourceBlocked as e:
-            # NFR-18: block is permanent until manual re-enable.
-            self.store.block_source(name)
-            msg = f"Source '{name}' reported a block and was disabled: {e}"
-            ps.update(items_fetched=0, status="error", error=str(e))
-            self.store.record_run_source(run_id, name, status="error", error=str(e))
-            self._alert(summary, msg)
-
+            self.state.disable_source(name)
+            ps.update(items=0, status="blocked", error=str(e))
+            self._alert(summary, f"Source '{name}' reported a block and was disabled: {e}")
+            return []
         except CollectorError as e:
-            # SR-3: other sources continue. SR-4: Tier B auto-disable after N.
-            failures = self.store.record_source_failure(name)
-            ps.update(items_fetched=0, status="error", error=str(e))
-            self.store.record_run_source(run_id, name, status="error", error=str(e))
-            if source["tier"] == "B" and failures >= self.config.tier_b_failure_threshold:
-                self.store.set_source_enabled(name, False)
-                self._alert(
-                    summary,
-                    f"Tier B source '{name}' auto-disabled after {failures} consecutive "
-                    f"failures (last error: {e})",
-                )
+            failures = self.state.record_failure(name)
+            ps.update(items=0, status="error", error=str(e))
+            if tier == "B" and failures >= self.config.tier_b_failure_threshold:
+                self.state.disable_source(name)
+                self._alert(summary, f"Tier B source '{name}' auto-disabled after "
+                                     f"{failures} consecutive failures (last error: {e})")
             else:
                 log.warning("source %s failed (%s/%s): %s",
                             name, failures, self.config.tier_b_failure_threshold, e)
+            return []
 
-    # -------------------------------------------------------------- process
-    def _process_pending(self, now: datetime, summary: RunSummary) -> dict[str, int]:
-        """Classify/extract/dedup/fan-out every unprocessed raw item.
-
-        Picks up items from this run *and* any left unprocessed by a crash.
-        """
-        rows = self.store.db.query(
-            "SELECT * FROM raw_items WHERE processed=0 ORDER BY id"
-        )
-        detected: dict[str, int] = {}
-        for row in rows:
-            try:
-                is_posting = self._process_one(row, now, summary)
-            except Exception as e:  # noqa: BLE001 - one bad post never aborts the batch (NFR-6)
-                log.exception("failed to process raw item %s: %s", row["id"], e)
-                # Mark processed so a poison item doesn't wedge every future run.
-                self.store.mark_raw_processed(row["id"], is_posting=False)
-                continue
-            if is_posting:
-                detected[row["source"]] = detected.get(row["source"], 0) + 1
-        return detected
-
-    def _process_one(self, row: Any, now: datetime, summary: RunSummary) -> bool:
-        source = self.store.get_source(row["source"])
-        tier = source["tier"] if source else "A"
-        text = row["raw_text"]
-
-        # Recall-first classification (FR-7/8). A dedicated jobs feed can set a
-        # prior in its config to keep short posts.
-        prior = float((source or {}).get("config", {}).get("classifier_prior", 0.0)) if source else 0.0
-        result = classify(text, source_prior=prior)
-        if not result.is_posting:
-            self.store.mark_raw_processed(row["id"], is_posting=False)
-            return False
-
-        ext = extraction.extract(
-            text,
-            given_title=row["title_hint"],
-            given_location=row["location_hint"],
-        )
-        posted_at = parse_iso(row["posted_at"]) or now  # Section 5: fall back to collection time
-        posting = Posting(
-            title=ext.title,
-            description=ext.description,  # FR-12: unmodified
-            contact=ext.contact,
-            location=ext.location,
-            is_remote=ext.is_remote,
-            hiring_countries=ext.hiring_countries,
-            is_worldwide=ext.is_worldwide,
-            salary=ext.salary,
-            apply_url=ext.apply_url,
-            source=row["source"],
-            source_tier=tier,
-            source_url=row["url"] or "",
-            origins=[row["source"]],
-            content_hash=dedup.content_hash(text),
-            posted_at=posted_at,
-            collected_at=now,
+    # ----------------------------------------------------- classify/extract
+    def _to_posting(self, sdef: dict[str, Any], item: Any, now: datetime) -> Posting | None:
+        prior = float(sdef.get("classifier_prior", 0.0))
+        if not classify(item.raw_text, source_prior=prior).is_posting:
+            return None
+        ext = extraction.extract(item.raw_text, given_title=item.title_hint,
+                                 given_location=item.location_hint)
+        posted = item.posted_at or now
+        return Posting(
+            title=ext.title, description=ext.description, contact=ext.contact,
+            location=ext.location, is_remote=ext.is_remote, salary=ext.salary,
+            apply_url=ext.apply_url, source=item.source, source_tier=sdef.get("tier", "A"),
+            source_url=item.url or "", origins=[item.source],
+            content_hash=dedup.content_hash(item.raw_text), posted_at=posted, collected_at=now,
         )
 
-        with self.store.db.transaction():
-            canonical = self._find_duplicate(posting)
-            if canonical is not None:
-                # FR-27/29: deliver once; keep both origins on the survivor.
-                posting.duplicate_of = canonical["id"]
-                self.store.insert_posting(posting)
-                self.store.add_origin(canonical["id"], posting.source)
-                self.store.mark_raw_processed(row["id"], is_posting=True)
+    def _merge_duplicates(self, postings: list[Posting], summary: RunSummary) -> list[Posting]:
+        kept: list[Posting] = []
+        for p in postings:
+            match = None
+            for k in kept:
+                if dedup.is_duplicate(p.description, k.description, p.apply_url, k.apply_url):
+                    match = k
+                    break
+            if match is None:
+                kept.append(p)
+            else:
+                for o in p.origins:
+                    if o not in match.origins:
+                        match.origins.append(o)
                 summary.duplicates_merged += 1
-                return True
+        return kept
 
-            self.store.insert_posting(posting)
-            self._fanout(posting)
-            self.store.mark_raw_processed(row["id"], is_posting=True)
-        return True
+    def _already_sent(self, posting: Posting, summary: RunSummary) -> bool:
+        if self.state.already_sent(posting.content_hash):
+            summary.already_sent_skipped += 1
+            return True
+        return False
 
-    def _find_duplicate(self, posting: Posting) -> dict[str, Any] | None:
-        since = posting.collected_at - timedelta(days=DEDUP_WINDOW_DAYS)
-        for existing in self.store.recent_postings(since):
-            if dedup.is_duplicate(
-                posting.description, existing["description"],
-                posting.apply_url, existing.get("apply_url"),
-            ):
-                return existing
-        return None
-
-    def _fanout(self, posting: Posting) -> None:
-        """Evaluate the posting for every active member (AC-6, NFR-8)."""
-        for user in self.store.list_users():
-            settings = self.store.user_settings(user["id"])
-            if settings is None:
-                continue
-            decision = evaluate(posting, settings)
-            if decision.decision == PASS:
-                self.store.upsert_user_posting(
-                    user["id"], posting.id, STATUS_NEW, decision.matched_keywords
-                )
-            elif decision.decision == REVIEW:
-                # FR-20/21: undetermined geography → per-user review queue.
-                self.store.upsert_user_posting(
-                    user["id"], posting.id, STATUS_PENDING_REVIEW, decision.matched_keywords
-                )
-            # REJECT → nothing stored for this user.
+    # -------------------------------------------------------------- deliver
+    def _deliver(self, summary: RunSummary) -> bool:
+        """Send the digest. Returns True when nothing needed sending or the
+        whole digest went out; False when postings are left undelivered (no
+        Telegram configured, or a send failed) so the caller holds the source
+        watermarks and retries next run."""
+        if not summary.messages:
+            return True  # nothing new; safe to advance watermarks
+        if not (self.transport and self.config.telegram_chat_id):
+            log.info("no Telegram configured; %d posting(s) detected but not sent "
+                     "(they will be sent once a token/chat is set)", len(summary.sent))
+            return False
+        try:
+            for msg in summary.messages:
+                self.transport.send_message(self.config.telegram_chat_id, msg)
+            # Mark as sent only after the whole digest goes out (retry on failure).
+            for p in summary.sent:
+                self.state.mark_sent(p.content_hash)
+            return True
+        except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
+            log.warning("Telegram send failed; will retry next run: %s", e)
+            summary.alerts.append(f"telegram send failed: {e}")
+            return False
 
     # --------------------------------------------------------------- alerts
     def _alert(self, summary: RunSummary, message: str) -> None:
         log.warning(message)
         summary.alerts.append(message)
-        # Deliver to the owner if we can (SR-4).
-        for user in self.store.list_users():
-            if user["is_owner"]:
-                self.store.enqueue_delivery(user["id"], None, {"type": "alert", "text": message})
-                if self.notifier and user["telegram_chat_id"]:
-                    try:
-                        self.notifier(user["telegram_chat_id"], message)
-                    except Exception:  # noqa: BLE001 - alerting must not crash a run
-                        log.exception("owner alert delivery failed")
-                break
+        if (self.config.notify_owner_on_source_disable and self.transport
+                and self.config.telegram_chat_id):
+            try:
+                self.transport.send_message(self.config.telegram_chat_id, f"⚠️ {message}")
+            except Exception:  # noqa: BLE001
+                log.exception("owner alert send failed")
 
-    # ---------------------------------------------------- maintenance/purge
-    def housekeeping(self, now: datetime | None = None) -> dict[str, int]:
-        now = now or utcnow()
+    # --------------------------------------------------------------- format
+    def _as_dict(self, p: Posting) -> dict[str, Any]:
         return {
-            "expired_reviews": self.store.expire_stale_reviews(self.config.review_expiry_days, now),
-            "purged_non_postings": self.store.purge_old_non_postings(
-                self.config.non_posting_retention_days, now
-            ),
-            "purged_postings": self.store.purge_old_postings(
-                self.config.posting_retention_days, now
-            ),
+            "title": p.title, "source": p.source, "source_tier": p.source_tier,
+            "source_url": p.source_url, "origins": p.origins, "is_remote": p.is_remote,
+            "salary_raw": p.salary.raw, "salary_min": p.salary.min, "salary_max": p.salary.max,
+            "salary_currency": p.salary.currency, "matched_keywords": p.matched_keywords,
         }

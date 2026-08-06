@@ -1,9 +1,9 @@
 """Deduplication.
 
-FR-27/28/29: the same job posted to several sources, or reposted, is delivered
-to a user only once, using *near-match* comparison of posting text and any
-application URL — not exact string equality. When duplicates merge, all
-originating sources are retained on the single surviving record.
+The same job posted to several sources, or reposted, is sent only once, using
+*near-match* comparison of posting text and any application URL — not exact
+string equality. When duplicates merge within a run, all originating sources
+are shown on the single delivered message.
 
 The near-match test combines two cheap signals:
 
@@ -11,8 +11,8 @@ The near-match test combines two cheap signals:
   duplicate signal on its own), and
 * Jaccard similarity over word shingles of the posting text.
 
-A stored ``content_hash`` (a compact sorted-shingle signature) lets us compare
-a new posting against recent ones without an expensive all-pairs scan.
+A ``content_hash`` (a compact sorted-shingle signature) is also used as the
+fingerprint stored in the JSON state file to remember what was already sent.
 """
 
 from __future__ import annotations

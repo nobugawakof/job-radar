@@ -50,15 +50,15 @@ def format_posting_line(posting: dict[str, Any], index: int | None = None) -> st
     return "\n".join(parts)
 
 
-def build_digest(user: dict[str, Any], postings: list[dict[str, Any]]) -> list[str]:
+def build_digest(postings: list[dict[str, Any]]) -> list[str]:
     """Return one or more digest messages, or an empty list if nothing to send.
 
     Multiple messages are only produced when a single run's digest exceeds
-    Telegram's length limit — it is still one digest per run (FR-31), chunked
-    for transport, not one message per posting.
+    Telegram's length limit — it is still one digest per run, chunked for
+    transport, not one message per posting. An empty run sends nothing.
     """
     if not postings:
-        return []  # NFR-12: never send an empty digest.
+        return []  # never send an empty digest.
 
     header = f"🛰️ <b>Job Radar</b> — {len(postings)} new posting(s)"
     lines = [format_posting_line(p, i + 1) for i, p in enumerate(postings)]

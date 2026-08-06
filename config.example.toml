@@ -1,38 +1,31 @@
-# Social Job Radar — example configuration.
+# Social Job Radar — Telegram-only configuration.
 #
-# Copy to config.toml and edit. Secrets (API tokens) do NOT belong here
-# (DR-6); set them in the environment instead:
+# Copy to config.toml and edit. Secrets do NOT belong here; set them in the
+# environment instead:
 #
-#   export JOBRADAR_TELEGRAM_BOT_TOKEN=123:abc         # delivery + Telegram source
-#   export JOBRADAR_REDDIT_CLIENT_ID=...               # Reddit OAuth (D-1)
+#   export JOBRADAR_TELEGRAM_BOT_TOKEN=123456:ABC...   # from @BotFather
+#   export JOBRADAR_TELEGRAM_CHAT_ID=987654321         # your chat/user id
+#   export JOBRADAR_REDDIT_CLIENT_ID=...               # only if using Reddit
 #   export JOBRADAR_REDDIT_CLIENT_SECRET=...
 #
-# Every value below is optional; omitting it uses the SRS default.
+# (You may also put telegram_bot_token / telegram_chat_id here if you prefer,
+#  but keep this file out of version control if you do.)
 
-db_path = "jobradar.db"
+# What to look for.
+keywords = ["web3", "web2", "backend", "frontend", "ai", "fullstack"]
+remote_only = true
 
-run_interval_hours = 4            # FR-1
-catchup_lookback_hours = 72       # FR-5
-non_posting_retention_days = 7    # FR-9
-posting_retention_days = 90       # DR-3
-review_expiry_days = 14           # FR-25
-tier_b_failure_threshold = 3      # SR-4
-default_request_interval_seconds = 5   # SR-6
+# How it runs.
+state_path = "jobradar-state.json"     # the only persistence: remembers what was sent
+run_interval_hours = 4
+catchup_lookback_hours = 72            # cap how far back a source looks per run
+default_request_interval_seconds = 5   # politeness: min gap between requests
+tier_b_failure_threshold = 3           # auto-disable a scraper after N failures
+max_sent_remembered = 5000             # bound the state file size
 
-web_host = "127.0.0.1"            # IR-8: localhost only by default
-web_port = 8080
-
-backup_dir = "backups"           # NFR-7
-backup_interval_hours = 24
-
-# Defaults applied to a newly created member.
-default_keywords = ["web3", "web2", "backend", "frontend", "ai", "fullstack"]
-default_remote_only = true
-default_eligible_countries = []   # Q-1: fill in ISO codes or country names
-
-# --- Sources (SR-1: enable/disable and configure without code changes) ----
-# Each [[sources]] block becomes a live collector. `type` selects the
-# collector; remaining keys are passed to it as config.
+# --- Sources -------------------------------------------------------------
+# Each [[sources]] block is one collector. `type` selects it; the remaining
+# keys are passed to that collector.
 
 [[sources]]
 name = "bluesky-hiring"
@@ -45,7 +38,7 @@ name = "hn-whoishiring"
 type = "hn"
 tier = "A"
 query = "remote"
-classifier_prior = 1.0            # a jobs-only context; keep short posts (FR-8)
+classifier_prior = 1.0                 # a jobs-only context; keep short posts
 
 [[sources]]
 name = "weworkremotely"
@@ -60,18 +53,18 @@ tier = "A"
 subreddit = "forhire"
 listing = "new"
 
-# Telegram channel the bot has been added to (Bot API, D-2).
 [[sources]]
 name = "tg-remotejobs"
 type = "telegram"
 tier = "A"
-channel = "remotejobs"
+channel = "remotejobs"                 # a channel the bot has been added to
 
-# Tier B — best effort; expected to break, auto-disables after 3 failures (SR-4).
+# Tier B — best-effort HTML scrape; expected to break, auto-disables after 3
+# consecutive failures. Off by default; enable knowingly.
 [[sources]]
 name = "example-scrape"
 type = "scrape"
 tier = "B"
-enabled = false                  # off by default; enable knowingly
+enabled = false
 url = "https://example.com/jobs"
 block_pattern = "<article[^>]*>(.*?)</article>"

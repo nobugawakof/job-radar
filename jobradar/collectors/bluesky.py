@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Iterator
 from urllib.parse import quote
 
-from ..db import parse_iso
+from ..state import parse_iso
 from ..models import RawItem
 from .base import Collector, FetchContext, HttpClient
 from .registry import register

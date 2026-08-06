@@ -16,8 +16,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from . import geo
-
 
 # --- Remote / work-arrangement detection (feeds FR-16) --------------------
 _REMOTE_RE = re.compile(
@@ -121,12 +119,6 @@ def extract_location(text: str) -> str | None:
     m = _LOCATION_LABEL_RE.search(text)
     if m:
         return m.group(1).strip()[:120]
-    # Fall back to any recognised country / worldwide term in the text.
-    if geo.is_worldwide(text):
-        return "Worldwide"
-    codes = geo.extract_hiring_countries(text)
-    if codes:
-        return None  # countries detected but no clean label; handled downstream
     return None
 
 
@@ -217,25 +209,20 @@ class Extracted:
     contact: str | None
     location: str | None
     is_remote: str
-    hiring_countries: list[str] = field(default_factory=list)
-    is_worldwide: bool = False
     apply_url: str | None = None
     salary: Salary = field(default_factory=Salary)
 
 
 def extract(text: str, *, given_title: str | None = None, given_location: str | None = None) -> Extracted:
-    """Extract all Section 5 fields from a post's text.
+    """Extract posting fields from a post's text.
 
     ``given_*`` let a collector pass structured hints it already has (e.g. a
-    Reddit post title, an RSS item location) so we don't re-derive them.
+    Reddit post title, an RSS item location) so we don't re-derive them. The
+    original text is preserved unmodified as ``description``.
     """
-    description = text  # FR-12: unmodified
+    description = text  # unmodified — the record of truth
     title = (given_title or "").strip() or extract_title(text)
     location = (given_location or "").strip() or extract_location(text)
-
-    geo_source = " ".join(filter(None, [given_location, location, text]))
-    worldwide = geo.is_worldwide(geo_source)
-    countries = geo.extract_hiring_countries(geo_source)
 
     return Extracted(
         title=title,
@@ -243,8 +230,6 @@ def extract(text: str, *, given_title: str | None = None, given_location: str | 
         contact=extract_contact(text),
         location=location,
         is_remote=detect_remote(text),
-        hiring_countries=countries,
-        is_worldwide=worldwide,
         apply_url=extract_apply_url(text),
         salary=parse_salary(text),
     )
