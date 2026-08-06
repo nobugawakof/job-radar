@@ -44,8 +44,13 @@ class RunSummary:
     started_at: datetime
     items_fetched: int = 0
     postings_detected: int = 0
+    passed_filter: int = 0
+    rejected_keyword: int = 0
+    rejected_remote: int = 0
+    rejected_region: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
+    held_back: int = 0
     sent: list[Posting] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
@@ -90,14 +95,30 @@ class Pipeline:
             summary.postings_detected += 1
             result = evaluate(posting, settings)
             if result.decision != PASS:
+                if result.stage == "keyword":
+                    summary.rejected_keyword += 1
+                elif result.stage == "remote":
+                    summary.rejected_remote += 1
+                elif result.stage == "region":
+                    summary.rejected_region += 1
                 continue
             posting.matched_keywords = result.matched_keywords
             kept.append(posting)
+        summary.passed_filter = len(kept)
 
         # Merge near-duplicates within this run (cross-source), then drop those
         # already sent on a previous run.
         deduped = self._merge_duplicates(kept, summary)
         fresh = [p for p in deduped if not self._already_sent(p, summary)]
+
+        # Cap sends per run so a first-run backlog doesn't flood the chat with
+        # hundreds of messages. Keep the newest, hold the rest for later runs
+        # (they're not marked sent, so they go out over the next few runs).
+        cap = self.config.max_messages_per_run
+        if cap and len(fresh) > cap:
+            fresh.sort(key=lambda p: p.posted_at, reverse=True)  # newest first
+            summary.held_back = len(fresh) - cap
+            fresh = fresh[:cap]
 
         # One message per posting (sent separately, oldest first).
         fresh.sort(key=lambda p: p.posted_at)
@@ -112,11 +133,12 @@ class Pipeline:
         delivered_ok = self._deliver(fresh, summary)
 
         # Advance each source's watermark ONLY once this run's postings are
-        # safely delivered. If a send failed (or no Telegram is configured yet),
-        # we hold the watermarks so the unsent postings are re-fetched and
-        # retried next run rather than skipped forever. The sent-fingerprint set
-        # prevents anything already delivered from being sent twice.
-        if delivered_ok:
+        # safely delivered AND nothing was held back by the per-run cap. If a
+        # send failed, no Telegram is configured, or a backlog remains, we hold
+        # the watermarks so the unsent postings are re-fetched and retried next
+        # run rather than skipped forever. The sent-fingerprint set prevents
+        # anything already delivered from being sent twice.
+        if delivered_ok and summary.held_back == 0:
             for name, meta in summary.per_source.items():
                 if meta.get("status") == "ok":
                     self.state.record_success(name, meta.get("latest"))
@@ -130,8 +152,12 @@ class Pipeline:
         name = sdef["name"]
         tier = sdef.get("tier", "A")
         interval = sdef.get("request_interval_s") or self.config.default_request_interval_seconds
-        floor = now - timedelta(hours=self.config.catchup_lookback_hours)
-        since = self.state.source_last_success(name) or floor
+        last = self.state.source_last_success(name)
+        # The very first time a source runs, look back further so a new install
+        # immediately surfaces a backlog of existing jobs.
+        lookback = self.config.catchup_lookback_hours if last else self.config.first_run_lookback_hours
+        floor = now - timedelta(hours=lookback)
+        since = last or floor
         if since < floor:
             since = floor
 

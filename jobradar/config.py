@@ -47,6 +47,8 @@ class Config:
     state_path: str = "jobradar-state.json"
     run_interval_hours: float = 4.0
     catchup_lookback_hours: float = 72.0        # cap how far back a source looks
+    first_run_lookback_hours: float = 168.0     # wider window the very first time a source runs
+    max_messages_per_run: int = 25              # cap sends per run so a backlog doesn't flood
     default_request_interval_seconds: float = 5.0
     message_interval_seconds: float = 0.5       # gap between per-posting Telegram sends
     tier_b_failure_threshold: int = 3           # auto-disable a broken scraper

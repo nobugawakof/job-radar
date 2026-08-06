@@ -46,12 +46,25 @@ def _service(args: argparse.Namespace) -> Service:
 def cmd_run(args: argparse.Namespace) -> int:
     svc = _service(args)
     s = svc.run("manual")
-    print(f"Fetched {s.items_fetched}, detected {s.postings_detected} posting(s), "
-          f"merged {s.duplicates_merged} dup(s), skipped {s.already_sent_skipped} already-sent, "
-          f"sent {len(s.sent)}.")
+    # Per-source breakdown, so it's clear where postings come from (or don't).
+    print(f"Fetched {s.items_fetched} item(s) from {len(s.per_source)} source(s):")
+    for name, meta in s.per_source.items():
+        if meta.get("status") == "error":
+            print(f"  - {name}: ERROR — {meta.get('error')}")
+        elif meta.get("status") == "blocked":
+            print(f"  - {name}: BLOCKED — {meta.get('error')}")
+        else:
+            print(f"  - {name}: {meta.get('items', 0)} fetched")
+    # Filter funnel, so it's clear why postings were or weren't sent.
+    print(f"Detected {s.postings_detected} posting(s) → {s.passed_filter} passed filters "
+          f"(rejected: {s.rejected_keyword} keyword, {s.rejected_remote} remote, "
+          f"{s.rejected_region} region).")
+    tail = f", held {s.held_back} for later runs" if s.held_back else ""
+    print(f"After dedup ({s.duplicates_merged} merged) and already-sent "
+          f"({s.already_sent_skipped}): sent {len(s.sent)}{tail}.")
     if not svc.transport:
         print("  (no Telegram token configured — nothing was sent; set "
-              "JOBRADAR_TELEGRAM_BOT_TOKEN and JOBRADAR_TELEGRAM_CHAT_ID)")
+              "telegram_bot_token / telegram_chat_id in config.toml)")
     for a in s.alerts:
         print(f"  ALERT: {a}")
     return 0

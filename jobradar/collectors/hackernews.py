@@ -58,11 +58,13 @@ class HackerNewsCollector(Collector):
         if story_id is None:
             raise CollectorError("could not find a current 'Who is hiring?' thread")
 
+        # Fetch the whole current thread rather than a recent-time window: the
+        # thread is monthly, so a 72h window would miss most of the month's
+        # postings. The sent-fingerprint dedup stops anything being re-sent, so
+        # returning everything each run is safe.
         params = [f"tags=comment,story_{story_id}", "hitsPerPage=1000"]
         if self.query:
             params.append(f"query={quote(self.query)}")
-        if ctx.since:
-            params.append(f"numericFilters=created_at_i>{int(ctx.since.timestamp())}")
         status, body = self.http.get(f"{_SEARCH}_by_date?{'&'.join(params)}")
         yield from self._parse_comments(body, story_id, self.name)
 
