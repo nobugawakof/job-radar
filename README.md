@@ -41,25 +41,32 @@ sent on the next run.
 Requires Python 3.11+. Nothing to install.
 
 ```bash
-# 1. Configure
-cp config.example.toml config.toml      # edit keywords + [[sources]]
+# 1. Configure — this one file holds everything, including your Telegram token
+cp config.example.toml config.toml      # edit telegram_bot_token, telegram_chat_id, keywords, [[sources]]
 
-# 2. Set your Telegram secrets (from @BotFather, and your chat id)
-export JOBRADAR_TELEGRAM_BOT_TOKEN=123456:ABC...
-export JOBRADAR_TELEGRAM_CHAT_ID=987654321
-
-# 3. Check the wiring
+# 2. Check the wiring
 python3 -m jobradar.cli --config config.toml test-telegram
 
-# 4. Run one cycle now…
+# 3. Run one cycle now…
 python3 -m jobradar.cli --config config.toml run
 
-# 5. …or run forever at the configured interval
+# 4. …or run forever at the configured interval
 python3 -m jobradar.cli --config config.toml serve
 ```
 
-Getting your chat id: message your bot once, then open
+Everything lives in `config.toml` — including your `telegram_bot_token` and
+`telegram_chat_id`. Create the bot with **@BotFather** for the token; to find
+your chat id, message the bot once and open
 `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `message.chat.id`.
+
+`config.toml` is git-ignored so your token is never committed — keep the file
+private. If you'd rather not keep secrets in a file, leave them blank and set
+environment variables instead (they override the file):
+
+```bash
+export JOBRADAR_TELEGRAM_BOT_TOKEN=123456:ABC...
+export JOBRADAR_TELEGRAM_CHAT_ID=987654321
+```
 
 ## Commands
 
@@ -134,10 +141,11 @@ workflow (`.github/workflows/build-exe.yml`) builds it on a `windows-latest`
 runner and uploads `jobradar-windows` (the `.exe` + a `config.toml`) as a
 downloadable artifact on every push, or from the Actions tab via "Run workflow".
 
-Put a `config.toml` next to the executable (copy `config.example.toml`) and run
-it — a double-clicked `.exe` with no arguments starts the daemon (`serve`), and
-its state file is written next to the executable. Secrets still come from
-environment variables, not the config file.
+Put a `config.toml` next to the executable (copy `config.example.toml`, fill in
+your `telegram_bot_token` and `telegram_chat_id`) and run it — a double-clicked
+`.exe` with no arguments starts the daemon (`serve`), and its state file is
+written next to the executable. The `config.toml` beside the `.exe` holds
+everything; keep it private since it contains your token.
 
 ## Filtering
 

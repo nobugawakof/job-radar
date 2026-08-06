@@ -1,15 +1,24 @@
-# Social Job Radar — Telegram-only configuration.
+# Social Job Radar — configuration.
 #
-# Copy to config.toml and edit. Secrets do NOT belong here; set them in the
-# environment instead:
+# Copy this file to config.toml and fill in your details. This file holds
+# EVERYTHING the app needs, including your Telegram bot token and chat id below.
 #
-#   export JOBRADAR_TELEGRAM_BOT_TOKEN=123456:ABC...   # from @BotFather
-#   export JOBRADAR_TELEGRAM_CHAT_ID=987654321         # your chat/user id
-#   export JOBRADAR_REDDIT_CLIENT_ID=...               # only if using Reddit
+# Security note: those tokens are secrets. config.toml is git-ignored so it is
+# never committed — keep this file private and don't share it. If you'd rather
+# not store secrets in a file at all, you can instead leave them blank here and
+# set them as environment variables (which override the file values):
+#   export JOBRADAR_TELEGRAM_BOT_TOKEN=...  JOBRADAR_TELEGRAM_CHAT_ID=...
+#   export JOBRADAR_ANTHROPIC_API_KEY=...   # only if use_ai = true
+#   export JOBRADAR_REDDIT_CLIENT_ID=...    # only if using the Reddit source
 #   export JOBRADAR_REDDIT_CLIENT_SECRET=...
-#
-# (You may also put telegram_bot_token / telegram_chat_id here if you prefer,
-#  but keep this file out of version control if you do.)
+
+# --- Telegram (required to receive jobs) ---------------------------------
+# Create a bot with @BotFather to get the token. To find your chat id: message
+# your bot once, open
+#   https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+# and read message.chat.id from the response.
+telegram_bot_token = "123456:ABC-your-bot-token-here"
+telegram_chat_id   = "987654321"
 
 # What to look for.
 keywords = ["web3", "web2", "backend", "frontend", "ai", "fullstack"]
@@ -24,10 +33,10 @@ regions = []
 
 # Optional AI extraction (off by default). When on, each posting about to be
 # sent is enriched by Claude into cleaner fields plus separate 岗位职责/岗位要求
-# (responsibilities/requirements) lists. Costs money per posting; needs a key in
-# the environment: export JOBRADAR_ANTHROPIC_API_KEY=sk-ant-...
+# (responsibilities/requirements) lists. Costs money per posting.
 use_ai = false
 ai_model = "claude-opus-5"             # set "claude-haiku-4-5" to cut cost
+# anthropic_api_key = "sk-ant-..."     # uncomment and fill in if use_ai = true
 ai_max_chars = 6000                    # cap post text sent to the API
 
 # How it runs.
