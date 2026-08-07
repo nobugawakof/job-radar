@@ -33,6 +33,27 @@ class Settings:
     keywords: list[str]
     remote_only: bool
     regions: list[str] = field(default_factory=list)
+    min_salary_usd: int = 0
+    require_salary: bool = False
+
+
+# Rough currency → USD factors and period → per-year factors. Deliberately
+# approximate: the goal is "is this roughly above my floor", not accounting.
+_USD_RATES = {
+    "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "CAD": 0.73, "AUD": 0.66, "SGD": 0.74,
+    "HKD": 0.128, "CNY": 0.14, "RMB": 0.14, "JPY": 0.0067,
+}
+_PERIOD_FACTOR = {"hour": 2080.0, "month": 12.0, "year": 1.0, None: 1.0}
+
+
+def annual_usd(salary) -> float | None:
+    """Best-effort annual-USD estimate from a parsed Salary, or None if unknown."""
+    amount = salary.max or salary.min
+    if amount is None:
+        return None
+    rate = _USD_RATES.get((salary.currency or "").upper(), 1.0)
+    factor = _PERIOD_FACTOR.get(salary.period, 1.0)
+    return amount * factor * rate
 
 
 @dataclass
@@ -107,6 +128,20 @@ def region_stage(posting: Posting, settings: Settings) -> bool:
     return geo.region_matches(posting.location, posting.description, settings.regions)
 
 
+def salary_stage(posting: Posting, settings: Settings) -> bool:
+    """Pass unless a salary floor is set and the posting is clearly below it.
+
+    Postings with no parseable salary pass (we can't judge) unless
+    ``require_salary`` is on, in which case they're rejected.
+    """
+    if not settings.min_salary_usd and not settings.require_salary:
+        return True
+    est = annual_usd(posting.salary)
+    if est is None:
+        return not settings.require_salary
+    return est >= settings.min_salary_usd
+
+
 def evaluate(posting: Posting, settings: Settings) -> FilterResult:
     # An empty keyword set means "send everything" (no keyword gate).
     if settings.keywords:
@@ -122,4 +157,7 @@ def evaluate(posting: Posting, settings: Settings) -> FilterResult:
     if not region_stage(posting, settings):
         return FilterResult(REJECT, matched, "region", "outside_regions_and_not_worldwide")
 
-    return FilterResult(PASS, matched, "region", "ok")
+    if not salary_stage(posting, settings):
+        return FilterResult(REJECT, matched, "salary", "below_min_salary")
+
+    return FilterResult(PASS, matched, "salary", "ok")

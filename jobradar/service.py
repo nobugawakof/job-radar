@@ -6,7 +6,7 @@ import logging
 import time
 from pathlib import Path
 
-from .config import Config, source_definitions
+from .config import Config, build_sources
 from .delivery import TelegramTransport
 from .pipeline import Pipeline, RunSummary
 from .state import State
@@ -24,7 +24,7 @@ class Service:
         if not state_path.is_absolute() and config_path:
             state_path = Path(config_path).resolve().parent / state_path
         self.state = State(str(state_path), max_sent=config.max_sent_remembered)
-        self.source_defs = source_definitions(config_path)
+        self.source_defs = build_sources(config, config_path)
         self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
         self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport)
 

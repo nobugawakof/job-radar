@@ -17,9 +17,20 @@ from typing import Any
 
 @dataclass(frozen=True)
 class Config:
+    # Sites to search, as simple URL lists (en = English, cn = Chinese). Both are
+    # just source lists; the split is only for your own organisation. Each URL is
+    # resolved to the right collector automatically (see jobradar/sites.py).
+    en: list[str] = field(default_factory=list)
+    cn: list[str] = field(default_factory=list)
+
     # What to look for.
     keywords: list[str] = field(default_factory=lambda: ["web3", "web2", "backend", "frontend", "ai", "fullstack"])
     remote_only: bool = True
+    # Salary filter (approximate). min_salary_usd drops postings whose parsed pay
+    # is below this (rough annual-USD estimate); require_salary drops postings
+    # with no stated salary at all. 0 / false = off.
+    min_salary_usd: int = 0
+    require_salary: bool = False
     # Regions of interest (countries/cities/blocs, as you'd type them). Empty
     # means no region filter. A posting passes if it's remote-worldwide OR its
     # location names one of these, e.g. ["Hong Kong", "Malaysia", "Worldwide"].
@@ -118,5 +129,19 @@ def source_definitions(path: str | os.PathLike[str] | None) -> list[dict[str, An
         if p.exists():
             with p.open("rb") as fh:
                 data = tomllib.load(fh)
-    sources = list(data.get("sources", []))
-    return sources if sources else [dict(s) for s in DEFAULT_SOURCES]
+    return list(data.get("sources", []))
+
+
+def build_sources(cfg: Config, path: str | os.PathLike[str] | None) -> list[dict[str, Any]]:
+    """Assemble the source list from the config.
+
+    Priority: sites from the `en`/`cn` URL lists, plus any explicit `[[sources]]`
+    blocks (for advanced/custom feeds). If none are configured, fall back to the
+    built-in defaults so the app still works out of the box.
+    """
+    from .sites import resolve
+
+    resolved = resolve(list(cfg.en) + list(cfg.cn))
+    explicit = source_definitions(path)
+    combined = resolved + explicit
+    return combined if combined else [dict(s) for s in DEFAULT_SOURCES]

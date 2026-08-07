@@ -47,12 +47,12 @@ _ROLE_RE = re.compile(r"\b(" + "|".join(ROLE_TERMS) + r")s?\b", re.I)
 _CONTEXT_RE = re.compile("|".join(re.escape(t) for t in CONTEXT_TERMS), re.I)
 
 # Chinese signals. Chinese has no word boundaries, so these are matched as plain
-# substrings rather than with \b. Lets the pipeline detect Chinese job posts
-# (e.g. from v2ex, ruby-china) instead of dropping them as "not a job".
+# substrings. Only genuine "a company is hiring" verbs go here — words like
+# 岗位/职位 were moved to CONTEXT because they show up just as often in market
+# discussion and job-seeker posts.
 CHINESE_HIRING = [
-    "招聘", "诚聘", "热招", "急聘", "招募", "招人", "内推", "在招", "招贤",
-    "岗位", "职位", "求贤", "职位描述", "岗位职责", "任职要求", "岗位要求",
-    "工作职责", "职责", "我们在招", "正在招",
+    "招聘", "诚聘", "热招", "急聘", "招募", "招人", "在招", "招贤", "招 ",
+    "正在招", "我们在招", "高薪招", "求贤", "内推",
 ]
 CHINESE_ROLE = [
     "工程师", "开发", "程序员", "架构师", "设计师", "产品经理", "运维",
@@ -61,7 +61,34 @@ CHINESE_ROLE = [
 CHINESE_CONTEXT = [
     "远程", "远端", "在家办公", "居家办公", "薪资", "薪酬", "月薪", "年薪",
     "福利", "全职", "兼职", "实习", "股权", "期权", "简历", "投递", "面试",
+    "岗位", "职位", "岗位职责", "任职要求", "岗位要求", "工作职责", "职责",
 ]
+
+# Negative signals: job-SEEKER, advice, layoff-venting, and discussion posts —
+# NOT job openings. "Hard" terms are unambiguous seeking/venting and always
+# reject the post (even if it also contains a hiring verb — e.g. "求内推" holds
+# 内推 but is clearly someone seeking). "Soft" terms only reject when there's no
+# genuine hiring verb, so a real opening that happens to mention one is kept.
+HARD_SEEKER_ZH = [
+    "求助", "求职", "求带", "求内推", "求推荐", "求经验", "求指导", "找工作",
+    "被裁", "裁员", "职业方向", "职业规划", "内推我", "内推求", "跪求",
+]
+HARD_SEEKER_EN = [
+    "who wants to be hired", "looking for a job", "looking for work",
+    "got laid off", "laid off", "resume review",
+]
+SOFT_SEEKER_ZH = [
+    "毕业", "应届", "迷茫", "请教", "咨询一下", "吐槽", "转行", "帮看看",
+    "分享一下", "讨论一下", "有没有推荐", "怎么办", "感想", "心得", "求偏门",
+]
+SOFT_SEEKER_EN = [
+    "seeking work", "job seeking", "career advice", "advice needed",
+    "any tips", "rant",
+]
+
+
+def _has_cjk(text: str) -> bool:
+    return any("一" <= c <= "鿿" for c in text)
 
 
 @dataclass(frozen=True)
@@ -81,10 +108,21 @@ def classify(text: str, *, source_prior: float = 0.0) -> Classification:
     if not text or not text.strip():
         return Classification(False, 0.0, [])
 
+    low = text.lower()
     signals: list[str] = []
     score = source_prior
 
-    if _STRONG_RE.search(text) or any(t in text for t in CHINESE_HIRING):
+    strong = bool(_STRONG_RE.search(text)) or any(t in text for t in CHINESE_HIRING)
+
+    # Hard seeker/discussion markers always reject (even with a hiring verb).
+    if any(n in text for n in HARD_SEEKER_ZH) or any(n in low for n in HARD_SEEKER_EN):
+        return Classification(False, 0.0, ["seeker_or_discussion"])
+    # Soft markers reject only when there's no genuine hiring verb.
+    soft = any(n in text for n in SOFT_SEEKER_ZH) or any(n in low for n in SOFT_SEEKER_EN)
+    if soft and not strong:
+        return Classification(False, 0.0, ["seeker_or_discussion"])
+
+    if strong:
         score += 1.0
         signals.append("hiring_phrase")
 
@@ -102,7 +140,14 @@ def classify(text: str, *, source_prior: float = 0.0) -> Classification:
         score += 0.3
         signals.append("role+context")
 
-    # Recall-first threshold: anything at or above 0.7 is kept. With a source
-    # prior of 1.0 (a jobs-only feed), every post clears the bar.
+    # Recall-first threshold: anything at or above 0.7 is kept.
     is_posting = score >= 0.7
+
+    # Chinese content is noisier (forums mix hiring, seeking, and chatter), so a
+    # Chinese post needs a real hiring verb — role+context alone isn't enough.
+    # A dedicated jobs feed (source_prior >= 1.0) is exempt.
+    if is_posting and _has_cjk(text) and not strong and source_prior < 1.0:
+        is_posting = False
+        signals.append("cjk_no_hiring_verb")
+
     return Classification(is_posting, round(score, 3), signals)

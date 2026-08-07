@@ -17,8 +17,8 @@ on **Telegram**. No database, no web dashboard, no paid services — pure Python
  (Tier A/B)   since last run          recall-first                (title/remote/salary)
                                                                         │
                                                                         ▼
-                          send one batched          drop already-sent   keep those matching
-   Telegram  ◀───────────  digest per run  ◀──────  (JSON state)  ◀───  keyword + remote filter
+                          send one message          drop already-sent   keep those matching
+   Telegram  ◀───────────   per posting     ◀──────  (JSON state)  ◀───  keyword/remote/region/salary
                                                           ▲
                                                    merge duplicates
                                                    across sources
@@ -54,10 +54,12 @@ python3 -m jobradar.cli --config config.toml run
 python3 -m jobradar.cli --config config.toml serve
 ```
 
-Everything lives in `config.toml` — including your `telegram_bot_token` and
-`telegram_chat_id`. Create the bot with **@BotFather** for the token; to find
-your chat id, message the bot once and open
-`https://api.telegram.org/bot<TOKEN>/getUpdates` and read `message.chat.id`.
+There is a **single** config file — `config.toml`, copied from
+`config.example.toml`. Everything lives in it: your `telegram_bot_token` and
+`telegram_chat_id`, the sites to search, filters, and any API tokens. Create the
+bot with **@BotFather** for the token; to find your chat id, message the bot once
+and open `https://api.telegram.org/bot<TOKEN>/getUpdates` and read
+`message.chat.id`.
 
 `config.toml` is git-ignored so your token is never committed — keep the file
 private. If you'd rather not keep secrets in a file, leave them blank and set
@@ -79,10 +81,37 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 
 ## Sources
 
-**You don't have to configure any.** If `config.toml` has no `[[sources]]`
-blocks, Job Radar uses three built-in sources that need no extra keys — Bluesky,
-Hacker News ("Who Is Hiring"), and WeWorkRemotely. Add a `[[sources]]` block only
-if you want to monitor something specific:
+**Just list the sites you want** in two arrays — `en` (global/English) and `cn`
+(Chinese). The split is only for your own tidiness; both are searched together.
+Each URL is turned into the right kind of source automatically:
+
+```toml
+en = [
+  "news.ycombinator.com",     # HN "Who is hiring?" monthly thread
+  "weworkremotely.com",
+  "reddit.com/r/forhire",     # needs reddit_client_id/secret below
+]
+cn = [
+  "v2ex.com",                 # V2EX 酷工作 + 远程
+  "ruby-china.org",
+]
+```
+
+Job Radar recognises common domains (Hacker News, WeWorkRemotely, V2EX, Ruby
+China, Reddit `/r/<sub>`, X/Twitter, Bluesky) and maps them to the correct
+collector. An unknown URL that looks like a feed (`.rss` / `.xml` / `.atom` /
+`/feed`) is fetched as RSS; anything else is a best-effort scrape. If both `en`
+and `cn` are empty, three built-in sources are used (Bluesky, Hacker News,
+WeWorkRemotely).
+
+All API tokens go in `config.toml` (see the token section of
+`config.example.toml`) — no environment variables needed. Some sources need one:
+`reddit.com` needs `reddit_client_id` / `reddit_client_secret`, and `x.com` needs
+`x_bearer_token` (a **paid** X API plan). **Facebook and TikTok are not
+supported**: neither offers a usable way to search public job posts.
+
+**Advanced:** for a specific RSS feed or scrape target the URL lists don't cover,
+add `[[sources]]` blocks — they're used *in addition to* `en`/`cn`:
 
 | Type | Tier | Config keys | Notes |
 |---|---|---|---|
@@ -94,30 +123,18 @@ if you want to monitor something specific:
 | `telegram` | A | `channel` | Bot must be in the channel |
 | `scrape` | B | `url`, `block_pattern` | Best-effort HTML; expected to break |
 
-All API tokens go in `config.toml` (see the "API tokens" section of
-`config.example.toml`) — no environment variables needed. **Facebook and TikTok
-are not supported**: neither offers a usable way to search public job posts, so
-no token would help.
-
-**You manage sources entirely from the config file — no code changes.** Adding a
-`[[sources]]` block adds a site; listing any of them replaces the built-in
-defaults, so the file fully controls what's searched (this applies to `reddit`,
-`twitter`, `rss`, everything). Only a site with its own special API would need a
-new collector class.
-
 ### Chinese (and other non-English) jobs
 
 The classifier, remote detection, and keywords understand **Chinese** as well as
 English — a post like "招聘后端工程师，全球远程" is detected, and the keyword
-`backend` also matches `后端` (likewise `前端`, `全栈`, `远程`, `算法`…). See
-`config.china.example.toml` for a ready starting config with Chinese-developer
-RSS sources (V2EX 酷工作 / 远程, Ruby China) plus global remote boards.
+`backend` also matches `后端` (likewise `前端`, `全栈`, `远程`, `算法`…). Just add
+Chinese sites to the `cn` array (V2EX, Ruby China ship as sensible defaults).
 
 Note: big Chinese job sites like BOSS直聘 (zhipin), 拉勾 (lagou), 猎聘 (liepin),
-智联 (zhaopin), Weibo, and Douban are **not scrapable** — they're JavaScript-
-rendered and behind bot-blocking login walls, so no free method reaches their
-listings. Sites that publish an RSS feed (V2EX, Ruby China, …) work with the
-`rss` type and no keys.
+智联 (zhaopin), Weibo, Douban, and LinkedIn are **not scrapable** — they're
+JavaScript-rendered and behind bot-blocking login walls, so no free method
+reaches their listings. Listing one in `en`/`cn` just logs a skip. Sites that
+publish an RSS feed (V2EX, Ruby China, …) work with no keys.
 
 Tier A is expected to work. Tier B is best-effort: it's fetched politely (honest
 `User-Agent`, rate-limited, respects `robots.txt` / HTTP 429), and if it breaks
@@ -137,17 +154,15 @@ job-seeker posts.
 
 ## Optional AI extraction
 
-Off by default. With `use_ai = true` and an Anthropic API key in the
-environment, each posting *about to be sent* is enriched by Claude into cleaner
-fields plus separate **岗位职责 / 岗位要求** (responsibilities / requirements)
-lists — the parts rule-based parsing can't reliably split out of free-form text.
+Off by default. With `use_ai = true` and an `anthropic_api_key` in `config.toml`,
+each posting *about to be sent* is enriched by Claude into cleaner fields plus
+separate **responsibilities / requirements** lists — the parts rule-based parsing
+can't reliably split out of free-form text.
 
 ```toml
 use_ai = true
-ai_model = "claude-opus-5"     # or "claude-haiku-4-5" to cut cost
-```
-```bash
-export JOBRADAR_ANTHROPIC_API_KEY=sk-ant-...
+ai_model = "claude-opus-5"          # or "claude-haiku-4-5" to cut cost
+anthropic_api_key = "sk-ant-..."
 ```
 
 It costs money per posting, so the API is called only for postings that already
@@ -178,11 +193,15 @@ everything; keep it private since it contains your token.
 
 ## Filtering
 
-Three stages, in order; a posting must pass all the ones you've configured:
+First, the classifier drops anything that isn't an actual employer job post —
+job-seeker / "求职" posts, "求内推" referral-begging, coffee-chat and
+career-advice threads, laid-off venting, freelancer-for-hire ads — so a post like
+"「求助帖」5 年前端又被裁…" never reaches you. What survives then passes through
+these stages, in order; a posting must pass all the ones you've configured:
 
 1. **Keyword** — case-insensitive, variant-aware (`fullstack` also matches
-   `full-stack` / `full stack`). At least one keyword must match. An empty
-   `keywords` list means "send everything".
+   `full-stack` / `full stack`, `backend` also matches `后端`). At least one
+   keyword must match. An empty `keywords` list means "send everything".
 2. **Remote** — with `remote_only = true`, on-site/hybrid roles are dropped;
    explicit-remote and unknown-arrangement roles pass.
 3. **Region** — set `regions` to the countries/cities/blocs you care about
@@ -191,6 +210,14 @@ Three stages, in order; a posting must pass all the ones you've configured:
    regions**. So if you live in Malaysia and set `regions = ["Hong Kong"]`, you
    get Hong Kong-remote roles and hire-from-anywhere roles, but not US-only
    ones. Leave `regions = []` to skip this stage.
+4. **Salary** — set `min_salary_usd` to drop postings whose stated pay looks
+   below your floor (roughly normalised to annual USD across currencies and
+   pay periods). Postings that don't state a salary still pass, since we can't
+   judge them — unless you set `require_salary = true`, which sends only postings
+   that name a figure. Leave `min_salary_usd = 0` and `require_salary = false`
+   to skip this stage.
+
+Postings older than `max_posting_age_days` (default 15) are skipped as well.
 
 ## Delivery
 
