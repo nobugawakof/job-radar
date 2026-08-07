@@ -59,7 +59,7 @@ def format_message(posting: dict[str, Any]) -> str:
     lines: list[str] = ["#hiring"]
 
     # 🏡 Title (company | role | …) with keyword hashtags.
-    title = _esc(posting.get("title") or "(untitled)")
+    title = _esc((posting.get("title") or "(untitled)")[:200])
     role_tags = _role_tags(posting)
     head = f"🏡  <b>{title}</b>"
     if role_tags:

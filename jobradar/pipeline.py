@@ -52,6 +52,7 @@ class RunSummary:
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
     held_back: int = 0
+    delivered: int = 0
     sent: list[Posting] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
@@ -267,6 +268,7 @@ class Pipeline:
             try:
                 self.transport.send_message(chat, format_message(self._as_dict(posting)))
                 self.state.mark_sent(posting.content_hash)  # mark per message
+                summary.delivered += 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
                 log.warning("Telegram send failed after %d/%d; will retry the rest "
                             "next run: %s", i, len(postings), e)

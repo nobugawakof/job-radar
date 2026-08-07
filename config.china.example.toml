@@ -48,11 +48,6 @@ name = "weworkremotely"
 type = "rss"
 url  = "https://weworkremotely.com/categories/remote-programming-jobs.rss"
 
-[[sources]]
-name = "remoteok"
-type = "rss"
-url  = "https://remoteok.com/remote-jobs.rss"
-
 # --- Best-effort scraping (Tier B; expected to break, off by default) -------
 # Most big Chinese job sites (BOSS直聘 / zhipin, 拉勾 / lagou, 猎聘 / liepin,
 # 智联 / zhaopin, bossjob) render with JavaScript and block bots behind login,

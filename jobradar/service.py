@@ -48,9 +48,9 @@ class Service:
 
     def _run_logged(self, trigger: str) -> RunSummary:
         summary = self.run(trigger)
-        log.info("run(%s): %d fetched, %d postings, %d merged, %d already-sent, %d sent",
+        log.info("run(%s): %d fetched, %d postings, %d merged, %d already-sent, %d delivered",
                  trigger, summary.items_fetched, summary.postings_detected,
-                 summary.duplicates_merged, summary.already_sent_skipped, len(summary.sent))
+                 summary.duplicates_merged, summary.already_sent_skipped, summary.delivered)
         for a in summary.alerts:
             log.warning("alert: %s", a)
         return summary

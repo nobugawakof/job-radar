@@ -11,11 +11,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Protocol
 
 log = logging.getLogger("jobradar.telegram")
+
+
+def _to_plain(html_text: str) -> str:
+    """Turn our HTML-formatted message into readable plain text for the fallback
+    send (drops <b> tags and un-escapes entities so they don't show literally)."""
+    t = re.sub(r"</?b>", "", html_text)
+    return (t.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
 
 
 class Transport(Protocol):
@@ -25,24 +34,46 @@ class Transport(Protocol):
 class TelegramTransport:
     """Real Telegram Bot API sender (stdlib urllib, HTTPS only)."""
 
+    # Telegram's hard limit is 4096 UTF-16 units; stay safely under it.
+    MAX_TEXT = 4000
+
     def __init__(self, token: str, timeout: float = 20.0):
         self.base = f"https://api.telegram.org/bot{token}"
         self.timeout = timeout
 
-    def send_message(self, chat_id: str, text: str) -> dict[str, Any]:
-        params = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": "true",
-        }
+    def _call(self, params: dict[str, Any]) -> dict[str, Any]:
         data = urllib.parse.urlencode(params).encode()
         req = urllib.request.Request(f"{self.base}/sendMessage", data=data, method="POST")
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            payload = json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                payload = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            # Telegram puts the real reason in the body ("message is too long",
+            # "can't parse entities…", "chat not found", …). Surface it.
+            body = e.read().decode("utf-8", "replace")
+            try:
+                desc = json.loads(body).get("description", body)
+            except (json.JSONDecodeError, AttributeError):
+                desc = body
+            raise RuntimeError(f"Telegram sendMessage {e.code}: {desc}") from e
         if not payload.get("ok"):
             raise RuntimeError(f"Telegram sendMessage failed: {payload.get('description')}")
         return payload.get("result", {})
+
+    def send_message(self, chat_id: str, text: str) -> dict[str, Any]:
+        text = text[: self.MAX_TEXT]
+        try:
+            return self._call({
+                "chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                "disable_web_page_preview": "true",
+            })
+        except RuntimeError:
+            # If HTML parsing (or anything else) rejected the message, retry once
+            # as plain text so a single odd post can't block the whole digest.
+            plain = _to_plain(text)[: self.MAX_TEXT]
+            return self._call({
+                "chat_id": chat_id, "text": plain, "disable_web_page_preview": "true",
+            })
 
 
 def send_all(transport: Transport, chat_id: str, messages: list[str]) -> None:
