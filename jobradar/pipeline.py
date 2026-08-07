@@ -270,9 +270,10 @@ class Pipeline:
                 self.state.mark_sent(posting.content_hash)  # mark per message
                 summary.delivered += 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
+                hint = _telegram_hint(str(e))
                 log.warning("Telegram send failed after %d/%d; will retry the rest "
-                            "next run: %s", i, len(postings), e)
-                summary.alerts.append(f"telegram send failed: {e}")
+                            "next run: %s%s", i, len(postings), e, hint)
+                summary.alerts.append(f"telegram send failed: {e}{hint}")
                 return False
             if i + 1 < len(postings):
                 self._pause(self.config.message_interval_seconds)
@@ -330,3 +331,18 @@ class Pipeline:
             "salary_currency": p.salary.currency, "matched_keywords": p.matched_keywords,
             "responsibilities": p.responsibilities, "requirements": p.requirements,
         }
+
+
+def _telegram_hint(err: str) -> str:
+    """A short, actionable hint for common Telegram setup errors."""
+    e = err.lower()
+    if "not enough rights" in e or "need administrator" in e:
+        return (" — the bot can't post in that chat. If it's a channel/group, add "
+                "the bot as an admin with 'Post/Send Messages' rights; if it's your "
+                "DM, set telegram_chat_id to your own user id.")
+    if "chat not found" in e:
+        return (" — telegram_chat_id is wrong or the bot has never met that chat. "
+                "Press Start in your DM with the bot, or re-check the id.")
+    if "bot was blocked" in e or "blocked by the user" in e:
+        return " — you blocked the bot in Telegram; unblock it and press Start."
+    return ""
