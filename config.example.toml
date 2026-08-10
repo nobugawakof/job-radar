@@ -12,10 +12,13 @@ telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
 # Just list the sites. Each URL is turned into the right source automatically.
 # The en/cn split is only for your own tidiness — both are searched together.
 en = [
-  "news.ycombinator.com",     # HN "Who is hiring?" monthly thread
+  "news.ycombinator.com",       # HN "Who is hiring?" monthly thread
   "weworkremotely.com",
-  "reddit.com/r/forhire",     # public RSS feed — no key needed
-  # "x.com",                  # needs x_bearer_token below (paid X API)
+  "reddit.com/r/forhire",       # public RSS feed — no key needed
+  "reddit.com/r/remotejs",      # remote JavaScript/web jobs
+  "reddit.com/r/remotepython",  # remote Python jobs
+  "reddit.com/r/RemoteJobs",    # general remote jobs
+  # "x.com",                    # needs x_bearer_token below (paid X API)
 ]
 cn = [
   "v2ex.com",                 # V2EX 酷工作 + 远程
