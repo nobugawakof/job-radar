@@ -95,17 +95,21 @@ class Pipeline:
         max_age = self.config.max_posting_age_days
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
+            ps = summary.per_source.setdefault(sdef["name"], {})
             posting = self._to_posting(sdef, item, now)
             if posting is None:
+                ps["not_job"] = ps.get("not_job", 0) + 1  # classifier said "not a posting"
                 continue
             # Skip postings older than the configured age limit (dated ones only;
             # undated posts can't be aged out and are kept).
             if age_cutoff and posting.posted_at and posting.posted_at < age_cutoff:
                 summary.skipped_old += 1
+                ps["old"] = ps.get("old", 0) + 1
                 continue
             summary.postings_detected += 1
             result = evaluate(posting, settings)
             if result.decision != PASS:
+                ps[f"rej_{result.stage}"] = ps.get(f"rej_{result.stage}", 0) + 1
                 if result.stage == "keyword":
                     summary.rejected_keyword += 1
                 elif result.stage == "remote":
@@ -116,6 +120,7 @@ class Pipeline:
                     summary.rejected_salary += 1
                 continue
             posting.matched_keywords = result.matched_keywords
+            ps["passed"] = ps.get("passed", 0) + 1
             kept.append(posting)
         summary.passed_filter = len(kept)
 
@@ -273,6 +278,8 @@ class Pipeline:
                 self.transport.send_message(chat, format_message(self._as_dict(posting)))
                 self.state.mark_sent(posting.content_hash)  # mark per message
                 summary.delivered += 1
+                ps = summary.per_source.setdefault(posting.source, {})
+                ps["sent"] = ps.get("sent", 0) + 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
                 hint = _telegram_hint(str(e))
                 log.warning("Telegram send failed after %d/%d; will retry the rest "

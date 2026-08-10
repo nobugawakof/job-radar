@@ -54,7 +54,18 @@ def cmd_run(args: argparse.Namespace) -> int:
         elif meta.get("status") == "blocked":
             print(f"  - {name}: BLOCKED — {meta.get('error')}")
         else:
-            print(f"  - {name}: {meta.get('items', 0)} fetched")
+            # Show the funnel per source so it's obvious where postings are lost:
+            # how many were fetched, passed all filters, and were actually sent,
+            # plus the main reasons the rest were dropped.
+            drops = []
+            for stage, label in (("not_job", "not-a-job"), ("old", "too-old"),
+                                 ("rej_keyword", "keyword"), ("rej_remote", "remote"),
+                                 ("rej_region", "region"), ("rej_salary", "salary")):
+                if meta.get(stage):
+                    drops.append(f"{meta[stage]} {label}")
+            detail = f" [dropped: {', '.join(drops)}]" if drops else ""
+            print(f"  - {name}: {meta.get('items', 0)} fetched, "
+                  f"{meta.get('passed', 0)} passed, {meta.get('sent', 0)} sent{detail}")
     if s.skipped_old:
         print(f"Skipped {s.skipped_old} posting(s) older than "
               f"{svc.config.max_posting_age_days} days.")
