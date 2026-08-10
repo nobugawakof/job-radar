@@ -72,8 +72,13 @@ def _resolve_one(host: str, base: str, path: str, raw: str) -> list[dict[str, An
                  "url": "https://weworkremotely.com/categories/remote-programming-jobs.rss"}]
 
     if base == "reddit.com":
+        # Use the subreddit's public RSS feed — no OAuth app / client_id /
+        # secret needed. (Reddit now gates API-app creation behind a developer
+        # registration; the RSS feed sidesteps that entirely.) For the full
+        # Data API instead, add an explicit [[sources]] block of type "reddit".
         sub = _slug(path, "/r") or "forhire"
-        return [{"name": f"reddit-{sub}", "type": "reddit", "tier": "A", "subreddit": sub}]
+        return [{"name": f"reddit-{sub}", "type": "rss", "tier": "A",
+                 "url": f"https://www.reddit.com/r/{sub}/new/.rss"}]
 
     if base in ("x.com", "twitter.com"):
         return [{"name": "x", "type": "twitter", "tier": "A"}]

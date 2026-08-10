@@ -14,7 +14,7 @@ telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
 en = [
   "news.ycombinator.com",     # HN "Who is hiring?" monthly thread
   "weworkremotely.com",
-  "reddit.com/r/forhire",     # needs reddit_client_id/secret below
+  "reddit.com/r/forhire",     # public RSS feed — no key needed
   # "x.com",                  # needs x_bearer_token below (paid X API)
 ]
 cn = [
@@ -39,7 +39,9 @@ ai_model = "claude-opus-5"          # or "claude-haiku-4-5" to cut cost
 # anthropic_api_key = "sk-ant-..."
 
 # --- Optional: API tokens (only for the sources that need them) ----------
-# Reddit: create a "script" app at https://www.reddit.com/prefs/apps
+# Reddit works out of the box via its public RSS feed — no key needed. Only set
+# these if you add an explicit [[sources]] block of type "reddit" for the full
+# Data API (create a "script" app at https://www.reddit.com/prefs/apps).
 # reddit_client_id     = ""
 # reddit_client_secret = ""
 # Twitter/X: requires a PAID X API plan (free read tier was discontinued).
