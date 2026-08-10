@@ -23,6 +23,34 @@ def _frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
+def _disable_console_quick_edit() -> None:
+    """Stop a stray mouse click from freezing the daemon (Windows only).
+
+    Windows consoles default to "QuickEdit mode": clicking in the window puts it
+    into Mark/Select mode (the title bar shows "Select …") and — crucially —
+    *suspends the running program* until a key is pressed. For a long-running
+    daemon that looks exactly like a hang: no output, nothing sent, for as long
+    as the selection is held. We turn QuickEdit off so a click can't pause it.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+        STD_INPUT_HANDLE = -10
+        ENABLE_EXTENDED_FLAGS = 0x0080
+        ENABLE_QUICK_EDIT_MODE = 0x0040
+        handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        mode = wintypes.DWORD()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            new_mode = (mode.value | ENABLE_EXTENDED_FLAGS) & ~ENABLE_QUICK_EDIT_MODE
+            kernel32.SetConsoleMode(handle, new_mode)
+    except Exception:  # noqa: BLE001 - never let this cosmetic tweak break startup
+        pass
+
+
 def base_dir() -> Path:
     """Directory to resolve config/state against.
 
@@ -138,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv and _frozen():
         argv = ["serve"]
 
+    _disable_console_quick_edit()  # a stray click must not freeze the daemon
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
