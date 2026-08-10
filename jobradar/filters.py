@@ -93,7 +93,14 @@ _VARIANTS: dict[str, list[str]] = {
     "ai": ["ai", "人工智能", "机器学习", "算法"],
     "remote": ["remote", "远程"],
     "devops": ["devops", "运维"],
-    "designer": ["designer", "设计师"],
+    "designer": ["designer", "设计师", "设计"],
+    "engineer": ["engineer", "工程师"],
+    "developer": ["developer", "开发者", "开发工程师", "开发"],
+    "programmer": ["programmer", "程序员"],
+    "software": ["software", "软件"],
+    "web": ["web", "网站", "网页"],
+    "mobile": ["mobile", "android", "ios", "移动端", "客户端"],
+    "data": ["data", "数据"],
 }
 
 
