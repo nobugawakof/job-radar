@@ -1,0 +1,25 @@
+[project]
+name = "job-radar"
+version = "0.1.0"
+description = "Social Job Radar - scrapes job postings from social platforms, filters them by keyword and remote preference, and delivers them via Telegram"
+readme = "README.md"
+requires-python = ">=3.11"
+# Phase 1 core is intentionally pure standard-library so it runs on a personal
+# laptop with no paid services and no third-party data store (see SRS 2.3, DR-1).
+dependencies = []
+
+[project.scripts]
+jobradar = "jobradar.cli:main"
+
+[project.optional-dependencies]
+# Only needed to build a standalone executable (see build.py). The app itself
+# runs on the standard library alone.
+build = ["pyinstaller>=6"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jobradar*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

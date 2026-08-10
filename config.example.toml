@@ -1,0 +1,74 @@
+# Job Radar — the only config file. Copy to config.toml and edit.
+# Fill in the two Telegram lines and the sites you want; the rest has defaults.
+
+# --- Telegram (required) -------------------------------------------------
+# Bot token from @BotFather. Chat id: message your bot, then open
+# https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates and read message.chat.id
+# (must be a chat the bot can post in — press Start in your DM with the bot).
+telegram_bot_token = "PASTE-YOUR-BOT-TOKEN"
+telegram_chat_id   = "PASTE-YOUR-CHAT-ID"
+
+# --- Sites to search -----------------------------------------------------
+# Just list the sites. Each URL is turned into the right source automatically.
+# The en/cn split is only for your own tidiness — both are searched together.
+en = [
+  "news.ycombinator.com",       # HN "Who is hiring?" monthly thread
+  "weworkremotely.com",
+  "reddit.com/r/forhire",       # public RSS feed — no key needed
+  "reddit.com/r/remotejs",      # remote JavaScript/web jobs
+  "reddit.com/r/remotepython",  # remote Python jobs
+  "reddit.com/r/RemoteJobs",    # general remote jobs
+  # "x.com",                    # needs x_bearer_token below (paid X API)
+]
+cn = [
+  "v2ex.com",                 # V2EX 酷工作 + 远程
+  "ruby-china.org",
+]
+
+# --- What you want -------------------------------------------------------
+# At least one keyword must appear in a posting. Broad by default so you don't
+# miss roles worded differently; trim this to narrow the results. (Empty = send
+# everything that passes the remote/region/salary filters.) English keywords
+# also match common Chinese equivalents (engineer↔工程师, developer↔开发, etc.).
+keywords = [
+  "engineer", "developer", "programmer", "software",
+  "backend", "frontend", "fullstack", "web", "mobile",
+  "python", "javascript", "typescript", "react", "node", "golang", "java", "rust",
+  "devops", "data", "ai", "designer",
+  "工程师", "开发", "程序员", "后端", "前端", "远程",
+]
+remote_only = true
+regions     = []            # e.g. ["Hong Kong", "中国", "Worldwide"]; empty = anywhere
+run_interval_hours = 4
+max_posting_age_days = 15    # ignore anything older than N days (0 = no limit)
+
+# --- Salary filter (approximate; 0 / false = off) ------------------------
+min_salary_usd = 0          # drop postings whose pay looks below this (annual USD est.)
+require_salary = false      # true = only send postings that state a salary
+
+# --- Optional: nicer messages via AI (costs money) -----------------------
+use_ai = false
+ai_model = "claude-opus-5"          # or "claude-haiku-4-5" to cut cost
+# anthropic_api_key = "sk-ant-..."
+
+# --- Optional: API tokens (only for the sources that need them) ----------
+# Reddit works out of the box via its public RSS feed — no key needed. Only set
+# these if you add an explicit [[sources]] block of type "reddit" for the full
+# Data API (create a "script" app at https://www.reddit.com/prefs/apps).
+# reddit_client_id     = ""
+# reddit_client_secret = ""
+# Twitter/X: requires a PAID X API plan (free read tier was discontinued).
+# x_bearer_token       = ""
+
+# Not supported (no free way to read their job posts): BOSS直聘 (zhipin), 拉勾
+# (lagou), 猎聘 (liepin), 智联 (zhaopin), Weibo, Douban, LinkedIn. Listing one in
+# en/cn just logs a skip.
+
+# --- Advanced: custom sources --------------------------------------------
+# For a specific RSS feed or a best-effort scrape, add [[sources]] blocks (these
+# are used in addition to the en/cn lists):
+#
+# [[sources]]
+# name = "some-feed"
+# type = "rss"
+# url  = "https://example.com/jobs.rss"
