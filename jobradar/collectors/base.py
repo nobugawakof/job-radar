@@ -90,6 +90,7 @@ class HttpClient:
         *,
         headers: dict[str, str] | None = None,
         accept: str = "application/json",
+        _retry_429: bool = True,
     ) -> tuple[int, bytes]:
         if not url.lower().startswith("https://"):
             # NFR-9: all outbound requests use HTTPS.
@@ -107,9 +108,16 @@ class HttpClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return resp.status, resp.read()
         except urllib.error.HTTPError as e:
-            if e.code == 429:  # honour rate limiting / Retry-After
-                retry_after = e.headers.get("Retry-After") if e.headers else None
-                raise CollectorError(f"429 rate limited (Retry-After={retry_after})") from e
+            if e.code == 429:  # rate limited — back off once, then give up for this run
+                ra = e.headers.get("Retry-After") if e.headers else None
+                wait = int(ra) if (ra and str(ra).isdigit()) else 12
+                if _retry_429:
+                    # Reddit and friends rate-limit bursts of unauthenticated
+                    # requests; a short pause usually clears it. Retry exactly
+                    # once so one busy source can't stall the whole run.
+                    time.sleep(min(wait, 30))
+                    return self.get(url, headers=headers, accept=accept, _retry_429=False)
+                raise CollectorError(f"429 rate limited (Retry-After={ra})") from e
             # A 403 is treated as a *retryable* failure, not a permanent block:
             # public APIs (e.g. Bluesky) return transient 403s, and one blip
             # should not permanently kill a Tier A source. A real, persistent

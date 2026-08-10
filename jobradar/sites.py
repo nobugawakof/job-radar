@@ -77,7 +77,10 @@ def _resolve_one(host: str, base: str, path: str, raw: str) -> list[dict[str, An
         # registration; the RSS feed sidesteps that entirely.) For the full
         # Data API instead, add an explicit [[sources]] block of type "reddit".
         sub = _slug(path, "/r") or "forhire"
+        # Reddit rate-limits bursts of unauthenticated RSS hits (429). Space
+        # requests to reddit.com well apart so several subreddits can coexist.
         return [{"name": f"reddit-{sub}", "type": "rss", "tier": "A",
+                 "request_interval_s": 15.0,
                  "url": f"https://www.reddit.com/r/{sub}/new/.rss"}]
 
     if base in ("x.com", "twitter.com"):

@@ -62,7 +62,7 @@ class Config:
     max_messages_per_run: int = 25              # cap sends per run so a backlog doesn't flood
     max_posting_age_days: int = 30              # drop postings older than this (0 = no limit)
     default_request_interval_seconds: float = 5.0
-    message_interval_seconds: float = 0.5       # gap between per-posting Telegram sends
+    message_interval_seconds: float = 3.0       # gap between sends (Telegram flood-limits ~20/min per chat)
     tier_b_failure_threshold: int = 3           # auto-disable a broken scraper
     max_sent_remembered: int = 5000             # bound the state file
     notify_owner_on_source_disable: bool = True
