@@ -1,19 +1,22 @@
-"""Optional AI extraction (Anthropic API).
+"""Optional AI extraction (Claude or Google Gemini).
 
-Off by default. When ``use_ai = true`` and an API key is present, each posting
-about to be sent is enriched by Claude into cleaner structured fields — most
-usefully, the separate 岗位职责 (responsibilities) and 岗位要求 (requirements)
+Off by default. When ``use_ai = true`` and a key for the chosen provider is
+present, each posting about to be sent is enriched into cleaner structured
+fields — most usefully, the separate **responsibilities** and **requirements**
 lists that rule-based parsing can't reliably split out of free-form text.
 
-To keep the rest of the project dependency-free, this calls the Anthropic
-Messages API directly over stdlib ``urllib`` rather than pulling in the SDK —
-so the AI path is genuinely optional and the core still runs with zero installs.
-Any failure (no key, network error, refusal, bad JSON) returns ``None`` and the
-caller falls back to the rule-based fields.
+Two providers are supported, selected by ``ai_provider`` in the config:
 
-The API key comes from the environment (``JOBRADAR_ANTHROPIC_API_KEY``), never
-the config file. Only postings that already passed filtering and dedup are
-enriched, so the API is called at most once per delivered posting.
+* ``"claude"`` — Anthropic Messages API. Paid (needs credits).
+* ``"gemini"`` — Google Gemini API. Has a **free tier** (get a key at
+  https://aistudio.google.com/apikey), which is plenty for a personal bot.
+
+To keep the project dependency-free, both call their HTTP API directly over
+stdlib ``urllib`` — no SDK. Any failure (no key, network error, refusal, bad
+JSON) returns ``None`` and the caller falls back to the rule-based fields, so
+the AI path is genuinely optional and the core still runs with zero installs.
+Only postings that already passed filtering and dedup are enriched, so the API
+is called at most once per delivered posting.
 """
 
 from __future__ import annotations
@@ -26,11 +29,17 @@ from typing import Any
 
 log = logging.getLogger("jobradar.ai")
 
-_API_URL = "https://api.anthropic.com/v1/messages"
+# --- Anthropic (Claude) --------------------------------------------------
+_CLAUDE_URL = "https://api.anthropic.com/v1/messages"
 _ANTHROPIC_VERSION = "2023-06-01"
 
-# Structured-output schema Claude must fill. Kept flat and all-required so the
-# response is deterministic and easy to merge onto a Posting.
+# --- Google (Gemini) -----------------------------------------------------
+_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+_GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+
+# The structured shape both providers must return. Claude gets it as a JSON
+# Schema (below); Gemini gets it enumerated in the prompt plus a JSON response
+# mode, which avoids fighting Gemini's slightly different schema dialect.
 _SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -60,6 +69,16 @@ _SYSTEM = (
     "to short bullet phrases in the post's own language."
 )
 
+# For Gemini we enumerate the exact keys in the prompt (it returns JSON via
+# responseMimeType, without a strict schema).
+_GEMINI_FIELDS = (
+    "\n\nReturn a JSON object with exactly these keys: "
+    "title (string), company (string), role (string), location (string), "
+    "is_remote (one of: remote, hybrid, onsite, unknown), is_worldwide (boolean), "
+    "salary (string), responsibilities (array of strings), requirements (array of "
+    "strings), apply (string)."
+)
+
 
 @dataclass
 class Enrichment:
@@ -75,55 +94,7 @@ class Enrichment:
     apply: str = ""
 
 
-def enrich(
-    text: str,
-    *,
-    api_key: str,
-    model: str = "claude-opus-5",
-    max_chars: int = 6000,
-    timeout: float = 30.0,
-) -> Enrichment | None:
-    """Return structured fields for one posting, or None to fall back to rules."""
-    if not api_key or not text.strip():
-        return None
-    body = {
-        "model": model,
-        "max_tokens": 2048,
-        "system": _SYSTEM,
-        # Low effort keeps this cheap and fast; structured output guarantees JSON.
-        "output_config": {"effort": "low", "format": {"type": "json_schema", "schema": _SCHEMA}},
-        "messages": [{"role": "user", "content": text[:max_chars]}],
-    }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(_API_URL, data=data, method="POST")
-    req.add_header("content-type", "application/json")
-    req.add_header("anthropic-version", _ANTHROPIC_VERSION)
-    req.add_header("x-api-key", api_key)
-
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            payload = json.loads(resp.read())
-    except Exception as e:  # noqa: BLE001 - AI is best-effort; never break a run
-        log.warning("AI enrichment request failed; falling back to rules: %s", e)
-        return None
-
-    if payload.get("stop_reason") == "refusal":
-        log.info("AI enrichment refused; falling back to rules")
-        return None
-
-    # With thinking on, JSON is in the text block — find it rather than [0].
-    raw = None
-    for block in payload.get("content", []):
-        if block.get("type") == "text":
-            raw = block.get("text")
-            break
-    if not raw:
-        return None
-    try:
-        obj = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
-
+def _to_enrichment(obj: dict[str, Any]) -> Enrichment | None:
     try:
         return Enrichment(
             title=str(obj.get("title") or "").strip(),
@@ -138,4 +109,98 @@ def enrich(
             apply=str(obj.get("apply") or "").strip(),
         )
     except (TypeError, ValueError):
+        return None
+
+
+def enrich(
+    text: str,
+    *,
+    provider: str = "claude",
+    api_key: str,
+    model: str = "claude-opus-5",
+    max_chars: int = 6000,
+    timeout: float = 30.0,
+) -> Enrichment | None:
+    """Return structured fields for one posting, or None to fall back to rules."""
+    if not api_key or not text.strip():
+        return None
+    prov = (provider or "claude").strip().lower()
+    try:
+        if prov == "gemini":
+            return _enrich_gemini(text, api_key=api_key, model=model,
+                                  max_chars=max_chars, timeout=timeout)
+        return _enrich_claude(text, api_key=api_key, model=model,
+                              max_chars=max_chars, timeout=timeout)
+    except Exception as e:  # noqa: BLE001 - AI is best-effort; never break a run
+        log.warning("AI enrichment failed; falling back to rules: %s", e)
+        return None
+
+
+def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("content-type", "application/json")
+    for k, v in headers.items():
+        req.add_header(k, v)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+# ------------------------------------------------------------------ Claude
+def _enrich_claude(text, *, api_key, model, max_chars, timeout) -> Enrichment | None:
+    if not model or model.startswith("gemini"):
+        model = "claude-opus-5"
+    body = {
+        "model": model,
+        "max_tokens": 2048,
+        "system": _SYSTEM,
+        # Low effort keeps this cheap and fast; structured output guarantees JSON.
+        "output_config": {"effort": "low", "format": {"type": "json_schema", "schema": _SCHEMA}},
+        "messages": [{"role": "user", "content": text[:max_chars]}],
+    }
+    payload = _post_json(_CLAUDE_URL, body, {
+        "anthropic-version": _ANTHROPIC_VERSION, "x-api-key": api_key,
+    }, timeout)
+    if payload.get("stop_reason") == "refusal":
+        log.info("AI enrichment refused; falling back to rules")
+        return None
+    raw = None
+    for block in payload.get("content", []):
+        if block.get("type") == "text":
+            raw = block.get("text")
+            break
+    if not raw:
+        return None
+    try:
+        return _to_enrichment(json.loads(raw))
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+# ------------------------------------------------------------------ Gemini
+def _enrich_gemini(text, *, api_key, model, max_chars, timeout) -> Enrichment | None:
+    # If the user left ai_model as a Claude id, pick a sensible free Gemini model.
+    if not model or not model.startswith("gemini"):
+        model = _GEMINI_DEFAULT_MODEL
+    body = {
+        "systemInstruction": {"parts": [{"text": _SYSTEM + _GEMINI_FIELDS}]},
+        "contents": [{"role": "user", "parts": [{"text": text[:max_chars]}]}],
+        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+    }
+    url = _GEMINI_URL.format(model=model)
+    payload = _post_json(url, body, {"x-goog-api-key": api_key}, timeout)
+    # A blocked prompt has no candidates, just promptFeedback.
+    if payload.get("promptFeedback", {}).get("blockReason"):
+        log.info("Gemini blocked the prompt; falling back to rules")
+        return None
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        return None
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    raw = next((p.get("text") for p in parts if p.get("text")), None)
+    if not raw:
+        return None
+    try:
+        return _to_enrichment(json.loads(raw))
+    except (json.JSONDecodeError, TypeError):
         return None

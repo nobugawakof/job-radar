@@ -142,7 +142,7 @@ class Pipeline:
         fresh.sort(key=lambda p: p.posted_at)
         # Optional AI enrichment — only for the postings we're about to send, so
         # the API is called at most once per delivered posting.
-        if self.config.use_ai and self.config.anthropic_api_key:
+        if self.config.use_ai and self._ai_key():
             for p in fresh:
                 self._enrich(p)
         summary.sent = fresh
@@ -308,13 +308,21 @@ class Pipeline:
                 log.exception("owner alert send failed")
 
     # --------------------------------------------------------------- format
+    def _ai_key(self) -> str | None:
+        """The API key for the configured AI provider (or None if unset)."""
+        if (self.config.ai_provider or "claude").lower() == "gemini":
+            return self.config.gemini_api_key
+        return self.config.anthropic_api_key
+
     def _enrich(self, p: Posting) -> None:
-        """Improve a posting's fields with Claude; leave it untouched on failure."""
+        """Improve a posting's fields with the configured AI provider; leave it
+        untouched on any failure."""
         from . import ai
 
         result = ai.enrich(
-            p.description, api_key=self.config.anthropic_api_key or "",
-            model=self.config.ai_model, max_chars=self.config.ai_max_chars,
+            p.description, provider=self.config.ai_provider,
+            api_key=self._ai_key() or "", model=self.config.ai_model,
+            max_chars=self.config.ai_max_chars,
         )
         if result is None:
             return
