@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,7 +36,11 @@ _ANTHROPIC_VERSION = "2023-06-01"
 
 # --- Google (Gemini) -----------------------------------------------------
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+_GEMINI_LIST_URL = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200"
 _GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
+# Cache the model we discovered actually works for a given key, so we don't
+# call ListModels on every posting. Keyed by api_key.
+_GEMINI_MODEL_CACHE: dict[str, str] = {}
 
 # The structured shape both providers must return. Claude gets it as a JSON
 # Schema (below); Gemini gets it enumerated in the prompt plus a JSON response
@@ -178,17 +183,68 @@ def _enrich_claude(text, *, api_key, model, max_chars, timeout) -> Enrichment | 
 
 
 # ------------------------------------------------------------------ Gemini
+def _gemini_pick_model(api_key: str, timeout: float) -> str | None:
+    """Ask Gemini which models this key can actually use, and pick a good fast
+    one that supports generateContent. Model names change between Gemini
+    generations (2.5 → 3.x …) and differ by project/region, so discovering the
+    name beats hardcoding one that 404s."""
+    req = urllib.request.Request(_GEMINI_LIST_URL, method="GET")
+    req.add_header("x-goog-api-key", api_key)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    names: list[str] = []
+    for m in data.get("models", []):
+        methods = m.get("supportedGenerationMethods") or m.get("supportedActions") or []
+        if "generateContent" not in methods:
+            continue
+        name = (m.get("name") or "").split("/")[-1]
+        if name:
+            names.append(name)
+
+    def score(n: str) -> tuple:
+        # Prefer a plain "flash" model; avoid preview/experimental and the
+        # heavier or specialised variants; shorter name breaks ties.
+        avoid = ("preview", "exp", "vision", "thinking", "image", "tts",
+                 "audio", "live", "-8b", "learnlm", "embedding", "aqa")
+        return (0 if "flash" in n else 1, 1 if any(a in n for a in avoid) else 0, len(n))
+
+    names.sort(key=score)
+    return names[0] if names else None
+
+
+def _gemini_generate(model, body, api_key, timeout) -> dict:
+    return _post_json(_GEMINI_URL.format(model=model), body, {"x-goog-api-key": api_key}, timeout)
+
+
 def _enrich_gemini(text, *, api_key, model, max_chars, timeout) -> Enrichment | None:
-    # If the user left ai_model as a Claude id, pick a sensible free Gemini model.
-    if not model or not model.startswith("gemini"):
+    # Prefer a model we already discovered works for this key (the configured
+    # one may be a stale name that 404s). Otherwise use the configured Gemini
+    # model, or the default when it's a Claude id / a label like "Gemini API Key".
+    cached = _GEMINI_MODEL_CACHE.get(api_key)
+    if cached:
+        model = cached
+    elif not model or not model.startswith("gemini"):
         model = _GEMINI_DEFAULT_MODEL
     body = {
         "systemInstruction": {"parts": [{"text": _SYSTEM + _GEMINI_FIELDS}]},
         "contents": [{"role": "user", "parts": [{"text": text[:max_chars]}]}],
         "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
     }
-    url = _GEMINI_URL.format(model=model)
-    payload = _post_json(url, body, {"x-goog-api-key": api_key}, timeout)
+    try:
+        payload = _gemini_generate(model, body, api_key, timeout)
+    except urllib.error.HTTPError as e:
+        # 404 = that model name isn't available for this key. Discover one that
+        # is, cache it, and retry once. (Google renames models across versions.)
+        if e.code != 404:
+            raise
+        picked = _gemini_pick_model(api_key, timeout)
+        if not picked or picked == model:
+            log.warning("Gemini model %r not available and no alternative found; "
+                        "set ai_model to a valid model from aistudio.google.com", model)
+            return None
+        _GEMINI_MODEL_CACHE[api_key] = picked
+        log.info("Gemini model %r unavailable; using %r instead", model, picked)
+        payload = _gemini_generate(picked, body, api_key, timeout)
     # A blocked prompt has no candidates, just promptFeedback.
     if payload.get("promptFeedback", {}).get("blockReason"):
         log.info("Gemini blocked the prompt; falling back to rules")
