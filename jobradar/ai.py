@@ -151,14 +151,42 @@ def enrich(
         return None
 
 
+class _HttpError(RuntimeError):
+    """Carries the HTTP status code plus the server's error body, so the real
+    reason (Gemini/Claude put a detailed message in the body) reaches the log."""
+
+    def __init__(self, code: int, detail: str):
+        self.code = code
+        super().__init__(f"HTTP {code}: {detail}")
+
+
 def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("content-type", "application/json")
     for k, v in headers.items():
         req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace").strip()[:600]
+        raise _HttpError(e.code, detail) from e
+
+
+def _extract_json(raw: str) -> dict[str, Any] | None:
+    """Parse a JSON object out of model text, tolerating ```json code fences."""
+    s = (raw or "").strip()
+    if s.startswith("```"):
+        s = s.split("```", 2)[1] if s.count("```") >= 2 else s.strip("`")
+        s = s[4:].strip() if s.lower().startswith("json") else s.strip()
+    start, end = s.find("{"), s.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        return json.loads(s[start:end + 1])
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 # ------------------------------------------------------------------ Claude
@@ -222,6 +250,23 @@ def _gemini_pick_model(api_key: str, timeout: float) -> str | None:
     return names[0] if names else None
 
 
+def _gemini_body(text: str, max_chars: int, *, json_mode: bool) -> dict:
+    if json_mode:
+        # Preferred: native JSON output + a system instruction.
+        return {
+            "systemInstruction": {"parts": [{"text": _SYSTEM + _GEMINI_FIELDS}]},
+            "contents": [{"role": "user", "parts": [{"text": text[:max_chars]}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
+        }
+    # Compatibility fallback for models that reject systemInstruction or JSON
+    # mode (some return 400): put everything in one user turn and ask for raw JSON.
+    prompt = (_SYSTEM + _GEMINI_FIELDS +
+              "\n\nReply with ONLY the JSON object — no markdown, no code fences."
+              "\n\nJob posting:\n" + text[:max_chars])
+    return {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0}}
+
+
 def _gemini_generate(model, body, api_key, timeout) -> dict:
     return _post_json(_GEMINI_URL.format(model=model), body, {"x-goog-api-key": api_key}, timeout)
 
@@ -235,26 +280,34 @@ def _enrich_gemini(text, *, api_key, model, max_chars, timeout) -> Enrichment | 
         model = cached
     elif not model or not model.startswith("gemini"):
         model = _GEMINI_DEFAULT_MODEL
-    body = {
-        "systemInstruction": {"parts": [{"text": _SYSTEM + _GEMINI_FIELDS}]},
-        "contents": [{"role": "user", "parts": [{"text": text[:max_chars]}]}],
-        "generationConfig": {"responseMimeType": "application/json", "temperature": 0},
-    }
+
+    def call(m: str, json_mode: bool) -> dict:
+        return _gemini_generate(m, _gemini_body(text, max_chars, json_mode=json_mode), api_key, timeout)
+
     try:
-        payload = _gemini_generate(model, body, api_key, timeout)
-    except urllib.error.HTTPError as e:
-        # 404 = that model name isn't available for this key. Discover one that
-        # is, cache it, and retry once. (Google renames models across versions.)
-        if e.code != 404:
+        payload = call(model, True)
+    except _HttpError as e:
+        if e.code == 404:
+            # Model name isn't available for this key — discover one, cache, retry.
+            picked = _gemini_pick_model(api_key, timeout)
+            if not picked:
+                log.warning("Gemini: no usable model for this key; %s", e)
+                return None
+            _GEMINI_MODEL_CACHE[api_key] = picked
+            log.info("Gemini model %r unavailable; using %r instead", model, picked)
+            model = picked
+            try:
+                payload = call(model, True)
+            except _HttpError as e2:
+                if e2.code != 400:
+                    raise
+                payload = call(model, False)  # compat retry
+        elif e.code == 400:
+            # The body used a feature this model rejects — retry in compat mode.
+            log.info("Gemini 400 in JSON mode (%s); retrying in compatibility mode", e)
+            payload = call(model, False)
+        else:
             raise
-        picked = _gemini_pick_model(api_key, timeout)
-        if not picked or picked == model:
-            log.warning("Gemini model %r not available and no alternative found; "
-                        "set ai_model to a valid model from aistudio.google.com", model)
-            return None
-        _GEMINI_MODEL_CACHE[api_key] = picked
-        log.info("Gemini model %r unavailable; using %r instead", model, picked)
-        payload = _gemini_generate(picked, body, api_key, timeout)
     # A blocked prompt has no candidates, just promptFeedback.
     if payload.get("promptFeedback", {}).get("blockReason"):
         log.info("Gemini blocked the prompt; falling back to rules")
@@ -264,9 +317,5 @@ def _enrich_gemini(text, *, api_key, model, max_chars, timeout) -> Enrichment | 
         return None
     parts = (candidates[0].get("content") or {}).get("parts") or []
     raw = next((p.get("text") for p in parts if p.get("text")), None)
-    if not raw:
-        return None
-    try:
-        return _to_enrichment(json.loads(raw))
-    except (json.JSONDecodeError, TypeError):
-        return None
+    obj = _extract_json(raw) if raw else None
+    return _to_enrichment(obj) if obj else None
