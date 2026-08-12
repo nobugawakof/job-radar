@@ -7,6 +7,7 @@ Atom ``<entry>`` shapes are handled.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from datetime import datetime, timezone
@@ -24,7 +25,10 @@ _TAG_RE = re.compile(r"<[^>]+>")
 def _clean(s: str | None) -> str:
     if not s:
         return ""
-    return _TAG_RE.sub("", s).strip()
+    # Strip tags, then decode HTML entities. Feeds like Reddit's double-escape
+    # their HTML, so the text arrives as "I&#39;m a freelance &amp; ..." — decode
+    # it so messages read cleanly AND the classifier can see the real words.
+    return html.unescape(_TAG_RE.sub("", s)).strip()
 
 
 def _localname(tag: str) -> str:

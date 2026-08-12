@@ -76,6 +76,17 @@ HARD_SEEKER_ZH = [
 HARD_SEEKER_EN = [
     "who wants to be hired", "looking for a job", "looking for work",
     "got laid off", "laid off", "resume review",
+    # Someone advertising THEMSELVES for work (freelancer / job seeker), which
+    # is what "[for hire]" and first-person availability phrases signal.
+    "for hire", "hire me", "available for hire", "available for freelance",
+    "open to work", "open to opportunities", "open to new opportunit",
+    "currently looking for", "currently seeking", "actively looking",
+    "actively seeking", "i'm looking for", "im looking for", "i am looking for",
+    "i'm seeking", "im seeking", "i am seeking", "i'm available", "im available",
+    "i'm a freelance", "im a freelance", "i am a freelance", "freelancer available",
+    "looking for opportunities", "looking for new opportunit", "looking for a role",
+    "looking for a position", "seeking opportunities", "seeking a role",
+    "seeking a position", "my portfolio", "immediate joiner",
 ]
 SOFT_SEEKER_ZH = [
     "毕业", "应届", "迷茫", "请教", "咨询一下", "吐槽", "转行", "帮看看",
@@ -108,7 +119,8 @@ def classify(text: str, *, source_prior: float = 0.0) -> Classification:
     if not text or not text.strip():
         return Classification(False, 0.0, [])
 
-    low = text.lower()
+    # Normalise curly apostrophes so "I’m" matches the same as "I'm".
+    low = text.lower().replace("’", "'")
     signals: list[str] = []
     score = source_prior
 

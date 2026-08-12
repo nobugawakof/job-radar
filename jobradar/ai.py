@@ -49,6 +49,9 @@ _SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "is_hiring": {"type": "boolean", "description": "true ONLY if an employer is "
+                      "hiring for a role; false for job-seekers, freelancers "
+                      "advertising themselves ('for hire'), ads, or discussion"},
         "title": {"type": "string", "description": "Concise 'Company — Role' headline"},
         "company": {"type": "string"},
         "role": {"type": "string"},
@@ -61,8 +64,8 @@ _SCHEMA: dict[str, Any] = {
         "apply": {"type": "string", "description": "Email, URL, or handle to apply, or ''"},
     },
     "required": [
-        "title", "company", "role", "location", "is_remote", "is_worldwide",
-        "salary", "responsibilities", "requirements", "apply",
+        "is_hiring", "title", "company", "role", "location", "is_remote",
+        "is_worldwide", "salary", "responsibilities", "requirements", "apply",
     ],
 }
 
@@ -78,6 +81,9 @@ _SYSTEM = (
 # responseMimeType, without a strict schema).
 _GEMINI_FIELDS = (
     "\n\nReturn a JSON object with exactly these keys: "
+    "is_hiring (boolean: true ONLY if an employer is hiring for a role; false "
+    "for job-seekers, freelancers advertising themselves / 'for hire' posts, "
+    "ads, or discussion), "
     "title (string), company (string), role (string), location (string), "
     "is_remote (one of: remote, hybrid, onsite, unknown), is_worldwide (boolean), "
     "salary (string), responsibilities (array of strings), requirements (array of "
@@ -87,6 +93,7 @@ _GEMINI_FIELDS = (
 
 @dataclass
 class Enrichment:
+    is_hiring: bool
     title: str
     company: str
     role: str
@@ -102,6 +109,9 @@ class Enrichment:
 def _to_enrichment(obj: dict[str, Any]) -> Enrichment | None:
     try:
         return Enrichment(
+            # Default True so a model that omits the field never wrongly drops a
+            # real posting; an explicit false is what vetoes.
+            is_hiring=bool(obj.get("is_hiring", True)),
             title=str(obj.get("title") or "").strip(),
             company=str(obj.get("company") or "").strip(),
             role=str(obj.get("role") or "").strip(),
