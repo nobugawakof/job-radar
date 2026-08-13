@@ -37,6 +37,14 @@ keywords = [
   "devops", "data", "ai", "designer",
   "工程师", "开发", "程序员", "后端", "前端", "远程",
 ]
+
+# Drop whole role categories even if they match a keyword above. Handy for
+# "engineering only" — a marketing/growth post that says "data-driven" won't
+# sneak in via the "data" keyword. Empty = keep everything that matched.
+exclude_keywords = [
+  # "marketing", "growth", "sales", "designer", "recruiter", "community",
+  # "市场推广", "用户增长", "增长", "运营", "销售", "招商", "客服", "设计师",
+]
 remote_only = true
 regions     = []            # e.g. ["Hong Kong", "中国", "Worldwide"]; empty = anywhere
 run_interval_hours = 4
@@ -46,9 +54,18 @@ max_posting_age_days = 15    # ignore anything older than N days (0 = no limit)
 min_salary_usd = 0          # drop postings whose pay looks below this (annual USD est.)
 require_salary = false      # true = only send postings that state a salary
 
-# --- Optional: nicer messages via AI (costs money) -----------------------
-use_ai = false
-ai_model = "claude-opus-5"          # or "claude-haiku-4-5" to cut cost
+# --- Optional: nicer messages via AI -------------------------------------
+# Splits each job into clean Responsibilities / Requirements. Off by default;
+# the bot works fully without it. Pick a provider:
+#   gemini  -> Google, has a FREE tier. Get a key at aistudio.google.com/apikey
+#   claude  -> Anthropic. Paid (needs credits at console.anthropic.com).
+use_ai      = false
+ai_provider = "gemini"              # "gemini" (free tier) or "claude" (paid)
+# --- if ai_provider = "gemini" (free):
+# ai_model      = "gemini-2.5-flash"
+# gemini_api_key = "AIza..."
+# --- if ai_provider = "claude" (paid):
+# ai_model         = "claude-haiku-4-5"   # or "claude-opus-5"
 # anthropic_api_key = "sk-ant-..."
 
 # --- Optional: API tokens (only for the sources that need them) ----------

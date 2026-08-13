@@ -35,6 +35,7 @@ class Settings:
     regions: list[str] = field(default_factory=list)
     min_salary_usd: int = 0
     require_salary: bool = False
+    exclude_keywords: list[str] = field(default_factory=list)
 
 
 # Rough currency → USD factors and period → per-year factors. Deliberately
@@ -149,7 +150,26 @@ def salary_stage(posting: Posting, settings: Settings) -> bool:
     return est >= settings.min_salary_usd
 
 
+def exclude_stage(posting: Posting, settings: Settings) -> list[str]:
+    """Return the excluded keywords that appear in the posting (empty = keep).
+
+    A blocklist for whole categories of role you never want — e.g. marketing,
+    sales, growth, design — so a real hiring post in the wrong field is dropped
+    even when it happens to match a wanted keyword.
+    """
+    if not settings.exclude_keywords:
+        return []
+    haystack = f"{posting.title}\n{posting.description}"
+    return match_keywords(haystack, settings.exclude_keywords)
+
+
 def evaluate(posting: Posting, settings: Settings) -> FilterResult:
+    # Blocklist first: an unwanted role category is rejected even if it would
+    # otherwise match a wanted keyword.
+    excluded = exclude_stage(posting, settings)
+    if excluded:
+        return FilterResult(REJECT, [], "excluded", f"matched_exclude:{excluded[0]}")
+
     # An empty keyword set means "send everything" (no keyword gate).
     if settings.keywords:
         ok, matched = keyword_stage(posting, settings)

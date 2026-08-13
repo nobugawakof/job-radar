@@ -25,6 +25,9 @@ class Config:
 
     # What to look for.
     keywords: list[str] = field(default_factory=lambda: ["web3", "web2", "backend", "frontend", "ai", "fullstack"])
+    # Role categories to always drop, even if they match a keyword (e.g.
+    # marketing/sales/growth/design when you only want engineering roles).
+    exclude_keywords: list[str] = field(default_factory=list)
     remote_only: bool = True
     # Salary filter (approximate). min_salary_usd drops postings whose parsed pay
     # is below this (rough annual-USD estimate); require_salary drops postings
@@ -41,12 +44,14 @@ class Config:
     telegram_chat_id: str | None = None
 
     # Optional AI extraction (off by default). When on, each posting about to be
-    # sent is enriched by Claude into cleaner fields + responsibilities/
-    # requirements. Needs JOBRADAR_ANTHROPIC_API_KEY in the environment.
+    # sent is enriched into cleaner fields + responsibilities/requirements.
+    # Provider is "claude" (paid) or "gemini" (Google, has a free tier).
     use_ai: bool = False
-    ai_model: str = "claude-opus-5"      # set "claude-haiku-4-5" to cut cost
+    ai_provider: str = "claude"          # "claude" or "gemini"
+    ai_model: str = "claude-opus-5"      # Claude: "claude-haiku-4-5" is cheaper; Gemini: "gemini-2.5-flash"
     ai_max_chars: int = 6000             # cap post text sent to the API
     anthropic_api_key: str | None = None
+    gemini_api_key: str | None = None    # free key from https://aistudio.google.com/apikey
 
     # Source credentials — configured here (in the file), no env vars needed.
     # Only fill in the ones for sources you actually use.
@@ -106,6 +111,7 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
         "telegram_bot_token": os.environ.get("JOBRADAR_TELEGRAM_BOT_TOKEN"),
         "telegram_chat_id": os.environ.get("JOBRADAR_TELEGRAM_CHAT_ID"),
         "anthropic_api_key": os.environ.get("JOBRADAR_ANTHROPIC_API_KEY"),
+        "gemini_api_key": os.environ.get("JOBRADAR_GEMINI_API_KEY"),
         "reddit_client_id": os.environ.get("JOBRADAR_REDDIT_CLIENT_ID"),
         "reddit_client_secret": os.environ.get("JOBRADAR_REDDIT_CLIENT_SECRET"),
         "x_bearer_token": os.environ.get("JOBRADAR_X_BEARER_TOKEN"),

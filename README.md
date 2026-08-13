@@ -154,21 +154,36 @@ job-seeker posts.
 
 ## Optional AI extraction
 
-Off by default. With `use_ai = true` and an `anthropic_api_key` in `config.toml`,
-each posting *about to be sent* is enriched by Claude into cleaner fields plus
-separate **responsibilities / requirements** lists — the parts rule-based parsing
-can't reliably split out of free-form text.
+Off by default — **the bot works fully without it.** When on, each posting
+*about to be sent* is enriched into cleaner fields plus separate
+**Responsibilities / Requirements** lists — the parts rule-based parsing can't
+reliably split out of free-form text. Two providers:
+
+**Google Gemini — has a free tier** (recommended). Get a key at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey):
 
 ```toml
-use_ai = true
-ai_model = "claude-opus-5"          # or "claude-haiku-4-5" to cut cost
+use_ai         = true
+ai_provider    = "gemini"
+ai_model       = "gemini-2.5-flash"
+gemini_api_key = "AIza..."
+```
+
+**Claude (Anthropic) — paid**, needs credits at console.anthropic.com:
+
+```toml
+use_ai            = true
+ai_provider       = "claude"
+ai_model          = "claude-haiku-4-5"   # cheaper, or "claude-opus-5"
 anthropic_api_key = "sk-ant-..."
 ```
 
-It costs money per posting, so the API is called only for postings that already
-passed the filter and dedup (at most once each), and any failure — no key,
-network error, refusal — silently falls back to the rule-based fields. The core
-app still needs no third-party packages; the AI call goes over stdlib `urllib`.
+The API is called only for postings that already passed the filter and dedup (at
+most once each), and any failure — no key, network error, refusal, rate limit —
+silently falls back to the rule-based fields, so it never breaks a run. Gemini's
+free tier is rate-limited but comfortably handles a personal bot's volume. The
+core app still needs no third-party packages; both AI calls go over stdlib
+`urllib`.
 
 ## Build a standalone executable (.exe)
 
@@ -199,6 +214,11 @@ career-advice threads, laid-off venting, freelancer-for-hire ads — so a post l
 "「求助帖」5 年前端又被裁…" never reaches you. What survives then passes through
 these stages, in order; a posting must pass all the ones you've configured:
 
+0. **Blocklist** — `exclude_keywords` drops whole role categories you never
+   want (e.g. `["marketing", "growth", "sales", "市场推广", "用户增长"]`), even
+   when the post matches a wanted keyword. Use it for "engineering only" so a
+   marketing post that says "data-driven" doesn't sneak in via the `data`
+   keyword. Empty = nothing blocked.
 1. **Keyword** — case-insensitive, variant-aware (`fullstack` also matches
    `full-stack` / `full stack`, `backend` also matches `后端`). At least one
    keyword must match. An empty `keywords` list means "send everything".

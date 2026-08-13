@@ -50,6 +50,8 @@ class RunSummary:
     rejected_remote: int = 0
     rejected_region: int = 0
     rejected_salary: int = 0
+    rejected_excluded: int = 0
+    rejected_ai: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
     held_back: int = 0
@@ -91,7 +93,8 @@ class Pipeline:
         kept: list[Posting] = []
         settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only,
                             regions=self.config.regions, min_salary_usd=self.config.min_salary_usd,
-                            require_salary=self.config.require_salary)
+                            require_salary=self.config.require_salary,
+                            exclude_keywords=self.config.exclude_keywords)
         max_age = self.config.max_posting_age_days
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
@@ -118,6 +121,8 @@ class Pipeline:
                     summary.rejected_region += 1
                 elif result.stage == "salary":
                     summary.rejected_salary += 1
+                elif result.stage == "excluded":
+                    summary.rejected_excluded += 1
                 continue
             posting.matched_keywords = result.matched_keywords
             ps["passed"] = ps.get("passed", 0) + 1
@@ -141,10 +146,18 @@ class Pipeline:
         # One message per posting (sent separately, oldest first).
         fresh.sort(key=lambda p: p.posted_at)
         # Optional AI enrichment — only for the postings we're about to send, so
-        # the API is called at most once per delivered posting.
-        if self.config.use_ai and self.config.anthropic_api_key:
+        # the API is called at most once per delivered posting. As well as
+        # cleaning fields, the AI vetoes anything that isn't an employer hiring
+        # (job-seekers, "for hire" freelancers, ads) that the rules let through.
+        if self.config.use_ai and self._ai_key():
+            surviving: list[Posting] = []
             for p in fresh:
-                self._enrich(p)
+                if self._enrich(p):
+                    surviving.append(p)
+                else:
+                    summary.rejected_ai += 1
+                    self.state.mark_sent(p.content_hash)  # don't re-check next run
+            fresh = surviving
         summary.sent = fresh
         summary.messages = [format_message(self._as_dict(p)) for p in fresh]
 
@@ -308,16 +321,27 @@ class Pipeline:
                 log.exception("owner alert send failed")
 
     # --------------------------------------------------------------- format
-    def _enrich(self, p: Posting) -> None:
-        """Improve a posting's fields with Claude; leave it untouched on failure."""
+    def _ai_key(self) -> str | None:
+        """The API key for the configured AI provider (or None if unset)."""
+        if (self.config.ai_provider or "claude").lower() == "gemini":
+            return self.config.gemini_api_key
+        return self.config.anthropic_api_key
+
+    def _enrich(self, p: Posting) -> bool:
+        """Enrich a posting with the configured AI provider. Returns False to
+        VETO the posting (the AI judged it not an employer job posting), True to
+        keep it. On any AI failure the posting is kept unchanged (True)."""
         from . import ai
 
         result = ai.enrich(
-            p.description, api_key=self.config.anthropic_api_key or "",
-            model=self.config.ai_model, max_chars=self.config.ai_max_chars,
+            p.description, provider=self.config.ai_provider,
+            api_key=self._ai_key() or "", model=self.config.ai_model,
+            max_chars=self.config.ai_max_chars,
         )
         if result is None:
-            return
+            return True  # AI unavailable — keep the rule-based result
+        if not result.is_hiring:
+            return False  # AI says this isn't an employer hiring — drop it
         if result.title:
             p.title = result.title
         if result.location:
@@ -331,6 +355,7 @@ class Pipeline:
             p.contact = result.apply
         p.responsibilities = result.responsibilities
         p.requirements = result.requirements
+        return True
 
     def _as_dict(self, p: Posting) -> dict[str, Any]:
         return {

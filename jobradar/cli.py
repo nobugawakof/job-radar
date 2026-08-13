@@ -99,11 +99,13 @@ def cmd_run(args: argparse.Namespace) -> int:
               f"{svc.config.max_posting_age_days} days.")
     # Filter funnel, so it's clear why postings were or weren't sent.
     print(f"Detected {s.postings_detected} posting(s) → {s.passed_filter} passed filters "
-          f"(rejected: {s.rejected_keyword} keyword, {s.rejected_remote} remote, "
-          f"{s.rejected_region} region, {s.rejected_salary} salary).")
+          f"(rejected: {s.rejected_keyword} keyword, {s.rejected_excluded} excluded, "
+          f"{s.rejected_remote} remote, {s.rejected_region} region, {s.rejected_salary} salary).")
+    ai_note = f", {s.rejected_ai} vetoed by AI" if s.rejected_ai else ""
     tail = f", held {s.held_back} for later runs" if s.held_back else ""
     print(f"After dedup ({s.duplicates_merged} merged) and already-sent "
-          f"({s.already_sent_skipped}): {len(s.sent)} to send → {s.delivered} delivered{tail}.")
+          f"({s.already_sent_skipped}){ai_note}: {len(s.sent)} to send → "
+          f"{s.delivered} delivered{tail}.")
     if not svc.transport:
         print("  (no Telegram token configured — nothing was sent; set "
               "telegram_bot_token / telegram_chat_id in config.toml)")
