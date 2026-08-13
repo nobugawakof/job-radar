@@ -275,15 +275,17 @@ def _gemini_generate(model, body, api_key, timeout) -> dict:
 
 def _enrich_gemini(text, *, api_key, model, max_chars, timeout) -> Enrichment | None:
     # Google's newer "AQ." keys are rejected by this REST API (a known rollout
-    # issue); only "AIza…" keys work. Warn clearly instead of spamming 400s.
-    if not api_key.startswith("AIza") and api_key not in _WARNED_KEYS:
-        _WARNED_KEYS.add(api_key)
-        log.warning(
-            "This Gemini key doesn't start with 'AIza' — Google's newer 'AQ.' keys "
-            "are rejected by the API used here. Create an 'AIza' key in Google Cloud "
-            "Console (APIs & Services > Credentials, with the Generative Language API "
-            "enabled), or set use_ai=false to turn AI off."
-        )
+    # issue); only "AIza…" keys work. Skip the call entirely (one warning, then
+    # silent) so a bad key can't flood the log with 400s every run.
+    if not api_key.startswith("AIza"):
+        if api_key not in _WARNED_KEYS:
+            _WARNED_KEYS.add(api_key)
+            log.warning(
+                "Gemini key doesn't start with 'AIza' — Google's newer 'AQ.' keys are "
+                "rejected by the API used here, so AI enrichment is skipped. Use an "
+                "'AIza' key, or set use_ai=false. (Jobs are still delivered normally.)"
+            )
+        return None
 
     # Prefer a model we already discovered works for this key (the configured
     # one may be a stale name that 404s). Otherwise use the configured Gemini
