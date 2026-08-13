@@ -41,6 +41,8 @@ _GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
 # Cache the model we discovered actually works for a given key, so we don't
 # call ListModels on every posting. Keyed by api_key.
 _GEMINI_MODEL_CACHE: dict[str, str] = {}
+# Keys we've already warned about, so the guidance is logged once, not per post.
+_WARNED_KEYS: set[str] = set()
 
 # The structured shape both providers must return. Claude gets it as a JSON
 # Schema (below); Gemini gets it enumerated in the prompt plus a JSON response
@@ -272,6 +274,17 @@ def _gemini_generate(model, body, api_key, timeout) -> dict:
 
 
 def _enrich_gemini(text, *, api_key, model, max_chars, timeout) -> Enrichment | None:
+    # Google's newer "AQ." keys are rejected by this REST API (a known rollout
+    # issue); only "AIza…" keys work. Warn clearly instead of spamming 400s.
+    if not api_key.startswith("AIza") and api_key not in _WARNED_KEYS:
+        _WARNED_KEYS.add(api_key)
+        log.warning(
+            "This Gemini key doesn't start with 'AIza' — Google's newer 'AQ.' keys "
+            "are rejected by the API used here. Create an 'AIza' key in Google Cloud "
+            "Console (APIs & Services > Credentials, with the Generative Language API "
+            "enabled), or set use_ai=false to turn AI off."
+        )
+
     # Prefer a model we already discovered works for this key (the configured
     # one may be a stale name that 404s). Otherwise use the configured Gemini
     # model, or the default when it's a Claude id / a label like "Gemini API Key".
