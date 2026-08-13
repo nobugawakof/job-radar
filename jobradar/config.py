@@ -25,6 +25,9 @@ class Config:
 
     # What to look for.
     keywords: list[str] = field(default_factory=lambda: ["web3", "web2", "backend", "frontend", "ai", "fullstack"])
+    # Role categories to always drop, even if they match a keyword (e.g.
+    # marketing/sales/growth/design when you only want engineering roles).
+    exclude_keywords: list[str] = field(default_factory=list)
     remote_only: bool = True
     # Salary filter (approximate). min_salary_usd drops postings whose parsed pay
     # is below this (rough annual-USD estimate); require_salary drops postings

@@ -50,6 +50,7 @@ class RunSummary:
     rejected_remote: int = 0
     rejected_region: int = 0
     rejected_salary: int = 0
+    rejected_excluded: int = 0
     rejected_ai: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
@@ -92,7 +93,8 @@ class Pipeline:
         kept: list[Posting] = []
         settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only,
                             regions=self.config.regions, min_salary_usd=self.config.min_salary_usd,
-                            require_salary=self.config.require_salary)
+                            require_salary=self.config.require_salary,
+                            exclude_keywords=self.config.exclude_keywords)
         max_age = self.config.max_posting_age_days
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
@@ -119,6 +121,8 @@ class Pipeline:
                     summary.rejected_region += 1
                 elif result.stage == "salary":
                     summary.rejected_salary += 1
+                elif result.stage == "excluded":
+                    summary.rejected_excluded += 1
                 continue
             posting.matched_keywords = result.matched_keywords
             ps["passed"] = ps.get("passed", 0) + 1

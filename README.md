@@ -214,6 +214,11 @@ career-advice threads, laid-off venting, freelancer-for-hire ads — so a post l
 "「求助帖」5 年前端又被裁…" never reaches you. What survives then passes through
 these stages, in order; a posting must pass all the ones you've configured:
 
+0. **Blocklist** — `exclude_keywords` drops whole role categories you never
+   want (e.g. `["marketing", "growth", "sales", "市场推广", "用户增长"]`), even
+   when the post matches a wanted keyword. Use it for "engineering only" so a
+   marketing post that says "data-driven" doesn't sneak in via the `data`
+   keyword. Empty = nothing blocked.
 1. **Keyword** — case-insensitive, variant-aware (`fullstack` also matches
    `full-stack` / `full stack`, `backend` also matches `后端`). At least one
    keyword must match. An empty `keywords` list means "send everything".

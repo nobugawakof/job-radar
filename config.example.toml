@@ -37,6 +37,14 @@ keywords = [
   "devops", "data", "ai", "designer",
   "工程师", "开发", "程序员", "后端", "前端", "远程",
 ]
+
+# Drop whole role categories even if they match a keyword above. Handy for
+# "engineering only" — a marketing/growth post that says "data-driven" won't
+# sneak in via the "data" keyword. Empty = keep everything that matched.
+exclude_keywords = [
+  # "marketing", "growth", "sales", "designer", "recruiter", "community",
+  # "市场推广", "用户增长", "增长", "运营", "销售", "招商", "客服", "设计师",
+]
 remote_only = true
 regions     = []            # e.g. ["Hong Kong", "中国", "Worldwide"]; empty = anywhere
 run_interval_hours = 4
