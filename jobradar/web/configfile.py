@@ -44,7 +44,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
      ["telegram_bot_token", "telegram_chat_id"]),
     ("Sites to search", ["en", "cn"]),
     ("What you want",
-     ["keywords", "exclude_keywords", "remote_only", "regions", "min_salary_usd",
+     ["keywords", "exclude_keywords", "remote_only", "regions", "send_unknown_location", "min_salary_usd",
       "require_salary", "max_posting_age_days", "repost_window_days"]),
     ("Schedule", ["auto_run", "run_interval_hours", "max_messages_per_run"]),
     ("AI (optional)", ["use_ai", "ai_provider", "ai_model", "gemini_api_key", "anthropic_api_key"]),

@@ -102,7 +102,8 @@ class Pipeline:
         settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only,
                             regions=self.config.regions, min_salary_usd=self.config.min_salary_usd,
                             require_salary=self.config.require_salary,
-                            exclude_keywords=self.config.exclude_keywords)
+                            exclude_keywords=self.config.exclude_keywords,
+                            send_unknown_location=self.config.send_unknown_location)
         max_age = self.config.max_posting_age_days
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
@@ -143,6 +144,7 @@ class Pipeline:
                     summary.rejected_excluded += 1
                 continue
             posting.matched_keywords = result.matched_keywords
+            posting.location_unknown = result.reason == "location_not_stated"
             ps["passed"] = ps.get("passed", 0) + 1
             kept.append(posting)
         summary.passed_filter = len(kept)
@@ -460,6 +462,7 @@ class Pipeline:
             "source": p.source, "source_tier": p.source_tier,
             "source_url": p.source_url, "origins": p.origins, "is_remote": p.is_remote,
             "location": p.location, "is_worldwide": p.is_worldwide,
+            "location_unknown": p.location_unknown,
             "salary_raw": p.salary.raw, "salary_min": p.salary.min, "salary_max": p.salary.max,
             "salary_currency": p.salary.currency, "matched_keywords": p.matched_keywords,
             "responsibilities": p.responsibilities, "requirements": p.requirements,

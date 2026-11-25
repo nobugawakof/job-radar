@@ -327,7 +327,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <label class="switch"><input type="checkbox" data-k="remote_only"><span><b>Remote jobs only</b><span class="muted small">On-site and hybrid roles are dropped. Jobs that don't say are kept.</span></span></label>
         <div class="field"><label>Regions</label>
           <div class="chips" data-k="regions" data-ph="e.g. Malaysia, Hong Kong, Worldwide"></div>
-          <span class="hint">Only jobs that hire worldwide or name one of these. Leave empty for anywhere.</span></div>
+          <span class="hint">Countries, cities or groupings like EU, APAC, Southeast Asia, 国内. A job passes if it hires worldwide or overlaps these, so Germany also matches “EU only”. Leave empty for anywhere.</span></div>
+        <label class="switch"><input type="checkbox" data-k="send_unknown_location"><span><b>Also send jobs that don't say where they hire</b><span class="muted small">They're marked “Location not stated”. Turn off to drop them when regions are set.</span></span></label>
       </div>
 
       <div class="card">

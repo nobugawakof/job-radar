@@ -47,6 +47,8 @@ class Posting:
     location: str | None = None
     is_remote: str = "unknown"
     is_worldwide: bool = False
+    # Regions are set but the post names no place (sent per SRS FR-20).
+    location_unknown: bool = False
     salary: Salary = field(default_factory=Salary)
     apply_url: str | None = None
     content_hash: str = ""

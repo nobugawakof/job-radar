@@ -380,12 +380,24 @@ these stages, in order; a posting must pass all the ones you've configured:
    keyword must match. An empty `keywords` list means "send everything".
 2. **Remote** — with `remote_only = true`, on-site/hybrid roles are dropped;
    explicit-remote and unknown-arrangement roles pass.
-3. **Region** — set `regions` to the countries/cities/blocs you care about
-   (e.g. `["Hong Kong", "Malaysia", "Worldwide"]`). A posting then passes only
-   if it hires **worldwide/anywhere** OR its **location names one of your
-   regions**. So if you live in Malaysia and set `regions = ["Hong Kong"]`, you
-   get Hong Kong-remote roles and hire-from-anywhere roles, but not US-only
-   ones. Leave `regions = []` to skip this stage.
+3. **Region** — set `regions` to the countries, cities or groupings you can
+   work from (e.g. `["Malaysia", "APAC"]`, `["Germany"]`, `["中国"]`). A job
+   passes if it hires **worldwide** or its hiring area **overlaps** yours.
+   Places are compared as sets of countries, so `Germany` matches "EU only",
+   "Europe", "EMEA" and "Berlin". Likewise `Malaysia` matches "APAC",
+   "Southeast Asia" and "Kuala Lumpur", and `中国` matches 国内, 北京 and
+   "Shanghai". A job limited to somewhere else ("US only", "Remote (LATAM)") is
+   dropped. The built-in list of countries, major cities and groupings (EU,
+   EEA, Europe, EMEA, DACH, Nordics, CEE, APAC, Asia, Southeast Asia, Greater
+   China, ANZ, North America, LATAM, Americas…) lives in `jobradar/places.py`.
+   Anything it doesn't know, like "Bay Area North", is matched as plain text.
+   A city you type also matches jobs open to its whole country. Leave
+   `regions = []` to skip this stage.
+   **Jobs that don't say where they hire** aren't silently dropped. They're
+   sent with "📍 Location: not stated", so you can check for yourself. Set
+   `send_unknown_location = false` (or untick it in the dashboard) to drop them
+   instead. On-site and hybrid jobs whose place isn't recognised are dropped,
+   since an office is somewhere specific.
    A job counts as **hire-from-anywhere** only when the post says so about
    the job: "Remote (Worldwide)", "work from anywhere in the world",
    "Location: Global", 全球远程, 工作地点不限. Company descriptions like "a global

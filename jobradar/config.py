@@ -39,6 +39,9 @@ class Config:
     # means no region filter. A posting passes if it's remote-worldwide OR its
     # location names one of these, e.g. ["Hong Kong", "Malaysia", "Worldwide"].
     regions: list[str] = field(default_factory=list)
+    # With regions set: also send jobs that don't say where they hire (marked
+    # "location not stated"). Off = drop them.
+    send_unknown_location: bool = True
 
     # Where to send.
     telegram_bot_token: str | None = None

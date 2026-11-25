@@ -161,22 +161,51 @@ def is_worldwide(text: str | None) -> bool:
     return worldwide(None, text)
 
 
-def region_matches(location: str | None, text: str | None, regions: list[str]) -> bool:
-    """True if any of the user's region terms appears in the posting.
+# ------------------------------------------------------------- regions
+_SAYS_WORLDWIDE = {"worldwide", "global", "anywhere", "remote", "全球", "不限"}
 
-    Prefers the explicitly-extracted location; falls back to the start of the
-    posting text when no location was found.
+
+def _term_in(term: str, text: str) -> bool:
+    return bool(re.search(r"(?<![a-z])" + re.escape(term.lower()) + r"(?![a-z])", text.lower()))
+
+
+def region_check(location: str | None, text: str | None, regions: list[str]) -> str:
+    """Does a posting's hiring geography fit the user's regions?
+
+    Returns ``"match"``, ``"no_match"`` or ``"unknown"`` (the posting names no
+    place at all). Places are compared as *sets of countries* (see
+    :mod:`jobradar.places`), so "Germany" fits "EU only" and "Malaysia" fits
+    "APAC"; anything the gazetteer doesn't know ("Bay Area North") is matched
+    as plain text. Evidence is taken from the most specific source that names
+    a place: a restriction phrase ("US only", 国内远程), then the location
+    field, then the start of the post.
     """
-    if not regions:
-        return True  # no region filter configured
-    haystack = (location or "").strip()
-    if not haystack:
-        haystack = (text or "")[:400]
-    haystack = haystack.lower()
-    for region in regions:
-        r = region.strip().lower()
-        if not r:
+    from . import places
+
+    user_codes: set[str] = set()
+    user_terms: list[str] = []
+    for r in regions:
+        r = r.strip()
+        if not r or r.lower() in _SAYS_WORLDWIDE:
+            continue  # "Worldwide" as a region = hire-from-anywhere jobs, handled upstream
+        user_codes |= places.resolve(r)
+        user_terms.append(r)
+    evidence_list = [(restriction(location), True), (restriction(text), True),
+                     (location, False), ((text or "")[:600], False)]
+    for evidence, geographic in evidence_list:
+        if not evidence:
             continue
-        if re.search(r"(?<![a-z])" + re.escape(r) + r"(?![a-z])", haystack):
-            return True
-    return False
+        codes = places.find(evidence, any_case=geographic)
+        if codes & user_codes or any(_term_in(t, evidence) for t in user_terms):
+            return "match"
+        if codes:
+            return "no_match"
+    return "unknown"
+
+
+def region_matches(location: str | None, text: str | None, regions: list[str]) -> bool:
+    """True if the posting names one of the user's regions (kept for older
+    callers; "location not stated" counts as no match here)."""
+    if not regions:
+        return True
+    return region_check(location, text, regions) == "match"
