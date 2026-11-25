@@ -21,13 +21,34 @@ class Service:
         self.config_path = config_path
         # Resolve a relative state path next to the config file, so a packaged
         # .exe keeps its state beside config.toml rather than in a random cwd.
+        self.base_dir = Path(config_path).resolve().parent if config_path else Path.cwd()
         state_path = Path(config.state_path)
-        if not state_path.is_absolute() and config_path:
-            state_path = Path(config_path).resolve().parent / state_path
-        self.state = State(str(state_path), max_sent=config.max_sent_remembered)
+        if not state_path.is_absolute():
+            state_path = self.base_dir / state_path
+        self.state = State(str(state_path), max_sent=config.max_sent_remembered,
+                           repost_window_days=config.repost_window_days)
         self.source_defs = build_sources(config, config_path)
         self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
-        self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport)
+        self.applier = self._build_applier()
+        self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport,
+                                 applier=self.applier)
+
+    def notify_owner(self, text: str) -> None:
+        """Send a message to your own bot chat (used by auto-apply)."""
+        if self.transport and self.config.telegram_chat_id:
+            self.transport.send_message(self.config.telegram_chat_id, text)
+
+    def _build_applier(self):
+        mode = (self.config.apply_mode or "off").strip().lower()
+        if mode == "off":
+            return None
+        if mode not in ("dry_run", "auto"):
+            log.warning("unknown apply_mode %r (use off / dry_run / auto); auto-apply is off", mode)
+            return None
+        from .apply.engine import build_applier
+
+        return build_applier(self.config, self.state, base_dir=self.base_dir,
+                             notify=self.notify_owner)
 
     def run(self, trigger: str = "manual") -> RunSummary:
         return self.pipeline.run(trigger=trigger)

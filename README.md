@@ -78,6 +78,9 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 | `serve` | Loop forever, running every `run_interval_hours` |
 | `sources` | List configured sources and their state |
 | `test-telegram` | Send a test message to the configured chat |
+| `telegram-login` | Log **your own** Telegram account in, once (for auto-apply) |
+| `test-apply [--posting FILE] [--send]` | Draft an application for a sample (or real) posting; `--send` delivers it to yourself |
+| `applications` | List recent auto-apply results, the queue, and any paused channel |
 
 ## Sources
 
@@ -129,6 +132,9 @@ The classifier, remote detection, and keywords understand **Chinese** as well as
 English — a post like "招聘后端工程师，全球远程" is detected, and the keyword
 `backend` also matches `后端` (likewise `前端`, `全栈`, `远程`, `算法`…). Just add
 Chinese sites to the `cn` array (V2EX, Ruby China ship as sensible defaults).
+Duplicate detection reads Chinese too: the same job cross-posted to two V2EX
+nodes, or reposted with a small edit, arrives once. Two different jobs that
+merely share a tech stack ("Golang", "AI") are kept apart.
 
 Note: big Chinese job sites like BOSS直聘 (zhipin), 拉勾 (lagou), 猎聘 (liepin),
 智联 (zhaopin), Weibo, Douban, and LinkedIn are **not scrapable** — they're
@@ -174,7 +180,7 @@ gemini_api_key = "AIza..."
 ```toml
 use_ai            = true
 ai_provider       = "claude"
-ai_model          = "claude-haiku-4-5"   # cheaper, or "claude-opus-5"
+ai_model          = "claude-haiku-5-5"   # cheaper, or "claude-opus-5-5"
 anthropic_api_key = "sk-ant-..."
 ```
 
@@ -184,6 +190,108 @@ silently falls back to the rule-based fields, so it never breaks a run. Gemini's
 free tier is rate-limited but comfortably handles a personal bot's volume. The
 core app still needs no third-party packages; both AI calls go over stdlib
 `urllib`.
+
+## Auto-apply (optional)
+
+Off by default. When on, the bot doesn't just tell you about a job: it sends
+the hiring contact a short application message with your **résumé PDF**
+attached. Postings that name a **Telegram handle** get the message from **your
+own Telegram account**. Postings that only give an **email** get an email.
+
+```
+delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI fit score ≥ threshold?
+   ─▶ draft (in the post's language) ─▶ dry_run: show it to you   |   auto: send + résumé
+   ─▶ record (never the same posting twice, never the same person twice in 30 days)
+```
+
+### Set it up
+
+1. **Résumé.** Put `resume.pdf` next to `config.toml`. Optionally also a
+   plain-text copy (`resume_text_path`). The AI reads the text if you give
+   one, otherwise it reads the PDF directly.
+2. **AI (recommended).** Set `use_ai = true` and a Gemini or Claude key (see
+   above). For each posting the AI scores how well your résumé fits (0–100) and
+   writes a short, specific message. It uses only facts from your résumé, in
+   the posting's language. Postings below `apply_min_score` are skipped.
+   Without AI, `apply_keywords` is required and every application uses your
+   fixed `apply_template`.
+3. **Telegram account** (for Telegram contacts). A bot can't message people who
+   never started it, so this logs in as *you*:
+   ```bash
+   pip install telethon
+   ```
+   Get `telegram_api_id` / `telegram_api_hash` at <https://my.telegram.org> →
+   *API development tools*, put them in `config.toml`, then run once:
+   ```bash
+   python3 -m jobradar.cli --config config.toml telegram-login
+   ```
+   It asks for the code Telegram sends you (and your 2FA password, if set) and
+   saves `jobradar-user.session`. **Keep that file private: it gives full access
+   to your Telegram account.** It's git-ignored.
+4. **Email** (for email-only postings). Fill in the `smtp_*` settings. For
+   Gmail, use `smtp.gmail.com:587` with an
+   [App Password](https://myaccount.google.com/apppasswords).
+5. **Check the wiring:**
+   ```bash
+   python3 -m jobradar.cli --config config.toml test-apply            # prints the draft
+   python3 -m jobradar.cli --config config.toml test-apply --send     # sends it to YOU
+   ```
+   `--send` delivers it to your Telegram *Saved Messages* and your own inbox,
+   so you see exactly what a hiring manager would get. Use `--posting job.txt`
+   to draft against a real posting.
+
+### Dry run first, then go live
+
+```toml
+apply_mode = "dry_run"
+```
+
+In dry run, everything happens (gates, AI scoring, drafting, the daily cap)
+except contacting anyone. Each draft shows up in your bot chat as
+**📝 DRY RUN — would apply (fit 82/100)** with the recipient, the reason, and the
+full text. Run it for a few days and tune `apply_min_score`, `apply_keywords`
+and `apply_exclude_keywords` until you'd be happy to send every draft. Then:
+
+```toml
+apply_mode = "auto"
+```
+
+Each real application is followed by **✅ Applied via Telegram @…** in your bot
+chat. `applications` lists everything that was sent, skipped (low fit /
+cooldown) or failed, and why. Postings you saw in dry run aren't re-sent when
+you switch, but going live doesn't reuse dry-run cooldowns, so new postings
+from the same contacts are fair game.
+
+### Who gets messaged, and the safety rails
+
+- **Only an explicit application contact.** That means a `t.me/<user>` link,
+  `Telegram: @user` / `TG @user` / `电报 @user`, or, for posts that came from a
+  Telegram channel, `Contact/DM/联系 @user`. A bare `@name` on X, Bluesky or
+  Reddit is that site's handle and is ignored. Bots, the channel itself, and
+  no-reply addresses are never contacted. The recipient always comes from these
+  rules, never from the AI.
+- **Once per posting, once per person.** No follow-ups, and no second message
+  to the same contact within `apply_contact_cooldown_days` (30 by default),
+  even for a different job.
+- **Daily cap and pacing.** At most `apply_daily_cap` (10) per rolling 24 hours,
+  with a random 45–120 s gap between sends. Anything over the cap waits in a
+  queue for the next run and is dropped once it's older than
+  `apply_max_age_days`.
+- **Back off on the first warning.** If Telegram reports flood limits
+  (`PEER_FLOOD` / `FLOOD_WAIT`), Telegram applying pauses (24 h for
+  `PEER_FLOOD`), you get an alert, and postings that also list an email go by
+  email instead. Check **@SpamBot** in Telegram if you see this.
+- **Crash-safe.** The state file is saved after every send, so a crash or a
+  closed laptop can't make it apply twice.
+
+> **Know the risk.** Telegram restricts accounts that message many strangers,
+> and new accounts are flagged fastest. Keep the cap low, use an account with
+> some history, and don't lower the cooldown. Applications are sent in your
+> name, so read your dry-run drafts before switching to `auto`.
+
+Coverage: most HN, WeWorkRemotely and Reddit posts ask you to apply through a
+web form, and those aren't automated. Auto-apply only covers posts that give a
+Telegram contact or an email address.
 
 ## Build a standalone executable (.exe)
 
@@ -239,6 +347,21 @@ these stages, in order; a posting must pass all the ones you've configured:
 
 Postings older than `max_posting_age_days` (default 15) are skipped as well.
 
+## Duplicates and reposts
+
+The same job is sent once, even when it's cross-posted to several sources in
+the same run (one message lists every source) or **reposted later with small
+edits**, like next month's HN thread, a bumped salary, or a cross-post with a new
+title. To catch reposts, the bot keeps a compact similarity signature of each
+job it sent for `repost_window_days` (default 60; `0` turns it off). A job that
+keeps being reposted keeps being recognised, because each repost refreshes the
+memory.
+
+Two postings are never treated as duplicates when their titles name clearly
+different roles, such as *Junior* vs *Senior*, *Backend* vs *Frontend*, or 初级 vs
+高级, even if they share most of their text (a company's boilerplate). A
+complete rewrite of the same job can't be recognised and will arrive again.
+
 ## Delivery
 
 Each matching posting is sent as its **own Telegram message** (not a batched
@@ -262,6 +385,8 @@ jobradar/
   cli.py             entry point
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
+  apply/             auto-apply: contacts, engine (gates/caps/queue), senders
+tests/               python -m unittest discover -s tests
 ```
 
 ## Notes

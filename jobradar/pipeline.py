@@ -11,6 +11,7 @@ Straight line, no database:
     drop any whose fingerprint is already in the JSON state (already sent)
     send the survivors as one batched Telegram digest
     on a successful send, record their fingerprints in the state
+    optionally auto-apply to the delivered ones   (jobradar/apply/, off by default)
 
 A source that fails does not stop the others. A Tier B scraper that fails three
 runs in a row is disabled in the state file and the owner is notified. A crash
@@ -54,9 +55,12 @@ class RunSummary:
     rejected_ai: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
+    reposts_skipped: int = 0     # subset of already_sent_skipped: reworded reposts
     held_back: int = 0
     delivered: int = 0
     sent: list[Posting] = field(default_factory=list)
+    delivered_postings: list[Posting] = field(default_factory=list)
+    apply: Any = None   # jobradar.apply.engine.ApplyReport when auto-apply is on
     messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
     per_source: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -70,16 +74,20 @@ class Pipeline:
         source_defs: list[dict[str, Any]],
         *,
         transport: Any | None = None,
+        applier: Any | None = None,
     ):
         self.config = config
         self.state = state
         self.source_defs = source_defs
         self.transport = transport  # send-only Telegram transport, or None
+        self.applier = applier      # jobradar.apply.engine.Applier, or None (off)
+        self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
     # ------------------------------------------------------------------ run
     def run(self, trigger: str = "manual") -> RunSummary:
         now = utcnow()
         summary = RunSummary(trigger=trigger, started_at=now)
+        self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
         raw_items: list[tuple[dict[str, Any], Any]] = []
         for sdef in self.source_defs:
@@ -156,7 +164,7 @@ class Pipeline:
                     surviving.append(p)
                 else:
                     summary.rejected_ai += 1
-                    self.state.mark_sent(p.content_hash)  # don't re-check next run
+                    self._remember_sent(p)  # don't re-check next run
             fresh = surviving
         summary.sent = fresh
         summary.messages = [format_message(self._as_dict(p)) for p in fresh]
@@ -173,6 +181,17 @@ class Pipeline:
             for name, meta in summary.per_source.items():
                 if meta.get("status") == "ok":
                     self.state.record_success(name, meta.get("latest"))
+        # Save before auto-apply: delivery bookkeeping must survive even if
+        # applying (which can take a while) is interrupted.
+        self.state.save()
+
+        if self.applier is not None:
+            try:
+                summary.apply = self.applier.run(summary.delivered_postings, now)
+                summary.alerts.extend(summary.apply.alerts)
+            except Exception as e:  # noqa: BLE001 - applying must never break a run
+                log.exception("auto-apply failed")
+                summary.alerts.append(f"auto-apply failed: {e}")
 
         self.state.mark_run(now)
         self.state.save()
@@ -197,7 +216,8 @@ class Pipeline:
                if k not in ("name", "type", "tier", "enabled", "request_interval_s")}
         # Make credentials from the config file available to collectors that
         # need them (Reddit, X). A source block can still override per source.
-        for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token"):
+        for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token",
+                    "telegram_bot_token"):
             cfg.setdefault(key, getattr(self.config, key, None))
         ctx = FetchContext(since=since, now=now, user_agent=self.config.user_agent,
                            request_interval_s=interval, config=cfg)
@@ -244,6 +264,7 @@ class Pipeline:
             salary=ext.salary, apply_url=ext.apply_url, source=item.source,
             source_tier=sdef.get("tier", "A"), source_url=item.url or "", origins=[item.source],
             content_hash=dedup.content_hash(item.raw_text), posted_at=posted, collected_at=now,
+            source_type=sdef.get("type", ""),
         )
 
     def _merge_duplicates(self, postings: list[Posting], summary: RunSummary) -> list[Posting]:
@@ -251,7 +272,8 @@ class Pipeline:
         for p in postings:
             match = None
             for k in kept:
-                if dedup.is_duplicate(p.description, k.description, p.apply_url, k.apply_url):
+                if dedup.is_duplicate(p.description, k.description, p.apply_url, k.apply_url,
+                                      title_a=p.title, title_b=k.title):
                     match = k
                     break
             if match is None:
@@ -267,7 +289,40 @@ class Pipeline:
         if self.state.already_sent(posting.content_hash):
             summary.already_sent_skipped += 1
             return True
+        # Also accept the fingerprint older versions stored (before CJK-aware
+        # dedup), so upgrading never re-sends what was already delivered. Safe to
+        # remove once state files from before that change have aged out.
+        legacy = dedup.legacy_content_hash(posting.description)
+        if legacy and legacy != posting.content_hash and self.state.already_sent(legacy):
+            self.state.mark_sent(posting.content_hash)  # migrate to the new fingerprint
+            summary.already_sent_skipped += 1
+            return True
+        # A reworded repost of something sent within repost_window_days (next
+        # month's HN thread, a cross-post with a new title). Its own signature is
+        # remembered too, so a job that keeps being reposted with small edits
+        # keeps being recognised as the edits accumulate.
+        sig, roles = self._signature(posting)
+        if sig and self.state.find_repost(sig, roles):
+            self._remember_sent(posting)
+            summary.already_sent_skipped += 1
+            summary.reposts_skipped += 1
+            return True
         return False
+
+    def _signature(self, posting: Posting) -> tuple[str | None, Any]:
+        """MinHash + role signature, computed once per posting per run (from the
+        rule-based title, before AI enrichment can rename it)."""
+        if posting.id not in self._sigs:
+            sig = dedup.minhash(posting.description) if self.config.repost_window_days > 0 else None
+            self._sigs[posting.id] = (sig, dedup.role_signature(posting.title))
+        return self._sigs[posting.id]
+
+    def _remember_sent(self, posting: Posting) -> None:
+        """Record a posting as handled: exact fingerprint + near-dup signature."""
+        self.state.mark_sent(posting.content_hash)
+        sig, roles = self._signature(posting)
+        if sig:
+            self.state.remember_signature(posting.content_hash, sig, dedup.encode_roles(roles))
 
     # -------------------------------------------------------------- deliver
     def _deliver(self, postings: list[Posting], summary: RunSummary) -> bool:
@@ -289,8 +344,9 @@ class Pipeline:
         for i, posting in enumerate(postings):
             try:
                 self.transport.send_message(chat, format_message(self._as_dict(posting)))
-                self.state.mark_sent(posting.content_hash)  # mark per message
+                self._remember_sent(posting)  # mark per message
                 summary.delivered += 1
+                summary.delivered_postings.append(posting)
                 ps = summary.per_source.setdefault(posting.source, {})
                 ps["sent"] = ps.get("sent", 0) + 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal

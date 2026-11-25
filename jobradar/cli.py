@@ -4,6 +4,9 @@
     jobradar serve        # loop forever at the configured interval
     jobradar sources      # list configured sources
     jobradar test-telegram  # send a test message to the configured chat
+    jobradar telegram-login # log your own Telegram account in (for auto-apply)
+    jobradar test-apply     # draft an application for a sample posting
+    jobradar applications   # list recent auto-apply results
 """
 
 from __future__ import annotations
@@ -87,6 +90,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             # plus the main reasons the rest were dropped.
             drops = []
             for stage, label in (("not_job", "not-a-job"), ("old", "too-old"),
+                                 ("rej_excluded", "excluded"),
                                  ("rej_keyword", "keyword"), ("rej_remote", "remote"),
                                  ("rej_region", "region"), ("rej_salary", "salary")):
                 if meta.get(stage):
@@ -103,12 +107,19 @@ def cmd_run(args: argparse.Namespace) -> int:
           f"{s.rejected_remote} remote, {s.rejected_region} region, {s.rejected_salary} salary).")
     ai_note = f", {s.rejected_ai} vetoed by AI" if s.rejected_ai else ""
     tail = f", held {s.held_back} for later runs" if s.held_back else ""
+    reposts = f", incl. {s.reposts_skipped} reworded repost(s)" if s.reposts_skipped else ""
     print(f"After dedup ({s.duplicates_merged} merged) and already-sent "
-          f"({s.already_sent_skipped}){ai_note}: {len(s.sent)} to send → "
+          f"({s.already_sent_skipped}{reposts}){ai_note}: {len(s.sent)} to send → "
           f"{s.delivered} delivered{tail}.")
     if not svc.transport:
         print("  (no Telegram token configured — nothing was sent; set "
               "telegram_bot_token / telegram_chat_id in config.toml)")
+    if s.apply is not None:
+        r = s.apply
+        did = f"{r.previewed} previewed (dry run)" if r.mode == "dry_run" else f"{r.sent} sent"
+        print(f"Auto-apply [{r.mode}]: {r.queued} newly queued → {did}, "
+              f"{r.skipped_fit} low fit, {r.skipped_cooldown} contact cooldown, "
+              f"{r.failed} failed, {r.expired} expired; {r.waiting} waiting in queue.")
     for a in s.alerts:
         print(f"  ALERT: {a}")
     return 0
@@ -148,6 +159,104 @@ def cmd_test_telegram(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_telegram_login(args: argparse.Namespace) -> int:
+    """Interactive one-time login of YOUR Telegram account for auto-apply."""
+    from .apply.engine import _resolve
+
+    cfg = load(args.config)
+    if not (cfg.telegram_api_id and cfg.telegram_api_hash):
+        print("Set telegram_api_id and telegram_api_hash in config.toml first "
+              "(get them at https://my.telegram.org → API development tools).")
+        return 1
+    try:
+        from telethon.sync import TelegramClient
+    except ImportError:
+        print("This needs Telethon:  pip install telethon")
+        return 1
+    session = _resolve(Path(args.config).resolve().parent, cfg.telegram_session_path)
+    client = TelegramClient(str(session), int(cfg.telegram_api_id), cfg.telegram_api_hash)
+    # Prompts for the login code Telegram sends you (and your 2FA password, if set).
+    client.start(phone=cfg.telegram_phone or (lambda: input("Phone number (+country code): ")))
+    me = client.get_me()
+    client.disconnect()
+    handle = f"@{me.username}" if getattr(me, "username", None) else (me.first_name or "your account")
+    print(f"Logged in as {handle}. Session saved to {session}")
+    print("Keep that file private — it gives full access to your Telegram account.")
+    return 0
+
+
+_SAMPLE_POSTING = """We're hiring: Senior Backend Engineer (Python) — fully remote, worldwide
+Acme Labs builds data infrastructure for fintech teams.
+You will: design and run Python/Go services on AWS, own APIs end to end,
+and mentor two junior engineers.
+Requirements: 5+ years backend, Python, PostgreSQL, Docker/Kubernetes, AWS.
+Salary: $90k-$130k. Apply: Telegram @acme_hiring or jobs@acme.example"""
+
+
+def cmd_test_apply(args: argparse.Namespace) -> int:
+    """Draft an application for a sample (or given) posting; optionally send it
+    to YOURSELF (Telegram Saved Messages / your own email) to check the wiring."""
+    from .apply.engine import build_applier, build_senders
+
+    svc = _service(args)
+    cfg = svc.config
+    text = Path(args.posting).read_text("utf-8") if args.posting else _SAMPLE_POSTING
+    applier = build_applier(cfg, svc.state, base_dir=svc.base_dir)
+    from .extraction import extract_title
+
+    title = extract_title(text)
+    draft = applier.drafter({"title": title, "description": text})
+    if draft is None:
+        print("Could not draft an application (AI failed and no apply_keywords set for the "
+              "template fallback). Check use_ai / API key / resume paths.")
+        return 1
+    print(f"Drafted by: {draft.source}" + (f"  fit {draft.fit_score}/100 (threshold "
+          f"{cfg.apply_min_score}) — {draft.fit_reason}" if draft.fit_score is not None else ""))
+    print("\n--- Telegram message ---\n" + draft.message)
+    print(f"\n--- Email ---\nSubject: {draft.email_subject}\n\n{draft.email_body}")
+    pdf = applier.resume_pdf
+    print(f"\nRésumé attachment: {pdf if pdf and pdf.exists() else 'NOT FOUND: ' + str(pdf)}")
+    if not args.send:
+        print("\n(Not sent. Add --send to deliver this to yourself: Telegram Saved Messages "
+              "and your own email.)")
+        return 0
+    attachment = pdf if pdf and pdf.exists() else None
+    rc = 0
+    for ch, sender in build_senders(cfg, svc.base_dir).items():
+        to = "me" if ch == "telegram" else (cfg.smtp_from or cfg.smtp_user)
+        body = draft.message if ch == "telegram" else draft.email_body
+        try:
+            sender.send(to, message=body, subject=draft.email_subject or "Test application",
+                        attachment=attachment)
+            print(f"Sent test via {ch} to {to}.")
+        except Exception as e:  # noqa: BLE001
+            print(f"{ch}: FAILED — {e}")
+            rc = 1
+        finally:
+            sender.close()
+    return rc
+
+
+def cmd_applications(args: argparse.Namespace) -> int:
+    svc = _service(args)
+    recs = sorted(svc.state.applications.values(), key=lambda r: r.get("at", ""), reverse=True)
+    if not recs and not svc.state.apply_queue:
+        print("No applications yet.")
+        return 0
+    for r in recs[: args.limit]:
+        score = f"fit {r['score']:>3}" if r.get("score") is not None else "fit   —"
+        to = f"{r.get('channel') or ''} {r.get('contact') or ''}".strip() or "—"
+        note = r.get("error") or r.get("reason") or ""
+        print(f"  {r.get('at', '')[:16]}  {r.get('mode', ''):<7} {r.get('status', ''):<16} "
+              f"{score}  {to:<32} {r.get('title', '')[:60]}" + (f"\n{'':<20}↳ {note[:110]}" if note else ""))
+    if svc.state.apply_queue:
+        print(f"\n{len(svc.state.apply_queue)} posting(s) waiting in the apply queue.")
+    paused = {k: v for k, v in svc.state.apply_paused.items() if v}
+    for ch, until in paused.items():
+        print(f"  {ch} paused until {until[:16]}Z")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jobradar", description="Social Job Radar (Telegram-only)")
     p.add_argument("--config", default=default_config_path(), help="path to config TOML")
@@ -157,6 +266,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("serve", help="loop at the configured interval").set_defaults(func=cmd_serve)
     sub.add_parser("sources", help="list configured sources").set_defaults(func=cmd_sources)
     sub.add_parser("test-telegram", help="send a test message").set_defaults(func=cmd_test_telegram)
+    sub.add_parser("telegram-login", help="log your own Telegram account in (auto-apply)"
+                   ).set_defaults(func=cmd_telegram_login)
+    ta = sub.add_parser("test-apply", help="draft an application for a sample posting")
+    ta.add_argument("--posting", help="text file with a real posting to draft for")
+    ta.add_argument("--send", action="store_true",
+                    help="also send it to yourself (Telegram Saved Messages + your email)")
+    ta.set_defaults(func=cmd_test_apply)
+    ap = sub.add_parser("applications", help="list recent auto-apply results")
+    ap.add_argument("--limit", type=int, default=30)
+    ap.set_defaults(func=cmd_applications)
     return p
 
 

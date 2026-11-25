@@ -50,6 +50,8 @@ class Posting:
     salary: Salary = field(default_factory=Salary)
     apply_url: str | None = None
     content_hash: str = ""
+    source_type: str = ""   # collector type ("telegram", "rss", …) — auto-apply trusts
+                            # bare @handles only in posts that came from Telegram
     # All sources this same job was seen on (cross-source merge, shown in the
     # Telegram message).
     origins: list[str] = field(default_factory=list)

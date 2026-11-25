@@ -5,6 +5,13 @@
 backups/
 config.toml
 .env
+# Auto-apply: the Telegram session is full access to your account; keep your
+# résumé and the state file (application history, contacts) out of git too.
+*.session
+*.session-journal
+resume.pdf
+resume.txt
+jobradar-state.json
 
 # Python
 __pycache__/
