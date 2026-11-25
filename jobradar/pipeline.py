@@ -8,7 +8,7 @@ Straight line, no database:
     extract fields                               (title, remote, salary, …)
     keep those passing keyword + remote filter
     merge near-duplicates across sources
-    drop any whose fingerprint is already in the JSON state (already sent)
+    drop any whose fingerprint is already in the database (already sent)
     send the survivors as one batched Telegram digest
     on a successful send, record their fingerprints in the state
     optionally auto-apply to the delivered ones   (jobradar/apply/, off by default)
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import dedup, extraction
@@ -34,7 +34,7 @@ from .config import Config
 from .delivery import format_message
 from .filters import PASS, Settings, evaluate
 from .models import Posting
-from .state import State, parse_iso, utcnow
+from .state import State, iso, parse_iso, utcnow
 
 log = logging.getLogger("jobradar.pipeline")
 
@@ -55,6 +55,7 @@ class RunSummary:
     rejected_ai: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
+    queued_review: int = 0       # new jobs waiting for your review (no stated location)
     reposts_skipped: int = 0     # subset of already_sent_skipped: reworded reposts
     held_back: int = 0
     delivered: int = 0
@@ -64,6 +65,35 @@ class RunSummary:
     messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
     per_source: dict[str, dict[str, Any]] = field(default_factory=dict)
+    finished_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-ready summary: stored in the run history and shown by the
+        dashboard (secrets redacted)."""
+        from dataclasses import asdict
+
+        from .redact import redact
+
+        per = []
+        for name, m in self.per_source.items():
+            drops = {k[4:] if k.startswith("rej_") else k: v for k, v in m.items()
+                     if (k.startswith("rej_") or k in ("not_job", "old", "unreadable")) and v}
+            per.append({"name": name, "status": m.get("status", "ok"),
+                        "error": redact(str(m.get("error") or "")), "items": m.get("items", 0),
+                        "passed": m.get("passed", 0), "sent": m.get("sent", 0), "drops": drops})
+        return {
+            "trigger": self.trigger, "at": iso(self.started_at), "finished": iso(self.finished_at),
+            "fetched": self.items_fetched, "detected": self.postings_detected,
+            "passed": self.passed_filter, "merged": self.duplicates_merged,
+            "already_sent": self.already_sent_skipped, "reposts": self.reposts_skipped,
+            "held_back": self.held_back, "delivered": self.delivered, "ai_vetoed": self.rejected_ai,
+            "review": self.queued_review,
+            "rejected": {"keyword": self.rejected_keyword, "excluded": self.rejected_excluded,
+                         "remote": self.rejected_remote, "region": self.rejected_region,
+                         "salary": self.rejected_salary, "old": self.skipped_old},
+            "sources": per, "alerts": [redact(a) for a in self.alerts],
+            "apply": asdict(self.apply) if self.apply is not None else None,
+        }
 
 
 class Pipeline:
@@ -75,12 +105,14 @@ class Pipeline:
         *,
         transport: Any | None = None,
         applier: Any | None = None,
+        inbox: Any | None = None,
     ):
         self.config = config
         self.state = state
         self.source_defs = source_defs
         self.transport = transport  # send-only Telegram transport, or None
         self.applier = applier      # jobradar.apply.engine.Applier, or None (off)
+        self.inbox = inbox          # jobradar.delivery.inbox.BotInbox, or None (no bot)
         self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
     # ------------------------------------------------------------------ run
@@ -88,6 +120,11 @@ class Pipeline:
         now = utcnow()
         summary = RunSummary(trigger=trigger, started_at=now)
         self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
+        if self.inbox is not None:
+            try:
+                self.inbox.poll()  # channel posts + button presses received since the last poll
+            except Exception as e:  # noqa: BLE001 - the inbox is a helper, never a blocker
+                log.debug("bot inbox poll failed: %s", e)
 
         raw_items: list[tuple[dict[str, Any], Any]] = []
         for sdef in self.source_defs:
@@ -102,12 +139,18 @@ class Pipeline:
         settings = Settings(keywords=self.config.keywords, remote_only=self.config.remote_only,
                             regions=self.config.regions, min_salary_usd=self.config.min_salary_usd,
                             require_salary=self.config.require_salary,
-                            exclude_keywords=self.config.exclude_keywords)
+                            exclude_keywords=self.config.exclude_keywords,
+                            unknown_location=self.config.unknown_location)
         max_age = self.config.max_posting_age_days
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
             ps = summary.per_source.setdefault(sdef["name"], {})
-            posting = self._to_posting(sdef, item, now)
+            try:
+                posting = self._to_posting(sdef, item, now)
+            except Exception as e:  # noqa: BLE001 - one odd post must not stop the run (NFR-6)
+                ps["unreadable"] = ps.get("unreadable", 0) + 1
+                log.warning("%s: couldn't read one post (%s: %s); skipped it", sdef["name"], type(e).__name__, e)
+                continue
             if posting is None:
                 ps["not_job"] = ps.get("not_job", 0) + 1  # classifier said "not a posting"
                 continue
@@ -118,7 +161,12 @@ class Pipeline:
                 ps["old"] = ps.get("old", 0) + 1
                 continue
             summary.postings_detected += 1
-            result = evaluate(posting, settings)
+            try:
+                result = evaluate(posting, settings)
+            except Exception as e:  # noqa: BLE001
+                ps["unreadable"] = ps.get("unreadable", 0) + 1
+                log.warning("%s: couldn't filter one post (%s: %s); skipped it", sdef["name"], type(e).__name__, e)
+                continue
             if result.decision != PASS:
                 ps[f"rej_{result.stage}"] = ps.get(f"rej_{result.stage}", 0) + 1
                 if result.stage == "keyword":
@@ -133,6 +181,8 @@ class Pipeline:
                     summary.rejected_excluded += 1
                 continue
             posting.matched_keywords = result.matched_keywords
+            posting.location_unknown = result.reason in ("location_not_stated", "review")
+            posting.needs_review = result.reason == "review"
             ps["passed"] = ps.get("passed", 0) + 1
             kept.append(posting)
         summary.passed_filter = len(kept)
@@ -141,6 +191,12 @@ class Pipeline:
         # already sent on a previous run.
         deduped = self._merge_duplicates(kept, summary)
         fresh = [p for p in deduped if not self._already_sent(p, summary)]
+
+        # Jobs that don't say where they hire wait for your decision instead of
+        # being sent (review queue, SRS FR-21); they don't use delivery slots.
+        reviews = [p for p in fresh if p.needs_review]
+        fresh = [p for p in fresh if not p.needs_review]
+        self._queue_for_review(reviews, summary)
 
         # Cap sends per run so a first-run backlog doesn't flood the chat with
         # hundreds of messages. Keep the newest, hold the rest for later runs
@@ -167,7 +223,7 @@ class Pipeline:
                     self._remember_sent(p)  # don't re-check next run
             fresh = surviving
         summary.sent = fresh
-        summary.messages = [format_message(self._as_dict(p)) for p in fresh]
+        summary.messages = [self._message(p) for p in fresh]
 
         delivered_ok = self._deliver(fresh, summary)
 
@@ -195,6 +251,7 @@ class Pipeline:
 
         self.state.mark_run(now)
         self.state.save()
+        summary.finished_at = utcnow()
         return summary
 
     # -------------------------------------------------------------- collect
@@ -217,17 +274,30 @@ class Pipeline:
         # Make credentials from the config file available to collectors that
         # need them (Reddit, X). A source block can still override per source.
         for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token",
-                    "telegram_bot_token"):
+                    "telegram_bot_token", "telegram_api_id", "telegram_api_hash", "telegram_session_path"):
             cfg.setdefault(key, getattr(self.config, key, None))
         ctx = FetchContext(since=since, now=now, user_agent=self.config.user_agent,
-                           request_interval_s=interval, config=cfg)
+                           request_interval_s=interval, config=cfg,
+                           bot_posts=self.state.bot_posts if self.inbox is not None else None)
 
         ps = summary.per_source.setdefault(name, {"tier": tier})
         try:
-            collector = build_collector(name=name, type_=sdef["type"], tier=tier, config=cfg, http=http)
-            items = list(collector.fetch(ctx))
+            try:
+                collector = build_collector(name=name, type_=sdef["type"], tier=tier, config=cfg, http=http)
+            except KeyError as e:
+                raise CollectorError(f"unknown source type {sdef.get('type')!r} — check the [[sources]] "
+                                     "block in config.toml") from e
+            try:
+                items = list(collector.fetch(ctx))
+            except CollectorError:
+                raise
+            except Exception as e:  # noqa: BLE001 - a broken source must never stop the run (SR-3)
+                log.debug("source %s raised", name, exc_info=True)
+                raise CollectorError(f"unexpected {type(e).__name__}: {e}") from e
             latest = since
             for it in items:
+                if it.posted_at and it.posted_at.tzinfo is None:
+                    it.posted_at = it.posted_at.replace(tzinfo=timezone.utc)  # feeds without a zone
                 if it.posted_at and it.posted_at > latest:
                     latest = it.posted_at
             # Watermark is committed later, only if delivery succeeds (see run()).
@@ -309,6 +379,47 @@ class Pipeline:
             return True
         return False
 
+    def deliver_one(self, posting: Posting) -> None:
+        """Send one job now (e.g. approved from the review queue) and record it
+        exactly like a normal delivery. Raises if Telegram fails."""
+        if not (self.transport and self.config.telegram_chat_id):
+            raise RuntimeError("no Telegram bot/chat set up")
+        self.transport.send_message(self.config.telegram_chat_id, self._message(posting))
+        self._remember_sent(posting)
+        self.state.record_job({
+            "fingerprint": posting.content_hash, "at": iso(utcnow()), "title": posting.title[:300],
+            "url": posting.source_url, "source": ", ".join(posting.origins or [posting.source]),
+            "remote": posting.is_remote, "location": posting.location or "",
+            "salary": posting.salary.raw or "", "posted_at": iso(posting.posted_at),
+            "description": posting.description,
+        })
+
+    def _queue_for_review(self, postings: list[Posting], summary: RunSummary) -> None:
+        """Hold jobs with no stated location for your decision: expire old
+        unanswered ones (FR-25), queue the new ones, and ask once per check
+        with ✅/❌ buttons (FR-22, FR-23, FR-26)."""
+        from .delivery import review as review_fmt
+        from .models import posting_to_dict
+
+        for fp in self.state.review_expire(self.config.review_expiry_days):
+            self.state.mark_sent(fp)  # never queued again
+        new: list[tuple[int, dict[str, Any]]] = []
+        for p in postings:
+            if self.state.review_has(p.content_hash):
+                continue  # already waiting, or already decided
+            d = posting_to_dict(p)
+            item_id = self.state.review_add(p.content_hash, d)
+            if item_id is not None:
+                new.append((item_id, d))
+        summary.queued_review = len(new)
+        if not new or not (self.transport and self.config.telegram_chat_id):
+            return
+        text, markup = review_fmt.prompt(new, self.state.review_counts().get("pending", len(new)))
+        try:
+            self.transport.send_message(self.config.telegram_chat_id, text, reply_markup=markup)
+        except Exception as e:  # noqa: BLE001 - the dashboard still has them
+            log.warning("couldn't send the review message: %s", e)
+
     def _signature(self, posting: Posting) -> tuple[str | None, Any]:
         """MinHash + role signature, computed once per posting per run (from the
         rule-based title, before AI enrichment can rename it)."""
@@ -343,10 +454,18 @@ class Pipeline:
         chat = self.config.telegram_chat_id
         for i, posting in enumerate(postings):
             try:
-                self.transport.send_message(chat, format_message(self._as_dict(posting)))
+                self.transport.send_message(chat, self._message(posting))
                 self._remember_sent(posting)  # mark per message
                 summary.delivered += 1
                 summary.delivered_postings.append(posting)
+                self.state.record_job({
+                    "fingerprint": posting.content_hash, "at": iso(utcnow()),
+                    "title": posting.title[:300], "url": posting.source_url,
+                    "source": ", ".join(posting.origins or [posting.source]),
+                    "remote": posting.is_remote, "location": posting.location or "",
+                    "salary": posting.salary.raw or "", "posted_at": iso(posting.posted_at),
+                    "description": posting.description,  # full original text (FR-12)
+                })
                 ps = summary.per_source.setdefault(posting.source, {})
                 ps["sent"] = ps.get("sent", 0) + 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal
@@ -358,6 +477,17 @@ class Pipeline:
             if i + 1 < len(postings):
                 self._pause(self.config.message_interval_seconds)
         return True
+
+    def _message(self, posting: Posting) -> str:
+        """The Telegram job card; if a post is too odd to format, a plain
+        title + link is sent instead of failing the delivery."""
+        try:
+            return format_message(self._as_dict(posting))
+        except Exception as e:  # noqa: BLE001
+            log.warning("couldn't format a job card (%s: %s); sending a plain one", type(e).__name__, e)
+            from .delivery.digest import _esc
+
+            return f"#hiring\n<b>{_esc(posting.title or '(untitled)')}</b>\n\n🔗 {_esc(posting.source_url)}"
 
     def _pause(self, seconds: float) -> None:
         if seconds > 0:
@@ -419,6 +549,7 @@ class Pipeline:
             "source": p.source, "source_tier": p.source_tier,
             "source_url": p.source_url, "origins": p.origins, "is_remote": p.is_remote,
             "location": p.location, "is_worldwide": p.is_worldwide,
+            "location_unknown": p.location_unknown,
             "salary_raw": p.salary.raw, "salary_min": p.salary.min, "salary_max": p.salary.max,
             "salary_currency": p.salary.currency, "matched_keywords": p.matched_keywords,
             "responsibilities": p.responsibilities, "requirements": p.requirements,

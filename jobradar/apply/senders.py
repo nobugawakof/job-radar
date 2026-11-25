@@ -29,6 +29,8 @@ from email.utils import make_msgid
 from pathlib import Path
 from typing import Protocol
 
+from ..redact import mask_contact
+
 log = logging.getLogger("jobradar.apply")
 
 
@@ -67,25 +69,30 @@ class TelegramUserSender:
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_path = session_path
+        self._runner = None
         self._client = None
 
     def _connect(self):
         if self._client is not None:
             return self._client
+        from ..tgclient import LoopThread, TelethonMissing, make_client
+
+        runner = LoopThread()
         try:
-            from telethon.sync import TelegramClient
-        except ImportError as e:
-            raise ChannelUnavailable("Telegram auto-apply needs Telethon: pip install telethon") from e
-        try:
-            client = TelegramClient(self.session_path, int(self.api_id), self.api_hash)
-            client.connect()
-        except Exception as e:  # noqa: BLE001 - network/session problems
+            client = make_client(runner, self.session_path, self.api_id, self.api_hash)
+            runner.call(lambda: client.connect(), 30)
+            authorized = runner.call(lambda: client.is_user_authorized(), 15)
+        except TelethonMissing as e:
+            runner.stop()
+            raise ChannelUnavailable(str(e)) from e
+        except Exception as e:  # noqa: BLE001 - network/session problems, timeouts
+            runner.stop()
             raise ChannelUnavailable(f"could not connect your Telegram account: {e}") from e
-        if not client.is_user_authorized():
-            client.disconnect()
-            raise ChannelUnavailable("your Telegram account is not logged in — run "
-                                     "`jobradar telegram-login` once")
-        self._client = client
+        if not authorized:
+            self._disconnect(runner, client)
+            raise ChannelUnavailable("your Telegram account is not logged in — log in from the "
+                                     "dashboard (Auto-apply tab) or run `jobradar telegram-login`")
+        self._runner, self._client = runner, client
         return client
 
     def send(self, contact: str, *, message: str, subject: str = "",
@@ -93,9 +100,10 @@ class TelegramUserSender:
         from telethon import errors
 
         client = self._connect()
+        run = self._runner.call
         try:
-            entity = client.get_entity(contact)
-            client.send_message(entity, message, link_preview=False)
+            entity = run(lambda: client.get_entity(contact), 30)
+            run(lambda: client.send_message(entity, message, link_preview=False), 30)
         except errors.FloodWaitError as e:
             raise ChannelUnavailable(f"Telegram flood wait {e.seconds}s",
                                      pause_seconds=max(float(e.seconds), 3600.0)) from e
@@ -106,26 +114,35 @@ class TelegramUserSender:
                 pause_seconds=PEER_FLOOD_PAUSE_SECONDS) from e
         except (errors.AuthKeyUnregisteredError, errors.SessionRevokedError,
                 errors.UserDeactivatedError, errors.UserDeactivatedBanError) as e:
-            raise ChannelUnavailable(f"your Telegram session is no longer valid ({e}); run "
-                                     "`jobradar telegram-login` again",
+            raise ChannelUnavailable(f"your Telegram session is no longer valid ({e}); log in "
+                                     "again from the dashboard",
                                      pause_seconds=PEER_FLOOD_PAUSE_SECONDS) from e
+        except TimeoutError as e:
+            raise ChannelUnavailable(str(e)) from e
         except (ValueError, errors.RPCError) as e:
             # ValueError: username doesn't resolve. RPCError: privacy settings,
             # blocked, deactivated user, etc. — this contact only.
-            raise ContactError(f"Telegram {contact}: {e}") from e
+            raise ContactError(f"Telegram {mask_contact(contact)}: {e}") from e
 
         if attachment:
             try:
-                client.send_file(entity, str(attachment), force_document=True)
+                run(lambda: client.send_file(entity, str(attachment), force_document=True), 120)
             except Exception as e:  # noqa: BLE001 - message already went out
-                log.warning("message sent to %s but the résumé upload failed: %s", contact, e)
+                log.warning("message sent to %s but the résumé upload failed: %s", mask_contact(contact), e)
+
+    @staticmethod
+    def _disconnect(runner, client) -> None:
+        try:
+            runner.call(lambda: client.disconnect(), 10)
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            runner.stop()
 
     def close(self) -> None:
         if self._client is not None:
-            try:
-                self._client.disconnect()
-            finally:
-                self._client = None
+            self._disconnect(self._runner, self._client)
+            self._runner = self._client = None
 
 
 # -------------------------------------------------------------------- Email
@@ -184,12 +201,12 @@ class EmailSender:
         try:
             smtp.send_message(msg)
         except smtplib.SMTPRecipientsRefused as e:
-            raise ContactError(f"email {contact} refused: {e.recipients}") from e
+            raise ContactError(f"email {mask_contact(contact)} refused by the mail server") from e
         except smtplib.SMTPDataError as e:
             if 400 <= e.smtp_code < 500 or e.smtp_code in (550, 554) and b"rate" in (e.smtp_error or b"").lower():
                 raise ChannelUnavailable(f"SMTP is throttling us ({e.smtp_code}); pausing email",
                                          pause_seconds=3600.0) from e
-            raise ContactError(f"email {contact} rejected: {e.smtp_code} {e.smtp_error!r}") from e
+            raise ContactError(f"email {mask_contact(contact)} rejected: {e.smtp_code}") from e
         except (smtplib.SMTPServerDisconnected, OSError) as e:
             self._smtp = None
             raise ChannelUnavailable(f"SMTP connection lost: {e}") from e

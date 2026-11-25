@@ -1,5 +1,6 @@
 """Command-line entry point (Telegram-only build).
 
+    jobradar web          # open the dashboard (set up + run from your browser)
     jobradar run          # one collection cycle → Telegram digest
     jobradar serve        # loop forever at the configured interval
     jobradar sources      # list configured sources
@@ -75,8 +76,14 @@ def _service(args: argparse.Namespace) -> Service:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    from .service import AlreadyRunning
+
     svc = _service(args)
-    s = svc.run("manual")
+    try:
+        s = svc.run("manual")
+    except AlreadyRunning as e:
+        print(f"Not checking now: {e}. Try again when it has finished.")
+        return 1
     # Per-source breakdown, so it's clear where postings come from (or don't).
     print(f"Fetched {s.items_fetched} item(s) from {len(s.per_source)} source(s):")
     for name, meta in s.per_source.items():
@@ -90,7 +97,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             # plus the main reasons the rest were dropped.
             drops = []
             for stage, label in (("not_job", "not-a-job"), ("old", "too-old"),
-                                 ("rej_excluded", "excluded"),
+                                 ("unreadable", "unreadable"), ("rej_excluded", "excluded"),
                                  ("rej_keyword", "keyword"), ("rej_remote", "remote"),
                                  ("rej_region", "region"), ("rej_salary", "salary")):
                 if meta.get(stage):
@@ -114,6 +121,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not svc.transport:
         print("  (no Telegram token configured — nothing was sent; set "
               "telegram_bot_token / telegram_chat_id in config.toml)")
+    if s.queued_review:
+        print(f"{s.queued_review} job(s) don't say where they hire — waiting for your review "
+              "(Telegram buttons, or the dashboard's Review tab).")
     if s.apply is not None:
         r = s.apply
         did = f"{r.previewed} previewed (dry run)" if r.mode == "dry_run" else f"{r.sent} sent"
@@ -239,22 +249,28 @@ def cmd_test_apply(args: argparse.Namespace) -> int:
 
 def cmd_applications(args: argparse.Namespace) -> int:
     svc = _service(args)
-    recs = sorted(svc.state.applications.values(), key=lambda r: r.get("at", ""), reverse=True)
-    if not recs and not svc.state.apply_queue:
+    recs = svc.state.list_applications(args.limit)
+    waiting = svc.state.queue_len()
+    if not recs and not waiting:
         print("No applications yet.")
         return 0
-    for r in recs[: args.limit]:
+    for r in recs:
         score = f"fit {r['score']:>3}" if r.get("score") is not None else "fit   —"
         to = f"{r.get('channel') or ''} {r.get('contact') or ''}".strip() or "—"
         note = r.get("error") or r.get("reason") or ""
         print(f"  {r.get('at', '')[:16]}  {r.get('mode', ''):<7} {r.get('status', ''):<16} "
               f"{score}  {to:<32} {r.get('title', '')[:60]}" + (f"\n{'':<20}↳ {note[:110]}" if note else ""))
-    if svc.state.apply_queue:
-        print(f"\n{len(svc.state.apply_queue)} posting(s) waiting in the apply queue.")
-    paused = {k: v for k, v in svc.state.apply_paused.items() if v}
-    for ch, until in paused.items():
+    if waiting:
+        print(f"\n{waiting} posting(s) waiting in the apply queue.")
+    for ch, until in svc.state.paused_channels().items():
         print(f"  {ch} paused until {until[:16]}Z")
     return 0
+
+
+def cmd_web(args: argparse.Namespace) -> int:
+    from .web.app import main as web_main
+
+    return web_main(args.config, host=args.host, port=args.port, open_browser=not args.no_browser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -262,6 +278,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", default=default_config_path(), help="path to config TOML")
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="command", required=True)
+    web = sub.add_parser("web", help="open the dashboard in your browser (recommended)")
+    web.add_argument("--host", default="127.0.0.1",
+                     help="interface to listen on (default: this computer only)")
+    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--no-browser", action="store_true", help="don't open a browser window")
+    web.set_defaults(func=cmd_web)
     sub.add_parser("run", help="one collection cycle + Telegram digest").set_defaults(func=cmd_run)
     sub.add_parser("serve", help="loop at the configured interval").set_defaults(func=cmd_serve)
     sub.add_parser("sources", help="list configured sources").set_defaults(func=cmd_sources)
@@ -282,10 +304,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
-    # Double-clicking the .exe passes no arguments — default to the daemon so it
-    # just starts sending jobs, rather than printing an argparse error.
+    # Double-clicking the .exe passes no arguments — open the dashboard (which
+    # also runs the schedule) rather than printing an argparse error.
     if not argv and _frozen():
-        argv = ["serve"]
+        argv = ["web"]
 
     _disable_console_quick_edit()  # a stray click must not freeze the daemon
     args = build_parser().parse_args(argv)
@@ -293,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if not args.verbose:
+        logging.getLogger("telethon").setLevel(logging.WARNING)  # connection chatter
     try:
         return args.func(args)
     except Exception as e:  # noqa: BLE001 - keep the console window open on error

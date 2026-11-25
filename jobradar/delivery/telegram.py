@@ -83,12 +83,13 @@ class TelegramTransport:
             return payload.get("result", {})
         raise TelegramRateLimited("Telegram sendMessage 429: retries exhausted")
 
-    def send_message(self, chat_id: str, text: str) -> dict[str, Any]:
+    def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> dict[str, Any]:
         text = text[: self.MAX_TEXT]
+        extra = {"reply_markup": json.dumps(reply_markup)} if reply_markup else {}
         try:
             return self._call({
                 "chat_id": chat_id, "text": text, "parse_mode": "HTML",
-                "disable_web_page_preview": "true",
+                "disable_web_page_preview": "true", **extra,
             })
         except TelegramRateLimited:
             # A rate limit is not a formatting problem — don't waste a second
@@ -99,7 +100,7 @@ class TelegramTransport:
             # as plain text so a single odd post can't block the whole digest.
             plain = _to_plain(text)[: self.MAX_TEXT]
             return self._call({
-                "chat_id": chat_id, "text": plain, "disable_web_page_preview": "true",
+                "chat_id": chat_id, "text": plain, "disable_web_page_preview": "true", **extra,
             })
 
 

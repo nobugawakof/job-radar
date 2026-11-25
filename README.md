@@ -2,13 +2,12 @@
 
 A tiny self-hosted bot that scrapes job postings from social platforms, keeps
 the ones matching your keywords and remote preference, and pushes them to you
-on **Telegram**. No database, no web dashboard, no paid services — pure Python
-3.11 standard library and a single small JSON state file.
+on **Telegram**. It can also apply for you, and you set it up from a local web
+dashboard. No paid services and nothing to install: pure Python 3.11 standard
+library, with a single-file **SQLite** database (`jobradar.db`).
 
-> This is a simplified build. It scrapes and sends via Telegram only. The
-> original database + web-dashboard + review-queue version is preserved in git
-> history (branch `claude/requirement-implementation-22epkg`, commit `43c81ee`)
-> if you ever want it back.
+> An earlier, larger implementation (with a review queue) is preserved in git
+> history (branch `claude/requirement-implementation-22epkg`, commit `43c81ee`).
 
 ## How it works
 
@@ -18,17 +17,35 @@ on **Telegram**. No database, no web dashboard, no paid services — pure Python
                                                                         │
                                                                         ▼
                           send one message          drop already-sent   keep those matching
-   Telegram  ◀───────────   per posting     ◀──────  (JSON state)  ◀───  keyword/remote/region/salary
+   Telegram  ◀───────────   per posting     ◀──────  (jobradar.db) ◀───  keyword/remote/region/salary
                                                           ▲
                                                    merge duplicates
                                                    across sources
 ```
 
-There is exactly one piece of persistent state: a JSON file (default
-`jobradar-state.json`) that remembers which postings were already sent — so the
-bot never sends you the same job twice — plus a per-source last-seen timestamp
-and a failure counter. It's written atomically, so a crash or a closed laptop
-mid-write can't corrupt it.
+Everything Job Radar remembers lives in one **SQLite** database file,
+`jobradar.db`, next to your config. SQLite is built into Python, so there's no
+database server to install or run. The file holds:
+
+| Table | What it remembers |
+|---|---|
+| `sent` | Fingerprints of every job already sent, so nothing is sent twice |
+| `jobs` | Each delivered job: title, link, source, salary, location and the full original text |
+| `signatures` | Similarity signatures of sent jobs, to recognise reworded reposts |
+| `sources` | Each source's last successful check, failure count, and whether it's switched off |
+| `applications`, `apply_queue`, `contacts`, `apply_paused` | Auto-apply history, waiting jobs, who was contacted, and paused channels |
+| `meta` | The last run time, plus the schema version in SQLite's `user_version` |
+
+Every change is committed as it happens, in a transaction, with SQLite's
+write-ahead log (WAL). A crash or a closed laptop can't leave the file
+half-written, and the dashboard and a command-line run can use it at the same
+time. Old tables are kept to size automatically (`max_sent_remembered`, default
+5,000 per table, and `repost_window_days` for signatures). You can open the file
+with any SQLite tool, for example `sqlite3 jobradar.db "select sent_at, title from jobs order by sent_at desc limit 10"`.
+
+**Upgrading from an older version:** the first time it starts, Job Radar imports
+the old `jobradar-state.json` into `jobradar.db` and renames the JSON to
+`jobradar-state.json.migrated`. Nothing is re-sent.
 
 **Delivery is safe against outages.** A posting is only recorded as "sent" after
 the Telegram message actually goes out, and a source's watermark only advances
@@ -36,7 +53,37 @@ once its postings are delivered. If Telegram is down (or you haven't configured
 a token yet), nothing is marked sent — the postings are simply re-detected and
 sent on the next run.
 
-## Quick start
+## Quick start — the dashboard (recommended)
+
+Everything is set up from a page in your browser: no config file to edit.
+
+- **Windows:** download `jobradar-windows` from the repo's **Actions** tab
+  (the *build-exe* workflow), unzip it, and double-click `jobradar.exe`.
+- **Python 3.11+** (any OS):
+  ```bash
+  python3 -m jobradar.cli web
+  ```
+
+Your browser opens the dashboard, which walks you through three steps:
+
+1. **Telegram bot.** Create a bot with @BotFather, paste its token, press
+   **Start** in your bot, then click **Find my chat**. No need to look up your
+   chat id by hand.
+2. **Job search.** Tick the sites to search and type your keywords.
+3. **Switch on automatic checks** on the Overview page.
+
+Optional tabs: **AI** (paste a free Gemini key, then click **Test**) and
+**Auto-apply** (upload your résumé, log in to your Telegram account with a
+code, set up email, and preview drafts). **Applications** and **Activity** show
+what happened and why.
+
+Keep the window open: closing it stops Job Radar. The dashboard only accepts
+connections from your own computer. Opening it needs the link the program
+prints, which logs your browser in with a private cookie, and secrets are never
+shown back in full. Settings are saved to `config.toml`; your original file is
+kept as `config.toml.bak` the first time you save.
+
+## Quick start — command line
 
 Requires Python 3.11+. Nothing to install.
 
@@ -74,6 +121,7 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 
 | Command | Does |
 |---|---|
+| `web [--port N] [--no-browser]` | Open the dashboard (set up, run and watch everything in your browser) |
 | `run` | One collection cycle → one Telegram digest |
 | `serve` | Loop forever, running every `run_interval_hours` |
 | `sources` | List configured sources and their state |
@@ -100,6 +148,14 @@ cn = [
 ]
 ```
 
+**Telegram job channels:** add `t.me/<channel>` (or `@channel`) to either
+list. With your own Telegram account logged in, the same login auto-apply
+uses (dashboard → Auto-apply → Your Telegram account), Job Radar reads any
+*public* channel's recent posts without joining it. Without that login, it can
+only read channels your bot has been added to. Your bot's messages are read
+by a single background "inbox" that remembers its place, so nothing is read
+twice or missed when many arrive.
+
 Job Radar recognises common domains (Hacker News, WeWorkRemotely, V2EX, Ruby
 China, Reddit `/r/<sub>`, X/Twitter, Bluesky) and maps them to the correct
 collector. An unknown URL that looks like a feed (`.rss` / `.xml` / `.atom` /
@@ -123,7 +179,7 @@ add `[[sources]]` blocks — they're used *in addition to* `en`/`cn`:
 | `rss` | A | `url` | Any RSS/Atom feed |
 | `reddit` | A | `subreddit`, `listing` | Set `reddit_client_id` / `reddit_client_secret` in config |
 | `twitter` (`x`) | A | `query` | Set `x_bearer_token` in config — **requires a paid X API plan** |
-| `telegram` | A | `channel` | Bot must be in the channel |
+| `telegram` | A | `channel` | Or just list `t.me/<channel>` / `@channel` in `en`/`cn`. Reads any public channel through your logged-in Telegram account (see Auto-apply); without it, only channels your bot was added to |
 | `scrape` | B | `url`, `block_pattern` | Best-effort HTML; expected to break |
 
 ### Chinese (and other non-English) jobs
@@ -149,9 +205,9 @@ new source is one class implementing the `Collector` interface.
 
 A transient HTTP error (including a one-off `403`) is treated as a retryable
 failure, not a permanent block — a single blip won't kill a source. If a source
-does get disabled after repeated failures, re-enable it by deleting its entry
-under `"sources"` in the state file (or just delete the state file to reset
-everything; you'll only risk re-sending recent postings once).
+does get disabled after repeated failures, turn it back on from the dashboard
+(**Job search → Source status**). To reset everything, delete `jobradar.db`;
+you'll only risk re-sending recent postings once.
 
 The **HN** source specifically reads the current monthly *"Ask HN: Who is
 hiring?"* thread and returns its top-level comments — the real job posts — so
@@ -281,8 +337,8 @@ from the same contacts are fair game.
   (`PEER_FLOOD` / `FLOOD_WAIT`), Telegram applying pauses (24 h for
   `PEER_FLOOD`), you get an alert, and postings that also list an email go by
   email instead. Check **@SpamBot** in Telegram if you see this.
-- **Crash-safe.** The state file is saved after every send, so a crash or a
-  closed laptop can't make it apply twice.
+- **Crash-safe.** Each application is committed to the database the moment
+  it's sent, so a crash or a closed laptop can't make it apply twice.
 
 > **Know the risk.** Telegram restricts accounts that message many strangers,
 > and new accounts are flagged fastest. Keep the cap low, use an account with
@@ -308,11 +364,11 @@ workflow (`.github/workflows/build-exe.yml`) builds it on a `windows-latest`
 runner and uploads `jobradar-windows` (the `.exe` + a `config.toml`) as a
 downloadable artifact on every push, or from the Actions tab via "Run workflow".
 
-Put a `config.toml` next to the executable (copy `config.example.toml`, fill in
-your `telegram_bot_token` and `telegram_chat_id`) and run it — a double-clicked
-`.exe` with no arguments starts the daemon (`serve`), and its state file is
-written next to the executable. The `config.toml` beside the `.exe` holds
-everything; keep it private since it contains your token.
+Double-click the `.exe` and the dashboard opens in your browser, where you
+set everything up. Settings, state and your résumé are stored next to the
+executable. The `config.toml` beside it holds your tokens, so keep that folder
+private. To run it headless instead (for example on a server), use
+`jobradar.exe serve` with a hand-written `config.toml`.
 
 ## Filtering
 
@@ -332,18 +388,50 @@ these stages, in order; a posting must pass all the ones you've configured:
    keyword must match. An empty `keywords` list means "send everything".
 2. **Remote** — with `remote_only = true`, on-site/hybrid roles are dropped;
    explicit-remote and unknown-arrangement roles pass.
-3. **Region** — set `regions` to the countries/cities/blocs you care about
-   (e.g. `["Hong Kong", "Malaysia", "Worldwide"]`). A posting then passes only
-   if it hires **worldwide/anywhere** OR its **location names one of your
-   regions**. So if you live in Malaysia and set `regions = ["Hong Kong"]`, you
-   get Hong Kong-remote roles and hire-from-anywhere roles, but not US-only
-   ones. Leave `regions = []` to skip this stage.
-4. **Salary** — set `min_salary_usd` to drop postings whose stated pay looks
-   below your floor (roughly normalised to annual USD across currencies and
-   pay periods). Postings that don't state a salary still pass, since we can't
-   judge them — unless you set `require_salary = true`, which sends only postings
-   that name a figure. Leave `min_salary_usd = 0` and `require_salary = false`
-   to skip this stage.
+3. **Region** — set `regions` to the countries, cities or groupings you can
+   work from (e.g. `["Malaysia", "APAC"]`, `["Germany"]`, `["中国"]`). A job
+   passes if it hires **worldwide** or its hiring area **overlaps** yours.
+   Places are compared as sets of countries, so `Germany` matches "EU only",
+   "Europe", "EMEA" and "Berlin". Likewise `Malaysia` matches "APAC",
+   "Southeast Asia" and "Kuala Lumpur", and `中国` matches 国内, 北京 and
+   "Shanghai". A job limited to somewhere else ("US only", "Remote (LATAM)") is
+   dropped. The built-in list of countries, major cities and groupings (EU,
+   EEA, Europe, EMEA, DACH, Nordics, CEE, APAC, Asia, Southeast Asia, Greater
+   China, ANZ, North America, LATAM, Americas…) lives in `jobradar/places.py`.
+   Anything it doesn't know, like "Bay Area North", is matched as plain text.
+   A city you type also matches jobs open to its whole country. Leave
+   `regions = []` to skip this stage.
+   **Jobs that don't say where they hire** are never silently dropped. By
+   default (`unknown_location = "review"`) Job Radar asks you. Once per check,
+   one Telegram message lists them with a ✅ / ❌ button pair each: ✅ sends you
+   the job, and queues it for auto-apply if that's on; ❌ skips it for good.
+   The dashboard's **Review** tab offers the same choice and shows the post.
+   Unanswered jobs expire after `review_expiry_days` (14). If you keep skipping
+   one source's jobs, the Review tab suggests switching it off. Prefer not to
+   be asked? Set `unknown_location = "send"` to get them marked "📍 Location:
+   not stated", or `"drop"` to drop them. On-site and hybrid jobs whose place
+   isn't recognised are dropped, since an office is somewhere specific.
+   A job counts as **hire-from-anywhere** only when the post says so about
+   the job: "Remote (Worldwide)", "work from anywhere in the world",
+   "Location: Global", 全球远程, 工作地点不限. Company descriptions like "a global
+   fintech", "customers worldwide" or 全球领先 don't count. Neither does anything
+   limited to a place: "anywhere in the US", "Remote within Canada", "US only",
+   "must be based in the UK", 国内远程. On-site and hybrid jobs never count.
+4. **Salary** — set `min_salary_usd` to drop jobs whose stated pay is below
+   your floor, roughly converted to annual US dollars. Job Radar reads:
+   - **Currencies:** $, €, £, HK$, S$, A$, C$, NT$, RM, ₱, ₹, ¥/￥, and codes
+     like HKD, SGD, CNY or MYR. ¥ is yuan or yen depending on where the job is.
+   - **Chinese formats:** 月薪 20-30K, ·14薪 or 16薪 (paid months per year),
+     年薪 50-80万, 2万/月, 待遇 15k-25k, 元, 港币.
+   - **Pay periods:** /hour, /day, "day rate", /month, p.a.
+
+   It ignores numbers that aren't pay: funding ("raised $20M", "Series A"),
+   percentages, 401k, years and team sizes. When the period can't be told
+   ("Salary: $8,000"), the job isn't judged on pay rather than guessed at.
+   Jobs that don't state a salary pass too, unless you set
+   `require_salary = true`, which only sends jobs that state one. Leave
+   `min_salary_usd = 0` and `require_salary = false` to skip this stage.
+   Exchange rates are approximate (`jobradar/salary.py`).
 
 Postings older than `max_posting_age_days` (default 15) are skipped as well.
 
@@ -375,7 +463,7 @@ make it.
 ```
 jobradar/
   config.py          keywords, remote_only, telegram, sources, interval
-  state.py           the JSON state file (already-sent memory)
+  state.py           the SQLite database (jobradar.db): sent jobs, sources, history
   classifier.py      recall-first "is this a job posting?"
   extraction.py      title / remote / salary / contact / apply-url
   filters.py         keyword + remote
@@ -386,6 +474,7 @@ jobradar/
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
   apply/             auto-apply: contacts, engine (gates/caps/queue), senders
+  web/               the dashboard: app.py (server + API), index.html, configfile.py
 tests/               python -m unittest discover -s tests
 ```
 

@@ -20,7 +20,7 @@ from urllib.parse import quote
 
 from ..models import RawItem
 from ..state import parse_iso
-from .base import Collector, CollectorError, FetchContext, HttpClient
+from .base import Collector, CollectorError, FetchContext, HttpClient, each_item, parse_json
 from .registry import register
 
 _SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
@@ -57,20 +57,23 @@ class TwitterCollector(Collector):
 
     @staticmethod
     def parse(body: bytes, source_name: str) -> Iterator[RawItem]:
-        data = json.loads(body)
+        data = parse_json(body, "X API")
         if "errors" in data and not data.get("data"):
             raise CollectorError(f"X API error: {data['errors']}")
-        for tweet in data.get("data", []):
-            text = (tweet.get("text") or "").strip()
-            if not text:
-                continue
-            tid = str(tweet.get("id"))
-            posted = parse_iso(tweet.get("created_at"))
-            yield RawItem(
-                source=source_name,
-                external_id=tid,
-                raw_text=text,
-                url=f"https://twitter.com/i/web/status/{tid}",
-                raw_json=json.dumps(tweet),
-                posted_at=posted,
-            )
+        yield from each_item(data.get("data", []), lambda tweet: TwitterCollector._item(tweet, source_name), source_name)
+
+    @staticmethod
+    def _item(tweet: Any, source_name: str) -> RawItem | None:
+        text = (tweet.get("text") or "").strip()
+        if not text:
+            return None
+        tid = str(tweet.get("id"))
+        posted = parse_iso(tweet.get("created_at"))
+        return RawItem(
+            source=source_name,
+            external_id=tid,
+            raw_text=text,
+            url=f"https://twitter.com/i/web/status/{tid}",
+            raw_json=json.dumps(tweet),
+            posted_at=posted,
+        )

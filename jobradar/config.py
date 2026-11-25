@@ -8,6 +8,7 @@ one destination chat.
 
 from __future__ import annotations
 
+import logging
 import os
 import tomllib
 from dataclasses import dataclass, field, replace
@@ -38,6 +39,11 @@ class Config:
     # means no region filter. A posting passes if it's remote-worldwide OR its
     # location names one of these, e.g. ["Hong Kong", "Malaysia", "Worldwide"].
     regions: list[str] = field(default_factory=list)
+    # With regions set, jobs that don't say where they hire (SRS FR-20/21):
+    # "review" = ask you first (Telegram buttons / dashboard), "send" = send
+    # them marked "location not stated", "drop" = drop them.
+    unknown_location: str = "review"
+    review_expiry_days: int = 14                # unanswered review items expire (FR-25)
 
     # Where to send.
     telegram_bot_token: str | None = None
@@ -96,12 +102,16 @@ class Config:
     smtp_from: str | None = None                # defaults to smtp_user
 
     # How it runs.
-    state_path: str = "jobradar-state.json"
+    # Dashboard (`jobradar web`) only: check for jobs automatically every
+    # run_interval_hours. Off until you switch it on, so a half-finished setup
+    # never sends anything. (`jobradar serve` always runs on schedule.)
+    auto_run: bool = False
+    state_path: str = "jobradar.db"             # SQLite database (created automatically)
     run_interval_hours: float = 4.0
     catchup_lookback_hours: float = 72.0        # cap how far back a source looks
     first_run_lookback_hours: float = 168.0     # wider window the very first time a source runs
     max_messages_per_run: int = 25              # cap sends per run so a backlog doesn't flood
-    max_posting_age_days: int = 30              # drop postings older than this (0 = no limit)
+    max_posting_age_days: int = 15              # drop postings older than this (0 = no limit)
     default_request_interval_seconds: float = 5.0
     message_interval_seconds: float = 3.0       # gap between sends (Telegram flood-limits ~20/min per chat)
     tier_b_failure_threshold: int = 3           # auto-disable a broken scraper
@@ -142,6 +152,9 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
                 data = tomllib.load(fh)
 
     kwargs = {k: v for k, v in data.items() if k in _KNOWN}
+    # Older configs had a yes/no switch for jobs with no stated location.
+    if "unknown_location" not in data and isinstance(data.get("send_unknown_location"), bool):
+        kwargs["unknown_location"] = "send" if data["send_unknown_location"] else "drop"
     cfg = Config(**kwargs)
 
     # Secrets from the environment win and are never persisted here.
@@ -191,6 +204,12 @@ def build_sources(cfg: Config, path: str | os.PathLike[str] | None) -> list[dict
     from .sites import resolve
 
     resolved = resolve(list(cfg.en) + list(cfg.cn))
-    explicit = source_definitions(path)
+    explicit = []
+    for i, block in enumerate(source_definitions(path), 1):
+        if not isinstance(block, dict) or not block.get("name") or not block.get("type"):
+            logging.getLogger("jobradar.config").warning(
+                "ignoring [[sources]] block #%d in the config: it needs both a name and a type", i)
+            continue
+        explicit.append(block)
     combined = resolved + explicit
     return combined if combined else [dict(s) for s in DEFAULT_SOURCES]

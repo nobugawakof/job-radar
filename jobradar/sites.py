@@ -83,6 +83,17 @@ def _resolve_one(host: str, base: str, path: str, raw: str) -> list[dict[str, An
                  "request_interval_s": 15.0,
                  "url": f"https://www.reddit.com/r/{sub}/new/.rss"}]
 
+    if base in ("t.me", "telegram.me", "telegram.dog"):
+        # t.me/<channel>, t.me/s/<channel> (web preview), not invite links.
+        parts = [p for p in path.split("/") if p]
+        if parts and parts[0] == "s":
+            parts = parts[1:]
+        name = parts[0] if parts else ""
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{3,31}", name) and name.lower() not in ("joinchat", "addstickers"):
+            return [{"name": f"tg-{name.lower()}", "type": "telegram", "tier": "A", "channel": name}]
+        log.warning("skipping %s — only public channel links (t.me/<channel>) can be read", raw)
+        return []
+
     if base in ("x.com", "twitter.com"):
         return [{"name": "x", "type": "twitter", "tier": "A"}]
 
@@ -105,12 +116,15 @@ def resolve(urls: list[str]) -> list[dict[str, Any]]:
     for raw in urls:
         if not raw or not str(raw).strip():
             continue
-        host, base, path = _parse(str(raw))
+        text = str(raw).strip()
+        if re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{3,31}", text):  # "@remote_jobs" = a Telegram channel
+            text = "t.me/" + text[1:]
+        host, base, path = _parse(text)
         if base in UNSUPPORTED or host in UNSUPPORTED:
             log.warning("skipping %s — %s is not supported (JavaScript/login-walled; "
                         "no free way to read its job posts)", raw, UNSUPPORTED.get(base, host))
             continue
-        for src in _resolve_one(host, base, path, str(raw)):
+        for src in _resolve_one(host, base, path, text):
             if src["name"] in seen:
                 continue
             seen.add(src["name"])

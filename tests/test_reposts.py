@@ -133,7 +133,7 @@ class PipelineRepostTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.path = Path(tmp.name) / "state.json"
+        self.path = Path(tmp.name) / "jobradar.db"
         patcher = mock.patch.dict(REGISTRY, {"rss": _Collector})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -169,15 +169,14 @@ class PipelineRepostTests(unittest.TestCase):
     def test_memory_expires_after_the_window(self):
         self.run_pipeline([HN])
         state = State(self.path)
-        for v in state.signatures.values():
-            v[0] = iso(utcnow() - timedelta(days=61))
-        state.save()
+        with state._tx() as db:  # age every remembered signature past the window
+            db.execute("UPDATE signatures SET seen_at = ?", (iso(utcnow() - timedelta(days=61)),))
         self.assertEqual(self.run_pipeline([NEXT_MONTH]).delivered, 1)
 
     def test_window_zero_disables_it(self):
         self.run_pipeline([HN], window=0)
         self.assertEqual(self.run_pipeline([NEXT_MONTH], window=0).delivered, 1)
-        self.assertEqual(State(self.path).signatures, {})
+        self.assertEqual(State(self.path).signature_count(), 0)
 
 
 if __name__ == "__main__":

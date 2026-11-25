@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -50,7 +49,7 @@ class ApplierTestCase(unittest.TestCase):
         self.dir = Path(self.tmp.name)
         self.resume = self.dir / "resume.pdf"
         self.resume.write_bytes(b"%PDF-1.4")
-        self.state = State(self.dir / "state.json")
+        self.state = State(self.dir / "jobradar.db")
         self.notes: list[str] = []
         self.sleeps: list[float] = []
         self.tg = FakeSender("telegram")
@@ -77,7 +76,7 @@ class DryRunTests(ApplierTestCase):
         self.assertEqual(self.tg.sent, [])
         self.assertIn("DRY RUN", self.notes[0])
         self.assertIn("@hr_anna", self.notes[0])
-        self.assertEqual(self.state.applications["hash1"]["status"], "dry_run")
+        self.assertEqual(self.state.get_application("hash1")["status"], "dry_run")
         self.assertEqual(self.sleeps, [])
 
     def test_dry_run_works_without_any_sender_configured(self):
@@ -102,8 +101,8 @@ class AutoTests(ApplierTestCase):
         self.assertIn("Applied", self.notes[0])
         self.assertTrue(self.tg.closed)
         # Saved to disk immediately after sending (crash safety).
-        saved = json.loads((self.dir / "state.json").read_text())
-        self.assertEqual(saved["applications"]["hash1"]["status"], "sent")
+        reopened = State(self.dir / "jobradar.db")  # committed immediately, visible to a new connection
+        self.assertEqual(reopened.get_application("hash1")["status"], "sent")
 
     def test_never_applies_twice_to_the_same_posting(self):
         self.applier().run([posting(1, "Contact @hr_anna")], NOW)
@@ -117,14 +116,14 @@ class AutoTests(ApplierTestCase):
         self.assertEqual(r.sent, 1)
         self.assertEqual(self.mail.sent[0][0], "jobs@acme.io")
         self.assertEqual(self.mail.sent[0][1], "Dear team, ...")  # email body, not the DM
-        self.assertEqual(self.state.applications["hash1"]["channel"], "email")
+        self.assertEqual(self.state.get_application("hash1")["channel"], "email")
 
     def test_all_channels_fail_records_failure(self):
         self.tg.fail["@hr_anna"] = ContactError("no such user")
         r = self.applier().run([posting(1, "Contact @hr_anna")], NOW)
         self.assertEqual((r.sent, r.failed), (0, 1))
-        self.assertEqual(self.state.applications["hash1"]["status"], "failed")
-        self.assertNotIn("hash1", self.state.apply_queue)
+        self.assertEqual(self.state.get_application("hash1")["status"], "failed")
+        self.assertFalse(self.state.queue_has("hash1"))
 
     def test_daily_cap_keeps_the_rest_queued(self):
         posts = [posting(i, f"Contact @hr_person{i}", age_days=i / 10) for i in range(5)]
@@ -144,16 +143,16 @@ class AutoTests(ApplierTestCase):
         self.score = 40
         r = self.applier().run([posting(1, "Contact @hr_anna")], NOW)
         self.assertEqual((r.sent, r.skipped_fit), (0, 1))
-        self.assertEqual(self.state.applications["hash1"]["score"], 40)
+        self.assertEqual(self.state.get_application("hash1")["score"], 40)
 
     def test_peer_flood_pauses_channel_and_uses_email(self):
         self.tg.fail["@hr_anna"] = ChannelUnavailable("PEER_FLOOD", pause_seconds=86400)
         r = self.applier().run([posting(1, "Contact @hr_anna or jobs@acme.io"),
                                 posting(2, "Contact @hr_bobby", age_days=0.1)], NOW)
         self.assertEqual(r.sent, 1)                       # posting 1 went by email
-        self.assertIn("hash2", self.state.apply_queue)    # telegram-only one waits
+        self.assertTrue(self.state.queue_has("hash2"))    # telegram-only one waits
         self.assertTrue(any("paused" in n for n in self.notes))
-        self.assertIn("telegram", self.state.apply_paused)
+        self.assertIn("telegram", self.state.paused_channels())
         # Still paused an hour later; resumes after 24h.
         self.assertEqual(self.applier().run([], NOW + timedelta(hours=1)).sent, 0)
         self.tg.fail.clear()
@@ -163,7 +162,7 @@ class AutoTests(ApplierTestCase):
         self.resume.unlink()
         r = self.applier().run([posting(1, "Contact @hr_anna")], NOW)
         self.assertEqual(r.sent, 0)
-        self.assertIn("hash1", self.state.apply_queue)
+        self.assertTrue(self.state.queue_has("hash1"))
         self.assertTrue(r.alerts)
 
 

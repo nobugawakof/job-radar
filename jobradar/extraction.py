@@ -168,87 +168,8 @@ def extract_location(text: str) -> str | None:
 
 
 # --- Salary parsing --------------------------------------------------------
-_CURRENCY = {"$": "USD", "€": "EUR", "£": "GBP", "usd": "USD", "eur": "EUR", "gbp": "GBP"}
-_PERIOD_RE = re.compile(r"\b(per\s+year|/\s*year|annually|annual|p\.?a\.?|yr|per\s+hour|/\s*hour|hourly|per\s+month|/\s*month|monthly)\b", re.I)
-_AMOUNT_RE = re.compile(
-    r"(?P<cur>[$€£])?\s?(?P<a>\d{1,3}(?:[,.\s]\d{3})+|\d{2,3})\s?(?P<ka>[kK])?"
-    r"(?:\s?[-–to]{1,3}\s?(?P<cur2>[$€£])?\s?(?P<b>\d{1,3}(?:[,.\s]\d{3})+|\d{2,3})\s?(?P<kb>[kK])?)?"
-)
-
-
-@dataclass
-class Salary:
-    raw: str | None = None
-    min: float | None = None
-    max: float | None = None
-    currency: str | None = None
-    period: str | None = None
-
-
-def parse_salary(text: str) -> Salary:
-    """Parse compensation where possible; leave fields unknown otherwise (FR-11).
-
-    ``salary_raw`` preserves what was written; the parsed fields are populated
-    only when a numeric range/amount with a currency is confidently found.
-    """
-    sal = Salary()
-    # A plausible salary snippet: a currency symbol immediately followed by a
-    # number (optionally a range). Requiring the digit avoids grabbing prose
-    # like "$" inside a word or a lone symbol.
-    cur_tok = r"(?:[$€£]|\b(?:USD|EUR|GBP|CAD|AUD|SGD|HKD)\b)"
-    m = re.search(
-        cur_tok + r"\s?\d[\d.,]*\s?[kK]?"
-        r"(?:\s?[-–—to]{1,3}\s?" + cur_tok + r"?\s?\d[\d.,]*\s?[kK]?)?",
-        text, re.I,
-    )
-    window = m.group(0) if m else None
-    if window is None:
-        # A "Salary:/Compensation:" label whose value contains a digit.
-        lab = re.search(r"(?:salary|compensation|comp|pay)\s*[:\-]?\s*([^\n]{1,60})", text, re.I)
-        if lab and re.search(r"\d", lab.group(1)):
-            window = lab.group(1)
-    if not window:
-        return sal
-
-    sal.raw = window.strip()
-
-    cur = None
-    for sym, code in _CURRENCY.items():
-        if sym in window.lower():
-            cur = code
-            break
-    sal.currency = cur
-
-    pm = _PERIOD_RE.search(window) or _PERIOD_RE.search(text)
-    if pm:
-        p = pm.group(0).lower()
-        if "hour" in p:
-            sal.period = "hour"
-        elif "month" in p:
-            sal.period = "month"
-        else:
-            sal.period = "year"
-
-    am = _AMOUNT_RE.search(window)
-    if am and am.group("a"):
-        lo = _to_number(am.group("a"), am.group("ka"))
-        hi = _to_number(am.group("b"), am.group("kb")) if am.group("b") else None
-        if lo is not None:
-            sal.min = lo
-            sal.max = hi if hi is not None else lo
-            if not sal.currency and (am.group("cur") or am.group("cur2")):
-                sym = am.group("cur") or am.group("cur2")
-                sal.currency = _CURRENCY.get(sym)
-    return sal
-
-
-def _to_number(digits: str | None, k: str | None) -> float | None:
-    if not digits:
-        return None
-    n = float(re.sub(r"[,.\s]", "", digits)) if len(re.sub(r"[^\d]", "", digits)) > 3 else float(re.sub(r"[^\d]", "", digits))
-    if k:
-        n *= 1000
-    return n
+# Lives in jobradar/salary.py (currencies, Chinese formats, pay periods).
+from .salary import Salary, parse_salary  # noqa: E402,F401
 
 
 # --- Full extraction -------------------------------------------------------
@@ -274,14 +195,17 @@ def extract(text: str, *, given_title: str | None = None, given_location: str | 
     description = text  # unmodified — the record of truth
     title = (given_title or "").strip() or extract_title(text)
     location = (given_location or "").strip() or extract_location(text)
-    worldwide = geo.is_worldwide(location) or geo.is_worldwide(text)
+    is_remote = detect_remote(text)
+    # Hiring from anywhere on Earth implies remote work: an explicitly on-site
+    # or hybrid job is never "worldwide", whatever its wording.
+    worldwide = geo.worldwide(location, text) and is_remote in ("remote", "unknown")
 
     return Extracted(
         title=title,
         description=description,
         contact=extract_contact(text),
         location=location,
-        is_remote=detect_remote(text),
+        is_remote=is_remote,
         is_worldwide=worldwide,
         apply_url=extract_apply_url(text),
         salary=parse_salary(text),

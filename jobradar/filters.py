@@ -9,10 +9,12 @@ A posting must pass all configured stages to be sent:
    remote or if its work arrangement is unknown; explicit on-site/hybrid is
    rejected.
 3. Region filter — when one or more regions of interest are configured, a
-   posting passes only if it hires worldwide/anywhere OR its location names one
-   of those regions. This is what makes "enter Hong Kong → get Hong Kong-remote
-   and remote-worldwide jobs, not US-only ones" work. An empty region list
-   disables this stage.
+   posting passes if it hires worldwide/anywhere OR its hiring geography
+   overlaps those regions, compared as sets of countries ("Germany" fits "EU
+   only", "Malaysia" fits "APAC"). A posting that names no place at all is
+   handled per ``unknown_location`` (SRS FR-20/21): "review" holds it for you
+   to approve, "send" sends it marked "location not stated", "drop" drops it.
+   An empty region list disables this stage.
 """
 
 from __future__ import annotations
@@ -36,25 +38,13 @@ class Settings:
     min_salary_usd: int = 0
     require_salary: bool = False
     exclude_keywords: list[str] = field(default_factory=list)
+    # A job that doesn't say where it hires can't be judged by region (FR-20:
+    # never silently discarded). Until a review queue exists, it is sent,
+    # marked "location not stated", unless this is turned off.
+    unknown_location: str = "review"   # review / send / drop
 
 
-# Rough currency → USD factors and period → per-year factors. Deliberately
-# approximate: the goal is "is this roughly above my floor", not accounting.
-_USD_RATES = {
-    "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "CAD": 0.73, "AUD": 0.66, "SGD": 0.74,
-    "HKD": 0.128, "CNY": 0.14, "RMB": 0.14, "JPY": 0.0067,
-}
-_PERIOD_FACTOR = {"hour": 2080.0, "month": 12.0, "year": 1.0, None: 1.0}
-
-
-def annual_usd(salary) -> float | None:
-    """Best-effort annual-USD estimate from a parsed Salary, or None if unknown."""
-    amount = salary.max or salary.min
-    if amount is None:
-        return None
-    rate = _USD_RATES.get((salary.currency or "").upper(), 1.0)
-    factor = _PERIOD_FACTOR.get(salary.period, 1.0)
-    return amount * factor * rate
+from .salary import annual_usd  # noqa: E402,F401  (kept importable from here)
 
 
 @dataclass
@@ -126,14 +116,18 @@ def remote_stage(posting: Posting, settings: Settings) -> bool:
     return posting.is_remote in ("remote", "unknown")
 
 
-def region_stage(posting: Posting, settings: Settings) -> bool:
-    """Pass if no regions configured, or the posting is worldwide, or its
-    location names one of the user's regions (match OR worldwide)."""
-    if not settings.regions:
-        return True
-    if posting.is_worldwide:
-        return True
-    return geo.region_matches(posting.location, posting.description, settings.regions)
+def region_stage(posting: Posting, settings: Settings) -> str:
+    """"pass" if no regions are set, the job hires worldwide, or its hiring
+    geography overlaps the user's regions; "unknown" if it names no place;
+    otherwise "reject"."""
+    if not settings.regions or posting.is_worldwide:
+        return "pass"
+    verdict = geo.region_check(posting.location, posting.description, settings.regions)
+    if verdict == "unknown" and posting.is_remote in ("onsite", "hybrid"):
+        # An on-site job is somewhere specific; if we can't recognise where,
+        # it's far more likely outside your regions than in them.
+        return "reject"
+    return {"match": "pass", "unknown": "unknown"}.get(verdict, "reject")
 
 
 def salary_stage(posting: Posting, settings: Settings) -> bool:
@@ -144,9 +138,11 @@ def salary_stage(posting: Posting, settings: Settings) -> bool:
     """
     if not settings.min_salary_usd and not settings.require_salary:
         return True
+    if settings.require_salary and not (posting.salary.raw or posting.salary.max or posting.salary.min):
+        return False  # "only jobs that state a salary"
     est = annual_usd(posting.salary)
-    if est is None:
-        return not settings.require_salary
+    if est is None or not settings.min_salary_usd:
+        return True  # stated but can't be converted (e.g. period unknown): don't guess
     return est >= settings.min_salary_usd
 
 
@@ -181,10 +177,16 @@ def evaluate(posting: Posting, settings: Settings) -> FilterResult:
     if not remote_stage(posting, settings):
         return FilterResult(REJECT, matched, "remote", f"remote_only_rejects_{posting.is_remote}")
 
-    if not region_stage(posting, settings):
+    region = region_stage(posting, settings)
+    if region == "reject":
         return FilterResult(REJECT, matched, "region", "outside_regions_and_not_worldwide")
+    if region == "unknown" and settings.unknown_location == "drop":
+        return FilterResult(REJECT, matched, "region", "location_not_stated")
 
     if not salary_stage(posting, settings):
         return FilterResult(REJECT, matched, "salary", "below_min_salary")
 
+    if region == "unknown":
+        reason = "review" if settings.unknown_location == "review" else "location_not_stated"
+        return FilterResult(PASS, matched, "salary", reason)
     return FilterResult(PASS, matched, "salary", "ok")

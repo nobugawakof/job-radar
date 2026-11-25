@@ -475,3 +475,30 @@ def draft_application(
         log.warning("AI application drafting failed: %s", e)
         return None
     return _to_draft(obj) if obj else None
+
+
+def check(*, provider: str, api_key: str, model: str = "", timeout: float = 45.0) -> tuple[bool, str]:
+    """Try the configured provider once on a tiny posting, for the dashboard's
+    "Test" button. Unlike :func:`enrich`, errors are returned, not swallowed."""
+    if not api_key:
+        return False, "No API key entered."
+    sample = "We're hiring a remote Python developer. Apply: jobs@example.com"
+    prov = (provider or "claude").strip().lower()
+    try:
+        if prov == "gemini":
+            obj = _gemini_json(_SYSTEM + _GEMINI_FIELDS, [{"text": "Job posting:\n" + sample}],
+                               api_key=api_key, model=model, timeout=timeout)
+            used = _GEMINI_MODEL_CACHE.get(api_key) or (model if model.startswith("gemini") else _GEMINI_DEFAULT_MODEL)
+        else:
+            obj = _claude_json(_SYSTEM, sample, _SCHEMA, api_key=api_key, model=model, timeout=timeout)
+            used = model if model and not model.startswith("gemini") else _CLAUDE_DEFAULT_MODEL
+    except _HttpError as e:
+        hint = {400: "the request was rejected", 401: "the API key is wrong",
+                403: "the key isn't allowed to use this model", 404: "unknown model name",
+                429: "rate limited or out of credits"}.get(e.code, "")
+        return False, f"{hint + ' — ' if hint else ''}{e}"[:400]
+    except Exception as e:  # noqa: BLE001
+        return False, f"{type(e).__name__}: {e}"[:400]
+    if not obj:
+        return False, "The provider answered, but not with usable JSON."
+    return True, f"Working — model {used}."

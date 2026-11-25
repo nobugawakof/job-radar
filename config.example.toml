@@ -46,8 +46,10 @@ exclude_keywords = [
   # "市场推广", "用户增长", "增长", "运营", "销售", "招商", "客服", "设计师",
 ]
 remote_only = true
-regions     = []            # e.g. ["Hong Kong", "中国", "Worldwide"]; empty = anywhere
+regions     = []            # e.g. ["Malaysia", "APAC", "中国"]; groupings like EU/APAC work; empty = anywhere
+unknown_location = "review"  # jobs that don't say where they hire: "review" (ask me) / "send" / "drop"
 run_interval_hours = 4
+auto_run = false             # dashboard only: check automatically (the dashboard's switch)
 max_posting_age_days = 15    # ignore anything older than N days (0 = no limit)
 repost_window_days   = 60    # don't re-send a reworded repost of a job sent within N days (0 = off)
 

@@ -14,7 +14,8 @@ a = Analysis(
     ["jobradar/__main__.py"],
     pathex=["."],
     binaries=[],
-    datas=[],
+    # The dashboard page is a data file, not a module.
+    datas=[("jobradar/web/index.html", "jobradar/web")],
     # Collectors register themselves via import side-effects; list them so the
     # frozen build never drops one.
     hiddenimports=[
@@ -28,6 +29,9 @@ a = Analysis(
         "jobradar.apply.engine",
         "jobradar.apply.senders",
         "jobradar.apply.contacts",
+        "jobradar.web.app",
+        "jobradar.web.configfile",
+        "jobradar.web.tglogin",
         # Optional: bundled when Telethon is installed in the build env (the
         # GitHub workflow installs it) so the .exe can auto-apply via Telegram.
         "telethon",

@@ -81,6 +81,8 @@ def format_message(posting: dict[str, Any]) -> str:
         lines.append("🌍  Location: Remote — worldwide")
     elif posting.get("location"):
         lines.append(f"📍  Location: {_esc(str(posting['location']))}")
+    elif posting.get("location_unknown"):
+        lines.append("📍  Location: not stated — check you can work from where you are")
 
     # 🌱 Responsibilities / 🌵 Requirements — populated only when AI extraction
     # is on; otherwise the full post body carries them under Details.

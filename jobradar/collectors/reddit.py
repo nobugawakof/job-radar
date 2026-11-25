@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from ..models import RawItem
-from .base import Collector, CollectorError, FetchContext, HttpClient
+from .base import Collector, CollectorError, FetchContext, HttpClient, each_item, parse_json
 from .registry import register
 
 _TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
@@ -74,27 +74,30 @@ class RedditCollector(Collector):
 
     @staticmethod
     def parse(body: bytes, source_name: str) -> Iterator[RawItem]:
-        data = json.loads(body)
-        for child in data.get("data", {}).get("children", []):
-            d = child.get("data", {})
-            title = (d.get("title") or "").strip()
-            selftext = (d.get("selftext") or "").strip()
-            text = "\n".join(filter(None, [title, selftext])) or title
-            if not text:
-                continue
-            created = d.get("created_utc")
-            posted = (
-                datetime.fromtimestamp(int(created), tz=timezone.utc) if created else None
-            )
-            permalink = d.get("permalink") or ""
-            url = f"https://www.reddit.com{permalink}" if permalink else d.get("url")
-            yield RawItem(
-                source=source_name,
-                external_id=str(d.get("id") or d.get("name")),
-                raw_text=text,
-                url=url,
-                raw_json=json.dumps(d),
-                posted_at=posted,
-                title_hint=title or None,
-                location_hint=None,
-            )
+        data = parse_json(body, "Reddit")
+        yield from each_item(data.get("data", {}).get("children", []), lambda child: RedditCollector._item(child, source_name), source_name)
+
+    @staticmethod
+    def _item(child: Any, source_name: str) -> RawItem | None:
+        d = child.get("data", {})
+        title = (d.get("title") or "").strip()
+        selftext = (d.get("selftext") or "").strip()
+        text = "\n".join(filter(None, [title, selftext])) or title
+        if not text:
+            return None
+        created = d.get("created_utc")
+        posted = (
+            datetime.fromtimestamp(int(created), tz=timezone.utc) if created else None
+        )
+        permalink = d.get("permalink") or ""
+        url = f"https://www.reddit.com{permalink}" if permalink else d.get("url")
+        return RawItem(
+            source=source_name,
+            external_id=str(d.get("id") or d.get("name")),
+            raw_text=text,
+            url=url,
+            raw_json=json.dumps(d),
+            posted_at=posted,
+            title_hint=title or None,
+            location_hint=None,
+        )

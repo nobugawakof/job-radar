@@ -24,7 +24,7 @@ from typing import Any, Iterator
 from urllib.parse import quote
 
 from ..models import RawItem
-from .base import Collector, CollectorError, FetchContext, HttpClient
+from .base import Collector, CollectorError, FetchContext, HttpClient, each_item, parse_json
 from .registry import register
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -71,37 +71,43 @@ class HackerNewsCollector(Collector):
     def _latest_hiring_story(self) -> int | None:
         url = f"{_SEARCH}?tags=story,author_whoishiring&hitsPerPage=10"
         status, body = self.http.get(url)
-        data = json.loads(body)
+        data = parse_json(body, "Hacker News search")
         best: tuple[int, int] | None = None  # (created_at_i, id)
         for hit in data.get("hits", []):
             title = hit.get("title") or ""
             if not _HIRING_RE.search(title) or _EXCLUDE_RE.search(title):
                 continue
-            ts = int(hit.get("created_at_i") or 0)
-            oid = int(hit.get("objectID"))
+            try:
+                ts, oid = int(hit.get("created_at_i") or 0), int(hit.get("objectID"))
+            except (TypeError, ValueError):
+                continue  # a malformed hit; the others still count
             if best is None or ts > best[0]:
                 best = (ts, oid)
         return best[1] if best else None
 
     @staticmethod
     def _parse_comments(body: bytes, story_id: int, source_name: str) -> Iterator[RawItem]:
-        data = json.loads(body)
-        for hit in data.get("hits", []):
-            # Only top-level comments (direct children of the story) are the job
-            # posts; nested replies are discussion.
-            if int(hit.get("parent_id") or 0) != story_id:
-                continue
-            text = _strip_html(hit.get("comment_text") or "")
-            if not text:
-                continue
-            oid = str(hit.get("objectID"))
-            ts = hit.get("created_at_i")
-            posted = datetime.fromtimestamp(int(ts), tz=timezone.utc) if ts else None
-            yield RawItem(
-                source=source_name,
-                external_id=oid,
-                raw_text=text,
-                url=f"https://news.ycombinator.com/item?id={oid}",
-                raw_json=json.dumps(hit),
-                posted_at=posted,
-            )
+        data = parse_json(body, "Hacker News comments")
+        yield from each_item(data.get("hits", []),
+                             lambda hit: HackerNewsCollector._item(hit, story_id, source_name), source_name)
+
+    @staticmethod
+    def _item(hit: Any, story_id: int, source_name: str) -> RawItem | None:
+        # Only top-level comments (direct children of the story) are the job
+        # posts; nested replies are discussion.
+        if int(hit.get("parent_id") or 0) != story_id:
+            return None
+        text = _strip_html(hit.get("comment_text") or "")
+        if not text:
+            return None
+        oid = str(hit.get("objectID"))
+        ts = hit.get("created_at_i")
+        posted = datetime.fromtimestamp(int(ts), tz=timezone.utc) if ts else None
+        return RawItem(
+            source=source_name,
+            external_id=oid,
+            raw_text=text,
+            url=f"https://news.ycombinator.com/item?id={oid}",
+            raw_json=json.dumps(hit),
+            posted_at=posted,
+        )
