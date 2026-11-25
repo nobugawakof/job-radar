@@ -12,6 +12,8 @@ config.toml
 resume.pdf
 resume.txt
 jobradar-state.json
+jobradar-state.json.migrated
+*.db.corrupt-*
 # Dashboard: the session-cookie secret and the pre-dashboard config backup
 jobradar-web.token
 config.toml.bak

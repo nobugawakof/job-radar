@@ -234,15 +234,13 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
     session = ctrl.resolve(c.telegram_session_path)
     session_file = session if str(session).endswith(".session") else Path(str(session) + ".session")
     sources = []
+    known = st.sources_info()
     for sdef in ctrl.service.source_defs:
-        info = st.sources.get(sdef["name"], {})
+        info = known.get(sdef["name"], {})
         sources.append({"name": sdef["name"], "type": sdef["type"], "tier": sdef.get("tier", "A"),
                         "url": sdef.get("url", ""), "disabled": bool(info.get("disabled")),
                         "failures": info.get("failures", 0), "last_success": info.get("last_success")})
-    apps = list(st.applications.values())
-    counts: dict[str, int] = {}
-    for a in apps:  # sent / dry_run / skipped_fit / skipped_cooldown / failed
-        counts[a.get("status", "?")] = counts.get(a.get("status", "?"), 0) + 1
+    counts = st.application_counts()  # sent / dry_run / skipped_fit / skipped_cooldown / failed
     has_sites = bool(c.en or c.cn or raw.get("sources"))
     checklist = [
         {"id": "telegram", "label": "Connect your Telegram bot", "done": ctrl.configured(), "tab": "telegram"},
@@ -261,10 +259,10 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
         "config": values, "secrets": secrets_info,
         "known_sites": KNOWN_SITES,
         "sources": sources, "using_default_sources": not has_sites,
-        "recent": st.recent[:50], "sent_total": len(st.sent),
+        "recent": st.recent_jobs(50), "sent_total": st.sent_count(),
         "apply": {
-            "counts": counts, "queue": len(st.apply_queue),
-            "paused": {k: v for k, v in st.apply_paused.items() if v and parse_iso(v) and parse_iso(v) > utcnow()},
+            "counts": counts, "queue": st.queue_len(),
+            "paused": {k: v for k, v in st.paused_channels().items() if parse_iso(v) and parse_iso(v) > utcnow()},
             "resume_pdf": {"exists": pdf.exists(), "name": pdf.name,
                            "size": pdf.stat().st_size if pdf.exists() else 0},
             "resume_text": txt.read_text("utf-8")[:20000] if txt and txt.exists() else "",
@@ -387,11 +385,10 @@ class Api:
 
     def applications(self, _: Any) -> dict[str, Any]:
         st = self.ctrl.service.state
-        recs = sorted(st.applications.values(), key=lambda r: r.get("at", ""), reverse=True)[:300]
-        queue = sorted(({"title": e.get("title"), "telegram": e.get("telegram"), "email": e.get("email"),
-                         "posted_at": e.get("posted_at"), "url": e.get("source_url")}
-                        for e in st.apply_queue.values()), key=lambda e: e.get("posted_at") or "", reverse=True)
-        return {"applications": recs, "queue": queue}
+        queue = [{"title": e.get("title"), "telegram": e.get("telegram"), "email": e.get("email"),
+                  "posted_at": e.get("posted_at"), "url": e.get("source_url")}
+                 for _, e in st.queue_items()]
+        return {"applications": st.list_applications(300), "queue": queue}
 
     def run(self, _: Any) -> dict[str, Any]:
         _require(self.ctrl.configured(), "Connect your Telegram bot first (Telegram tab).")
@@ -403,9 +400,8 @@ class Api:
         _require(not self.ctrl.running, "Wait for the current check to finish.", 409)
         name = str(body.get("name") or "")
         st = self.ctrl.service.state
-        _require(name in st.sources, "unknown source")
+        _require(name in st.sources_info(), "unknown source")
         st.enable_source(name)
-        st.save()
         return build_state(self.ctrl)
 
     # ---------------------------------------------------------- telegram

@@ -240,20 +240,20 @@ def cmd_test_apply(args: argparse.Namespace) -> int:
 
 def cmd_applications(args: argparse.Namespace) -> int:
     svc = _service(args)
-    recs = sorted(svc.state.applications.values(), key=lambda r: r.get("at", ""), reverse=True)
-    if not recs and not svc.state.apply_queue:
+    recs = svc.state.list_applications(args.limit)
+    waiting = svc.state.queue_len()
+    if not recs and not waiting:
         print("No applications yet.")
         return 0
-    for r in recs[: args.limit]:
+    for r in recs:
         score = f"fit {r['score']:>3}" if r.get("score") is not None else "fit   —"
         to = f"{r.get('channel') or ''} {r.get('contact') or ''}".strip() or "—"
         note = r.get("error") or r.get("reason") or ""
         print(f"  {r.get('at', '')[:16]}  {r.get('mode', ''):<7} {r.get('status', ''):<16} "
               f"{score}  {to:<32} {r.get('title', '')[:60]}" + (f"\n{'':<20}↳ {note[:110]}" if note else ""))
-    if svc.state.apply_queue:
-        print(f"\n{len(svc.state.apply_queue)} posting(s) waiting in the apply queue.")
-    paused = {k: v for k, v in svc.state.apply_paused.items() if v}
-    for ch, until in paused.items():
+    if waiting:
+        print(f"\n{waiting} posting(s) waiting in the apply queue.")
+    for ch, until in svc.state.paused_channels().items():
         print(f"  {ch} paused until {until[:16]}Z")
     return 0
 

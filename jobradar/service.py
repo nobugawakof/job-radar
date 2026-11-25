@@ -26,6 +26,12 @@ class Service:
         state_path = Path(config.state_path)
         if not state_path.is_absolute():
             state_path = self.base_dir / state_path
+        # The state lives in SQLite. An older config may still name the JSON
+        # file ("jobradar-state.json"); use a .db beside it and import the JSON once.
+        legacy_json = state_path if state_path.suffix.lower() == ".json" else \
+            state_path.with_name("jobradar-state.json")
+        if state_path.suffix.lower() == ".json":
+            state_path = state_path.with_suffix(".db")
         if state is not None and Path(state.path).resolve() == state_path.resolve():
             # The dashboard rebuilds the Service after a settings change; it must
             # keep sharing one State, or two copies would overwrite each other.
@@ -34,7 +40,8 @@ class Service:
             self.state = state
         else:
             self.state = State(str(state_path), max_sent=config.max_sent_remembered,
-                               repost_window_days=config.repost_window_days)
+                               repost_window_days=config.repost_window_days,
+                               legacy_json=legacy_json)
         self.source_defs = build_sources(config, config_path)
         self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
         self.applier = self._build_applier()

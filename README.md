@@ -2,13 +2,12 @@
 
 A tiny self-hosted bot that scrapes job postings from social platforms, keeps
 the ones matching your keywords and remote preference, and pushes them to you
-on **Telegram**. No database, no web dashboard, no paid services — pure Python
-3.11 standard library and a single small JSON state file.
+on **Telegram**. It can also apply for you, and you set it up from a local web
+dashboard. No paid services and nothing to install: pure Python 3.11 standard
+library, with a single-file **SQLite** database (`jobradar.db`).
 
-> This is a simplified build. It scrapes and sends via Telegram only. The
-> original database + web-dashboard + review-queue version is preserved in git
-> history (branch `claude/requirement-implementation-22epkg`, commit `43c81ee`)
-> if you ever want it back.
+> An earlier, larger implementation (with a review queue) is preserved in git
+> history (branch `claude/requirement-implementation-22epkg`, commit `43c81ee`).
 
 ## How it works
 
@@ -18,17 +17,35 @@ on **Telegram**. No database, no web dashboard, no paid services — pure Python
                                                                         │
                                                                         ▼
                           send one message          drop already-sent   keep those matching
-   Telegram  ◀───────────   per posting     ◀──────  (JSON state)  ◀───  keyword/remote/region/salary
+   Telegram  ◀───────────   per posting     ◀──────  (jobradar.db) ◀───  keyword/remote/region/salary
                                                           ▲
                                                    merge duplicates
                                                    across sources
 ```
 
-There is exactly one piece of persistent state: a JSON file (default
-`jobradar-state.json`) that remembers which postings were already sent — so the
-bot never sends you the same job twice — plus a per-source last-seen timestamp
-and a failure counter. It's written atomically, so a crash or a closed laptop
-mid-write can't corrupt it.
+Everything Job Radar remembers lives in one **SQLite** database file,
+`jobradar.db`, next to your config. SQLite is built into Python, so there's no
+database server to install or run. The file holds:
+
+| Table | What it remembers |
+|---|---|
+| `sent` | Fingerprints of every job already sent, so nothing is sent twice |
+| `jobs` | Each delivered job: title, link, source, salary, location and the full original text |
+| `signatures` | Similarity signatures of sent jobs, to recognise reworded reposts |
+| `sources` | Each source's last successful check, failure count, and whether it's switched off |
+| `applications`, `apply_queue`, `contacts`, `apply_paused` | Auto-apply history, waiting jobs, who was contacted, and paused channels |
+| `meta` | The last run time, plus the schema version in SQLite's `user_version` |
+
+Every change is committed as it happens, in a transaction, with SQLite's
+write-ahead log (WAL). A crash or a closed laptop can't leave the file
+half-written, and the dashboard and a command-line run can use it at the same
+time. Old tables are kept to size automatically (`max_sent_remembered`, default
+5,000 per table, and `repost_window_days` for signatures). You can open the file
+with any SQLite tool, for example `sqlite3 jobradar.db "select sent_at, title from jobs order by sent_at desc limit 10"`.
+
+**Upgrading from an older version:** the first time it starts, Job Radar imports
+the old `jobradar-state.json` into `jobradar.db` and renames the JSON to
+`jobradar-state.json.migrated`. Nothing is re-sent.
 
 **Delivery is safe against outages.** A posting is only recorded as "sent" after
 the Telegram message actually goes out, and a source's watermark only advances
@@ -180,9 +197,9 @@ new source is one class implementing the `Collector` interface.
 
 A transient HTTP error (including a one-off `403`) is treated as a retryable
 failure, not a permanent block — a single blip won't kill a source. If a source
-does get disabled after repeated failures, re-enable it by deleting its entry
-under `"sources"` in the state file (or just delete the state file to reset
-everything; you'll only risk re-sending recent postings once).
+does get disabled after repeated failures, turn it back on from the dashboard
+(**Job search → Source status**). To reset everything, delete `jobradar.db`;
+you'll only risk re-sending recent postings once.
 
 The **HN** source specifically reads the current monthly *"Ask HN: Who is
 hiring?"* thread and returns its top-level comments — the real job posts — so
@@ -312,8 +329,8 @@ from the same contacts are fair game.
   (`PEER_FLOOD` / `FLOOD_WAIT`), Telegram applying pauses (24 h for
   `PEER_FLOOD`), you get an alert, and postings that also list an email go by
   email instead. Check **@SpamBot** in Telegram if you see this.
-- **Crash-safe.** The state file is saved after every send, so a crash or a
-  closed laptop can't make it apply twice.
+- **Crash-safe.** Each application is committed to the database the moment
+  it's sent, so a crash or a closed laptop can't make it apply twice.
 
 > **Know the risk.** Telegram restricts accounts that message many strangers,
 > and new accounts are flagged fastest. Keep the cap low, use an account with
@@ -406,7 +423,7 @@ make it.
 ```
 jobradar/
   config.py          keywords, remote_only, telegram, sources, interval
-  state.py           the JSON state file (already-sent memory)
+  state.py           the SQLite database (jobradar.db): sent jobs, sources, history
   classifier.py      recall-first "is this a job posting?"
   extraction.py      title / remote / salary / contact / apply-url
   filters.py         keyword + remote

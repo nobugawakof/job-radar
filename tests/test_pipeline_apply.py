@@ -68,7 +68,7 @@ class PipelineApplyTests(unittest.TestCase):
             resume.write_bytes(b"%PDF-1.4")
             cfg = Config(keywords=["python"], telegram_chat_id="1", message_interval_seconds=0,
                          apply_mode="auto", apply_delay_seconds=[0, 0])
-            state = State(Path(d) / "state.json")
+            state = State(Path(d) / "jobradar.db")
             transport = FakeTransport()
             tg, mail = FakeSender("telegram"), FakeSender("email")
             applier = Applier(cfg, state, senders={"telegram": tg, "email": mail},
@@ -84,8 +84,11 @@ class PipelineApplyTests(unittest.TestCase):
             self.assertEqual(mail.sent, ["jobs@acme.io"])
             # 2 job cards + 2 "Applied" confirmations
             self.assertEqual(sum("Applied" in m for m in transport.messages), 2)
-            saved = json.loads((Path(d) / "state.json").read_text())
-            self.assertEqual(len(saved["applications"]), 2)
+            self.assertEqual(len(State(Path(d) / "jobradar.db").list_applications()), 2)
+            # Delivered jobs are stored with their full text.
+            jobs = state.recent_jobs(with_text=True)
+            self.assertEqual(len(jobs), 2)
+            self.assertIn("Python backend engineer", jobs[0]["description"])
 
             # A second run re-fetches the same posts: nothing is sent or applied again.
             again = Pipeline(cfg, state, sources, transport=transport, applier=applier).run()

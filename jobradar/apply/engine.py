@@ -23,8 +23,9 @@ Runs after a pipeline run has delivered its postings to you:
 
 Safety rails: one application per posting, one message per contact per
 cooldown, a daily cap, random gaps between sends, and an immediate pause of a
-channel on flood/throttle errors (Telegram PEER_FLOOD pauses it for 24h). The
-state file is saved after every real send so a crash can never cause a repeat.
+channel on flood/throttle errors (Telegram PEER_FLOOD pauses it for 24h). Every
+record is committed to the database as it happens, so a crash can never cause a
+repeat.
 """
 
 from __future__ import annotations
@@ -129,7 +130,7 @@ class Applier:
             self._alert(report, f"Auto-apply is on but the résumé PDF was not found "
                                 f"({self.config.resume_pdf_path}); nothing was sent.")
             report.queued = self.enqueue(postings, now)
-            report.waiting = len(self.state.apply_queue)
+            report.waiting = self.state.queue_len()
             return report
         try:
             report.queued = self.enqueue(postings, now)
@@ -140,7 +141,7 @@ class Applier:
                     s.close()
                 except Exception:  # noqa: BLE001
                     log.exception("closing %s sender failed", s.channel)
-        report.waiting = len(self.state.apply_queue)
+        report.waiting = self.state.queue_len()
         return report
 
     # ------------------------------------------------------------ enqueue
@@ -155,7 +156,7 @@ class Applier:
         added = 0
         for p in postings:
             key = p.content_hash
-            if not key or key in self.state.applications or key in self.state.apply_queue:
+            if not key or self.state.has_application(key) or self.state.queue_has(key):
                 continue
             if cutoff and p.posted_at and p.posted_at < cutoff:
                 continue
@@ -169,11 +170,11 @@ class Applier:
                 continue
             if cfg.apply_keywords and not match_keywords(hay, cfg.apply_keywords):
                 continue
-            self.state.apply_queue[key] = {
+            self.state.queue_put(key, {
                 "title": p.title, "description": p.description[:8000], "source": p.source,
                 "source_url": p.source_url, "posted_at": iso(p.posted_at), "queued_at": iso(now),
                 "attempts": 0, **usable,
-            }
+            })
             added += 1
         return added
 
@@ -189,14 +190,15 @@ class Applier:
         remaining = max(0, cfg.apply_daily_cap - self._used_last_24h(now))
 
         cutoff = now - timedelta(days=cfg.apply_max_age_days) if cfg.apply_max_age_days > 0 else None
-        for key, entry in list(self.state.apply_queue.items()):
+        order = []
+        for key, entry in self.state.queue_items():  # newest posting first
             posted = parse_iso(entry.get("posted_at"))
             if cutoff and posted and posted < cutoff:
-                del self.state.apply_queue[key]
+                self.state.queue_remove(key)
                 report.expired += 1
+            else:
+                order.append((key, entry))
 
-        order = sorted(self.state.apply_queue.items(),
-                       key=lambda kv: kv[1].get("posted_at") or "", reverse=True)
         for key, entry in order:
             if remaining <= 0 or not active:
                 break
@@ -216,6 +218,8 @@ class Applier:
                 if entry["attempts"] >= MAX_DRAFT_ATTEMPTS:
                     self._finish(key, entry, now, status="failed", error="could not draft")
                     report.failed += 1
+                else:
+                    self.state.queue_put(key, entry)
                 continue
             if draft.fit_score is not None and draft.fit_score < cfg.apply_min_score:
                 self._finish(key, entry, now, status="skipped_fit", score=draft.fit_score,
@@ -228,7 +232,8 @@ class Applier:
             outcome = self._deliver(key, entry, draft, fresh, active, now, report)
             if outcome == "done":
                 remaining -= 1
-                self.state.save()  # persist immediately: a crash must never re-send
+                # (Each record above is already committed to the database, so a
+                # crash here can never cause the same application to be re-sent.)
                 if self.mode == "auto" and remaining > 0:
                     lo, hi = (list(cfg.apply_delay_seconds) + [0.0, 0.0])[:2]
                     self.sleep(max(0.0, self.rand(float(lo), float(max(lo, hi)))))
@@ -264,8 +269,8 @@ class Applier:
                 blocked = True
                 active.pop(ch, None)
                 if e.pause_seconds:
-                    self.state.apply_paused[ch] = iso(now + timedelta(seconds=e.pause_seconds))
-                until = f" until {self.state.apply_paused[ch][:16]}Z" if e.pause_seconds else " for this run"
+                    self.state.set_paused(ch, iso(now + timedelta(seconds=e.pause_seconds)))
+                until = f" until {self.state.paused_until(ch)[:16]}Z" if e.pause_seconds else " for this run"
                 self._alert(report, f"Auto-apply: {_CHANNEL_LABEL[ch]} paused{until} — {e}")
                 continue
             self._finish(key, entry, now, status="sent", channel=ch, contact=contact,
@@ -284,21 +289,17 @@ class Applier:
         return [c for c in (ch.strip().lower() for ch in self.config.apply_channels) if c in CHANNELS]
 
     def _paused(self, channel: str, now: datetime) -> bool:
-        until = parse_iso(self.state.apply_paused.get(channel))
+        until = parse_iso(self.state.paused_until(channel))
         if until and until > now:
             log.info("auto-apply: %s paused until %s", channel, iso(until))
             return True
-        self.state.apply_paused.pop(channel, None)
+        if until:
+            self.state.clear_paused(channel)
         return False
 
     def _used_last_24h(self, now: datetime) -> int:
-        since = now - timedelta(hours=24)
-        n = 0
-        for rec in self.state.applications.values():
-            at = parse_iso(rec.get("at"))
-            if rec.get("mode") == self.mode and rec.get("status") in _DONE and at and at > since:
-                n += 1
-        return n
+        return self.state.count_applications(mode=self.mode, statuses=_DONE,
+                                             since=now - timedelta(hours=24))
 
     @staticmethod
     def _contact_key(channel: str, contact: str) -> str:
@@ -306,22 +307,21 @@ class Applier:
 
     def _cooling_down(self, channel: str, contact: str, now: datetime) -> bool:
         days = self.config.apply_contact_cooldown_days
-        last = parse_iso((self.state.contacts.get(self._contact_key(channel, contact)) or {}).get(self.mode))
+        last = parse_iso(self.state.contact_last(self._contact_key(channel, contact), self.mode))
         return bool(days > 0 and last and last > now - timedelta(days=days))
 
     def _mark_contact(self, channel: str, contact: str, now: datetime) -> None:
-        self.state.contacts.setdefault(self._contact_key(channel, contact), {})[self.mode] = iso(now)
+        self.state.mark_contact(self._contact_key(channel, contact), self.mode, now)
 
     def _finish(self, key: str, entry: dict[str, Any], now: datetime, *, status: str,
                 channel: str | None = None, contact: str | None = None,
                 score: int | None = None, reason: str = "", error: str = "") -> None:
-        self.state.applications[key] = {
+        self.state.finish_application(key, {
             "at": iso(now), "mode": self.mode, "status": status, "channel": channel,
             "contact": contact, "title": (entry.get("title") or "")[:200],
             "source_url": entry.get("source_url"), "score": score, "reason": reason[:300],
             "error": error,
-        }
-        self.state.apply_queue.pop(key, None)
+        })
 
     def _alert(self, report: ApplyReport, message: str) -> None:
         log.warning(message)

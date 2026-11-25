@@ -127,7 +127,7 @@ class PipelineDedupTests(unittest.TestCase):
         patcher = mock.patch.dict(REGISTRY, {"rss": _Collector})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.state = State(Path(self.tmp.name) / "state.json")
+        self.state = State(Path(self.tmp.name) / "jobradar.db")
         self.cfg = Config(keywords=[], remote_only=False, telegram_chat_id="1",
                           message_interval_seconds=0)
 

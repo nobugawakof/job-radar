@@ -8,7 +8,7 @@ Straight line, no database:
     extract fields                               (title, remote, salary, …)
     keep those passing keyword + remote filter
     merge near-duplicates across sources
-    drop any whose fingerprint is already in the JSON state (already sent)
+    drop any whose fingerprint is already in the database (already sent)
     send the survivors as one batched Telegram digest
     on a successful send, record their fingerprints in the state
     optionally auto-apply to the delivered ones   (jobradar/apply/, off by default)
@@ -347,11 +347,13 @@ class Pipeline:
                 self._remember_sent(posting)  # mark per message
                 summary.delivered += 1
                 summary.delivered_postings.append(posting)
-                self.state.add_recent({
-                    "at": iso(utcnow()), "title": posting.title[:200], "url": posting.source_url,
+                self.state.record_job({
+                    "fingerprint": posting.content_hash, "at": iso(utcnow()),
+                    "title": posting.title[:300], "url": posting.source_url,
                     "source": ", ".join(posting.origins or [posting.source]),
                     "remote": posting.is_remote, "location": posting.location or "",
-                    "salary": posting.salary.raw or "",
+                    "salary": posting.salary.raw or "", "posted_at": iso(posting.posted_at),
+                    "description": posting.description,  # full original text (FR-12)
                 })
                 ps = summary.per_source.setdefault(posting.source, {})
                 ps["sent"] = ps.get("sent", 0) + 1
