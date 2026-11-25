@@ -16,7 +16,7 @@ from typing import Any, Iterator
 from xml.etree import ElementTree as ET
 
 from ..models import RawItem
-from .base import Collector, FetchContext, HttpClient
+from .base import Collector, CollectorError, FetchContext, HttpClient, each_item, looks_like_html
 from .registry import register
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -40,7 +40,10 @@ def _parse_date(s: str | None) -> datetime | None:
         return None
     s = s.strip()
     try:
-        return parsedate_to_datetime(s)
+        dt = parsedate_to_datetime(s)
+        # RFC 2822 "-0000" means "zone unknown" and parses as naive; treat as UTC
+        # so it can be compared with the (UTC) last-check time.
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (TypeError, ValueError, IndexError):
         pass
     try:
@@ -70,32 +73,46 @@ class RssCollector(Collector):
 
     @staticmethod
     def parse(body: bytes, source_name: str) -> Iterator[RawItem]:
-        root = ET.fromstring(body)
+        try:
+            root = ET.fromstring(body)
+        except ET.ParseError as e:
+            hint = (" — got a web page instead (the site may be down, blocking us, or this "
+                    "isn't a feed address)" if looks_like_html(body) else f" ({e})")
+            raise CollectorError(f"not a valid RSS/Atom feed{hint}") from e
+        if _localname(root.tag).lower() not in ("rss", "feed", "rdf"):
+            # Well-formed XML that isn't a feed — typically an XHTML error or
+            # login page. Treating it as an empty feed would hide the problem.
+            what = "a web page" if _localname(root.tag).lower() == "html" else f"<{_localname(root.tag)}>"
+            raise CollectorError(f"not an RSS/Atom feed — got {what} instead (the site may be down, "
+                                 "blocking us, or this isn't a feed address)")
         # Collect both RSS items and Atom entries.
         nodes = [n for n in root.iter() if _localname(n.tag) in ("item", "entry")]
-        for node in nodes:
-            fields: dict[str, str] = {}
-            link = ""
-            for child in node:
-                ln = _localname(child.tag)
-                if ln == "link":
-                    href = child.get("href")
-                    link = href or (child.text or "").strip() or link
-                else:
-                    fields[ln] = (child.text or "")
-            title = _clean(fields.get("title"))
-            summary = _clean(fields.get("description") or fields.get("summary") or fields.get("content"))
-            text = "\n".join(filter(None, [title, summary])) or title
-            if not text:
-                continue
-            guid = (fields.get("guid") or fields.get("id") or link or title).strip()
-            posted = _parse_date(fields.get("pubDate") or fields.get("published") or fields.get("updated"))
-            yield RawItem(
-                source=source_name,
-                external_id=guid,
-                raw_text=text,
-                url=link or None,
-                raw_json=json.dumps({"title": title, "summary": summary, "link": link}),
-                posted_at=posted,
-                title_hint=title or None,
-            )
+        yield from each_item(nodes, lambda node: RssCollector._item(node, source_name), source_name)
+
+    @staticmethod
+    def _item(node, source_name: str) -> RawItem | None:
+        fields: dict[str, str] = {}
+        link = ""
+        for child in node:
+            ln = _localname(child.tag)
+            if ln == "link":
+                href = child.get("href")
+                link = href or (child.text or "").strip() or link
+            else:
+                fields[ln] = (child.text or "")
+        title = _clean(fields.get("title"))
+        summary = _clean(fields.get("description") or fields.get("summary") or fields.get("content"))
+        text = "\n".join(filter(None, [title, summary])) or title
+        if not text:
+            return None
+        guid = (fields.get("guid") or fields.get("id") or link or title).strip()
+        posted = _parse_date(fields.get("pubDate") or fields.get("published") or fields.get("updated"))
+        return RawItem(
+            source=source_name,
+            external_id=guid,
+            raw_text=text,
+            url=link or None,
+            raw_json=json.dumps({"title": title, "summary": summary, "link": link}),
+            posted_at=posted,
+            title_hint=title or None,
+        )

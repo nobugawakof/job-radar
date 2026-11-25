@@ -19,15 +19,16 @@ therefore does the minimum honest thing:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import urllib.parse
 import urllib.robotparser
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterator
 
 from ..models import RawItem
-from .base import Collector, CollectorError, FetchContext, HttpClient, SourceBlocked
+from .base import Collector, CollectorError, FetchContext, HttpClient, SourceBlocked, each_item
 from .registry import register
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -76,25 +77,30 @@ class ScrapeCollector(Collector):
         body: bytes, source_name: str, block_pattern: str, now: datetime | None = None
     ) -> Iterator[RawItem]:
         html = body.decode("utf-8", "replace")
-        blocks = re.findall(block_pattern, html, re.S | re.I)
-        now = now or datetime.now(timezone.utc)
-        for i, block in enumerate(blocks):
-            text = _text_of(block)
-            if not text:
-                continue
-            # Best-effort application link.
-            m = re.search(r'href=["\'](https?://[^"\']+)["\']', block, re.I)
-            link = m.group(1) if m else None
-            # No reliable timestamp on a scraped page; use collection time and a
-            # stable content-based id so re-scrapes dedupe (FR-6 idempotency).
-            import hashlib
+        try:
+            blocks = re.findall(block_pattern, html, re.S | re.I)
+        except re.error as e:
+            raise CollectorError(f"block_pattern isn't a valid regular expression: {e}") from e
+        return each_item(enumerate(blocks), lambda ib: ScrapeCollector._item(*ib, source_name), source_name)
 
-            ext_id = hashlib.sha1(text.encode()).hexdigest()[:16]
-            yield RawItem(
-                source=source_name,
-                external_id=ext_id,
-                raw_text=text,
-                url=link,
-                raw_json=json.dumps({"block_index": i}),
-                posted_at=None,  # unknown → pipeline uses collection time (Section 5)
-            )
+    @staticmethod
+    def _item(i: int, block: Any, source_name: str) -> RawItem | None:
+        if not isinstance(block, str):  # a pattern with several groups yields tuples
+            block = " ".join(block)
+        text = _text_of(block)
+        if not text:
+            return None
+        # Best-effort application link.
+        m = re.search(r'href=["\'](https?://[^"\']+)["\']', block, re.I)
+        link = m.group(1) if m else None
+        # No reliable timestamp on a scraped page; use collection time and a
+        # stable content-based id so re-scrapes dedupe (FR-6 idempotency).
+        ext_id = hashlib.sha1(text.encode()).hexdigest()[:16]
+        return RawItem(
+            source=source_name,
+            external_id=ext_id,
+            raw_text=text,
+            url=link,
+            raw_json=json.dumps({"block_index": i}),
+            posted_at=None,  # unknown → pipeline uses collection time (Section 5)
+        )

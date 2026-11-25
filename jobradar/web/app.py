@@ -196,7 +196,7 @@ def summarize(s) -> dict[str, Any]:
     per = []
     for name, m in s.per_source.items():
         drops = {k[4:] if k.startswith("rej_") else k: v for k, v in m.items()
-                 if (k.startswith("rej_") or k in ("not_job", "old")) and v}
+                 if (k.startswith("rej_") or k in ("not_job", "old", "unreadable")) and v}
         per.append({"name": name, "status": m.get("status", "ok"), "error": redact(str(m.get("error") or "")),
                     "items": m.get("items", 0), "passed": m.get("passed", 0), "sent": m.get("sent", 0),
                     "drops": drops})

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from . import dedup, extraction
@@ -107,7 +107,12 @@ class Pipeline:
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
             ps = summary.per_source.setdefault(sdef["name"], {})
-            posting = self._to_posting(sdef, item, now)
+            try:
+                posting = self._to_posting(sdef, item, now)
+            except Exception as e:  # noqa: BLE001 - one odd post must not stop the run (NFR-6)
+                ps["unreadable"] = ps.get("unreadable", 0) + 1
+                log.warning("%s: couldn't read one post (%s: %s); skipped it", sdef["name"], type(e).__name__, e)
+                continue
             if posting is None:
                 ps["not_job"] = ps.get("not_job", 0) + 1  # classifier said "not a posting"
                 continue
@@ -118,7 +123,12 @@ class Pipeline:
                 ps["old"] = ps.get("old", 0) + 1
                 continue
             summary.postings_detected += 1
-            result = evaluate(posting, settings)
+            try:
+                result = evaluate(posting, settings)
+            except Exception as e:  # noqa: BLE001
+                ps["unreadable"] = ps.get("unreadable", 0) + 1
+                log.warning("%s: couldn't filter one post (%s: %s); skipped it", sdef["name"], type(e).__name__, e)
+                continue
             if result.decision != PASS:
                 ps[f"rej_{result.stage}"] = ps.get(f"rej_{result.stage}", 0) + 1
                 if result.stage == "keyword":
@@ -167,7 +177,7 @@ class Pipeline:
                     self._remember_sent(p)  # don't re-check next run
             fresh = surviving
         summary.sent = fresh
-        summary.messages = [format_message(self._as_dict(p)) for p in fresh]
+        summary.messages = [self._message(p) for p in fresh]
 
         delivered_ok = self._deliver(fresh, summary)
 
@@ -224,10 +234,22 @@ class Pipeline:
 
         ps = summary.per_source.setdefault(name, {"tier": tier})
         try:
-            collector = build_collector(name=name, type_=sdef["type"], tier=tier, config=cfg, http=http)
-            items = list(collector.fetch(ctx))
+            try:
+                collector = build_collector(name=name, type_=sdef["type"], tier=tier, config=cfg, http=http)
+            except KeyError as e:
+                raise CollectorError(f"unknown source type {sdef.get('type')!r} — check the [[sources]] "
+                                     "block in config.toml") from e
+            try:
+                items = list(collector.fetch(ctx))
+            except CollectorError:
+                raise
+            except Exception as e:  # noqa: BLE001 - a broken source must never stop the run (SR-3)
+                log.debug("source %s raised", name, exc_info=True)
+                raise CollectorError(f"unexpected {type(e).__name__}: {e}") from e
             latest = since
             for it in items:
+                if it.posted_at and it.posted_at.tzinfo is None:
+                    it.posted_at = it.posted_at.replace(tzinfo=timezone.utc)  # feeds without a zone
                 if it.posted_at and it.posted_at > latest:
                     latest = it.posted_at
             # Watermark is committed later, only if delivery succeeds (see run()).
@@ -343,7 +365,7 @@ class Pipeline:
         chat = self.config.telegram_chat_id
         for i, posting in enumerate(postings):
             try:
-                self.transport.send_message(chat, format_message(self._as_dict(posting)))
+                self.transport.send_message(chat, self._message(posting))
                 self._remember_sent(posting)  # mark per message
                 summary.delivered += 1
                 summary.delivered_postings.append(posting)
@@ -366,6 +388,17 @@ class Pipeline:
             if i + 1 < len(postings):
                 self._pause(self.config.message_interval_seconds)
         return True
+
+    def _message(self, posting: Posting) -> str:
+        """The Telegram job card; if a post is too odd to format, a plain
+        title + link is sent instead of failing the delivery."""
+        try:
+            return format_message(self._as_dict(posting))
+        except Exception as e:  # noqa: BLE001
+            log.warning("couldn't format a job card (%s: %s); sending a plain one", type(e).__name__, e)
+            from .delivery.digest import _esc
+
+            return f"#hiring\n<b>{_esc(posting.title or '(untitled)')}</b>\n\n🔗 {_esc(posting.source_url)}"
 
     def _pause(self, seconds: float) -> None:
         if seconds > 0:

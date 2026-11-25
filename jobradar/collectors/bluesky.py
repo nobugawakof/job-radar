@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from ..state import parse_iso
 from ..models import RawItem
-from .base import Collector, FetchContext, HttpClient
+from .base import Collector, FetchContext, HttpClient, each_item, parse_json
 from .registry import register
 
 _SEARCH_URL = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
@@ -41,22 +41,25 @@ class BlueskyCollector(Collector):
 
     @staticmethod
     def parse(body: bytes, source_name: str) -> Iterator[RawItem]:
-        data = json.loads(body)
-        for post in data.get("posts", []):
-            record = post.get("record", {})
-            text = (record.get("text") or "").strip()
-            if not text:
-                continue
-            uri = post.get("uri", "")
-            handle = (post.get("author", {}) or {}).get("handle", "")
-            rkey = uri.rsplit("/", 1)[-1] if uri else ""
-            web_url = f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else uri
-            posted = parse_iso(record.get("createdAt") or post.get("indexedAt"))
-            yield RawItem(
-                source=source_name,
-                external_id=uri or f"{handle}/{rkey}",
-                raw_text=text,
-                url=web_url,
-                raw_json=json.dumps(post),
-                posted_at=posted,
-            )
+        data = parse_json(body, "Bluesky search")
+        yield from each_item(data.get("posts", []), lambda post: BlueskyCollector._item(post, source_name), source_name)
+
+    @staticmethod
+    def _item(post: Any, source_name: str) -> RawItem | None:
+        record = post.get("record", {})
+        text = (record.get("text") or "").strip()
+        if not text:
+            return None
+        uri = post.get("uri", "")
+        handle = (post.get("author", {}) or {}).get("handle", "")
+        rkey = uri.rsplit("/", 1)[-1] if uri else ""
+        web_url = f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else uri
+        posted = parse_iso(record.get("createdAt") or post.get("indexedAt"))
+        return RawItem(
+            source=source_name,
+            external_id=uri or f"{handle}/{rkey}",
+            raw_text=text,
+            url=web_url,
+            raw_json=json.dumps(post),
+            posted_at=posted,
+        )

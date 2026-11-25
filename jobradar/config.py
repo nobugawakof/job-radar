@@ -8,6 +8,7 @@ one destination chat.
 
 from __future__ import annotations
 
+import logging
 import os
 import tomllib
 from dataclasses import dataclass, field, replace
@@ -195,6 +196,12 @@ def build_sources(cfg: Config, path: str | os.PathLike[str] | None) -> list[dict
     from .sites import resolve
 
     resolved = resolve(list(cfg.en) + list(cfg.cn))
-    explicit = source_definitions(path)
+    explicit = []
+    for i, block in enumerate(source_definitions(path), 1):
+        if not isinstance(block, dict) or not block.get("name") or not block.get("type"):
+            logging.getLogger("jobradar.config").warning(
+                "ignoring [[sources]] block #%d in the config: it needs both a name and a type", i)
+            continue
+        explicit.append(block)
     combined = resolved + explicit
     return combined if combined else [dict(s) for s in DEFAULT_SOURCES]

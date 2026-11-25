@@ -91,7 +91,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             # plus the main reasons the rest were dropped.
             drops = []
             for stage, label in (("not_job", "not-a-job"), ("old", "too-old"),
-                                 ("rej_excluded", "excluded"),
+                                 ("unreadable", "unreadable"), ("rej_excluded", "excluded"),
                                  ("rej_keyword", "keyword"), ("rej_remote", "remote"),
                                  ("rej_region", "region"), ("rej_salary", "salary")):
                 if meta.get(stage):

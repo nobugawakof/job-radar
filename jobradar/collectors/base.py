@@ -22,15 +22,20 @@ the standard library (urllib).
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Iterator, Protocol
+from typing import Any, Callable, Iterable, Iterator, Protocol
 
 from ..models import RawItem
 from ..redact import redact
+
+
+log = logging.getLogger("jobradar.collectors")
 
 
 class CollectorError(Exception):
@@ -133,3 +138,41 @@ class HttpClient:
 # urllib.parse is used above; import here to avoid a top-level unused warning
 # in linters while keeping the reference local to the module.
 import urllib.parse  # noqa: E402
+
+
+# --------------------------------------------------------------- parsing aids
+def looks_like_html(body: bytes) -> bool:
+    head = body.lstrip()[:200].lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html") or b"<head" in head
+
+
+def parse_json(body: bytes, what: str) -> Any:
+    """``json.loads`` that fails as a clear, source-level CollectorError.
+
+    Sites that are down, rate-limiting or behind a login wall often answer with
+    an HTML page instead of data; say so instead of a bare decode error.
+    """
+    try:
+        return json.loads(body)
+    except ValueError as e:
+        hint = (" — got a web page instead (the site may be down, blocking us, or the "
+                "address is wrong)" if looks_like_html(body) else "")
+        raise CollectorError(f"{what}: the response wasn't valid JSON{hint}") from e
+
+
+def each_item(rows: Iterable[Any], build: Callable[[Any], "RawItem | None"],
+              source_name: str) -> Iterator["RawItem"]:
+    """Build one RawItem per row; a malformed row is logged and skipped, so one
+    bad post never costs the rest of the batch (NFR-6)."""
+    skipped = 0
+    for row in rows:
+        try:
+            item = build(row)
+        except Exception as e:  # noqa: BLE001 - isolate the one bad row
+            skipped += 1
+            log.debug("%s: skipped a malformed item (%s: %s)", source_name, type(e).__name__, e)
+            continue
+        if item is not None:
+            yield item
+    if skipped:
+        log.warning("%s: skipped %d malformed item(s)", source_name, skipped)

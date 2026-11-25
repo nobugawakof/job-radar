@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from ..models import RawItem
-from .base import Collector, CollectorError, FetchContext, HttpClient
+from .base import Collector, CollectorError, FetchContext, HttpClient, each_item, parse_json
 from .registry import register
 
 
@@ -48,29 +48,33 @@ class TelegramChannelCollector(Collector):
 
     @staticmethod
     def parse(body: bytes, source_name: str, channel: str) -> Iterator[RawItem]:
-        data = json.loads(body)
+        data = parse_json(body, "Telegram getUpdates")
         if not data.get("ok", False):
             raise CollectorError(f"Telegram getUpdates error: {data.get('description')}")
-        for upd in data.get("result", []):
-            post = upd.get("channel_post") or upd.get("message")
-            if not post:
-                continue
-            chat = post.get("chat", {})
-            username = str(chat.get("username", "")).lstrip("@")
-            if channel and username and channel.lower() != username.lower():
-                continue
-            text = (post.get("text") or post.get("caption") or "").strip()
-            if not text:
-                continue
-            msg_id = post.get("message_id")
-            ts = post.get("date")
-            posted = datetime.fromtimestamp(int(ts), tz=timezone.utc) if ts else None
-            link = f"https://t.me/{username}/{msg_id}" if username and msg_id else None
-            yield RawItem(
-                source=source_name,
-                external_id=f"{chat.get('id')}/{msg_id}",
-                raw_text=text,
-                url=link,
-                raw_json=json.dumps(post),
-                posted_at=posted,
-            )
+        return each_item(data.get("result", []),
+                         lambda upd: TelegramChannelCollector._item(upd, source_name, channel), source_name)
+
+    @staticmethod
+    def _item(upd: Any, source_name: str, channel: str) -> RawItem | None:
+        post = upd.get("channel_post") or upd.get("message")
+        if not post:
+            return None
+        chat = post.get("chat", {})
+        username = str(chat.get("username", "")).lstrip("@")
+        if channel and username and channel.lower() != username.lower():
+            return None
+        text = (post.get("text") or post.get("caption") or "").strip()
+        if not text:
+            return None
+        msg_id = post.get("message_id")
+        ts = post.get("date")
+        posted = datetime.fromtimestamp(int(ts), tz=timezone.utc) if ts else None
+        link = f"https://t.me/{username}/{msg_id}" if username and msg_id else None
+        return RawItem(
+            source=source_name,
+            external_id=f"{chat.get('id')}/{msg_id}",
+            raw_text=text,
+            url=link,
+            raw_json=json.dumps(post),
+            posted_at=posted,
+        )
