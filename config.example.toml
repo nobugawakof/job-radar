@@ -65,8 +65,56 @@ ai_provider = "gemini"              # "gemini" (free tier) or "claude" (paid)
 # ai_model      = "gemini-2.5-flash"
 # gemini_api_key = "AIza..."
 # --- if ai_provider = "claude" (paid):
-# ai_model         = "claude-haiku-4-5"   # or "claude-opus-5"
+# ai_model         = "claude-haiku-5-5"   # or "claude-opus-5-5"
 # anthropic_api_key = "sk-ant-..."
+
+# --- Optional: auto-apply ------------------------------------------------
+# Sends an application (message + your résumé PDF) to the contact a posting
+# names — a Telegram handle (from YOUR Telegram account) or an email address.
+# Start with "dry_run": every draft is shown to you in your bot chat and nobody
+# is contacted. Switch to "auto" once the drafts look right.
+# See README → "Auto-apply" before turning it on.
+apply_mode     = "off"                   # "off" | "dry_run" | "auto"
+apply_channels = ["telegram", "email"]   # tried in this order
+applicant_name = ""                      # signs the message
+resume_pdf_path  = "resume.pdf"          # attached to every application (next to config.toml)
+resume_text_path = ""                    # optional plain-text résumé for the AI; else it reads the PDF
+
+# Which postings to apply to. With use_ai = true, the AI scores each posting
+# against your résumé and only applies at or above apply_min_score. With AI
+# off, apply_keywords is REQUIRED (nothing is applied to without it).
+apply_min_score        = 70              # 0-100
+apply_keywords         = []              # e.g. ["python", "backend", "后端"]
+apply_exclude_keywords = []              # e.g. ["senior", "lead", "on-site"]
+
+# Safety rails — keep these conservative: messaging strangers too often gets a
+# Telegram account restricted.
+apply_daily_cap             = 10         # applications per rolling 24h
+apply_delay_seconds         = [45, 120]  # random gap between sends
+apply_contact_cooldown_days = 30         # never message the same person twice within this
+apply_max_age_days          = 7          # don't apply to postings older than this
+
+# Used when AI is off (or fails while apply_keywords is set). {title} {name}
+# apply_template = "Hi! I saw your post for {title} and would like to apply. ..."
+# apply_email_subject = "Application: {title}"
+
+# Your own Telegram account (a bot can't DM people). Get api_id / api_hash at
+# https://my.telegram.org → API development tools, then run once:
+#   pip install telethon
+#   python -m jobradar.cli --config config.toml telegram-login
+# telegram_api_id   = "1234567"
+# telegram_api_hash = "..."
+# telegram_phone    = "+60123456789"
+# telegram_session_path = "jobradar-user.session"   # KEEP PRIVATE: full account access
+
+# Email (SMTP). Gmail: smtp.gmail.com, port 587, and an App Password
+# (Google Account → Security → App passwords), not your normal password.
+# smtp_host     = "smtp.gmail.com"
+# smtp_port     = 587
+# smtp_ssl      = false                  # true for port 465
+# smtp_user     = "you@gmail.com"
+# smtp_password = "app-password"
+# smtp_from     = "you@gmail.com"
 
 # --- Optional: API tokens (only for the sources that need them) ----------
 # Reddit works out of the box via its public RSS feed — no key needed. Only set

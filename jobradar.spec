@@ -24,6 +24,14 @@ a = Analysis(
         "jobradar.collectors.rss",
         "jobradar.collectors.telegram",
         "jobradar.collectors.scrape",
+        "jobradar.collectors.twitter",
+        "jobradar.apply.engine",
+        "jobradar.apply.senders",
+        "jobradar.apply.contacts",
+        # Optional: bundled when Telethon is installed in the build env (the
+        # GitHub workflow installs it) so the .exe can auto-apply via Telegram.
+        "telethon",
+        "telethon.sync",
     ],
     hookspath=[],
     runtime_hooks=[],

@@ -36,9 +36,9 @@ class TelegramChannelCollector(Collector):
         self.channel = str(config.get("channel", "")).lstrip("@")
 
     def fetch(self, ctx: FetchContext) -> Iterator[RawItem]:
-        token = os.environ.get("JOBRADAR_TELEGRAM_BOT_TOKEN")
+        token = os.environ.get("JOBRADAR_TELEGRAM_BOT_TOKEN") or self.config.get("telegram_bot_token")
         if not token:
-            raise CollectorError("Telegram bot token missing (JOBRADAR_TELEGRAM_BOT_TOKEN, DR-6)")
+            raise CollectorError("Telegram bot token missing (set telegram_bot_token in config.toml)")
         url = f"https://api.telegram.org/bot{token}/getUpdates?allowed_updates=[\"channel_post\"]&limit=100"
         status, body = self.http.get(url)
         for item in self.parse(body, self.name, self.channel):

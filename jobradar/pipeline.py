@@ -11,6 +11,7 @@ Straight line, no database:
     drop any whose fingerprint is already in the JSON state (already sent)
     send the survivors as one batched Telegram digest
     on a successful send, record their fingerprints in the state
+    optionally auto-apply to the delivered ones   (jobradar/apply/, off by default)
 
 A source that fails does not stop the others. A Tier B scraper that fails three
 runs in a row is disabled in the state file and the owner is notified. A crash
@@ -57,6 +58,8 @@ class RunSummary:
     held_back: int = 0
     delivered: int = 0
     sent: list[Posting] = field(default_factory=list)
+    delivered_postings: list[Posting] = field(default_factory=list)
+    apply: Any = None   # jobradar.apply.engine.ApplyReport when auto-apply is on
     messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
     per_source: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -70,11 +73,13 @@ class Pipeline:
         source_defs: list[dict[str, Any]],
         *,
         transport: Any | None = None,
+        applier: Any | None = None,
     ):
         self.config = config
         self.state = state
         self.source_defs = source_defs
         self.transport = transport  # send-only Telegram transport, or None
+        self.applier = applier      # jobradar.apply.engine.Applier, or None (off)
 
     # ------------------------------------------------------------------ run
     def run(self, trigger: str = "manual") -> RunSummary:
@@ -173,6 +178,17 @@ class Pipeline:
             for name, meta in summary.per_source.items():
                 if meta.get("status") == "ok":
                     self.state.record_success(name, meta.get("latest"))
+        # Save before auto-apply: delivery bookkeeping must survive even if
+        # applying (which can take a while) is interrupted.
+        self.state.save()
+
+        if self.applier is not None:
+            try:
+                summary.apply = self.applier.run(summary.delivered_postings, now)
+                summary.alerts.extend(summary.apply.alerts)
+            except Exception as e:  # noqa: BLE001 - applying must never break a run
+                log.exception("auto-apply failed")
+                summary.alerts.append(f"auto-apply failed: {e}")
 
         self.state.mark_run(now)
         self.state.save()
@@ -197,7 +213,8 @@ class Pipeline:
                if k not in ("name", "type", "tier", "enabled", "request_interval_s")}
         # Make credentials from the config file available to collectors that
         # need them (Reddit, X). A source block can still override per source.
-        for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token"):
+        for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token",
+                    "telegram_bot_token"):
             cfg.setdefault(key, getattr(self.config, key, None))
         ctx = FetchContext(since=since, now=now, user_agent=self.config.user_agent,
                            request_interval_s=interval, config=cfg)
@@ -244,6 +261,7 @@ class Pipeline:
             salary=ext.salary, apply_url=ext.apply_url, source=item.source,
             source_tier=sdef.get("tier", "A"), source_url=item.url or "", origins=[item.source],
             content_hash=dedup.content_hash(item.raw_text), posted_at=posted, collected_at=now,
+            source_type=sdef.get("type", ""),
         )
 
     def _merge_duplicates(self, postings: list[Posting], summary: RunSummary) -> list[Posting]:
@@ -291,6 +309,7 @@ class Pipeline:
                 self.transport.send_message(chat, format_message(self._as_dict(posting)))
                 self.state.mark_sent(posting.content_hash)  # mark per message
                 summary.delivered += 1
+                summary.delivered_postings.append(posting)
                 ps = summary.per_source.setdefault(posting.source, {})
                 ps["sent"] = ps.get("sent", 0) + 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal

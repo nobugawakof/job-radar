@@ -49,7 +49,11 @@ class State:
           "sent":    {"<fingerprint>": "<iso sent-at>", ...},
           "sources": {"<name>": {"last_success": "<iso>", "failures": 0,
                                   "disabled": false}},
-          "last_run": "<iso>"
+          "last_run": "<iso>",
+          "applications": {"<fingerprint>": {"at", "mode", "status", ...}},
+          "apply_queue":  {"<fingerprint>": {posting fields awaiting apply}},
+          "contacts":     {"tg:@handle": {"sent": "<iso>", "dry_run": "<iso>"}},
+          "apply_paused": {"telegram": "<iso until>"}
         }
     """
 
@@ -59,6 +63,11 @@ class State:
         self.sent: dict[str, str] = {}
         self.sources: dict[str, dict[str, Any]] = {}
         self.last_run: str | None = None
+        # Auto-apply bookkeeping (see jobradar/apply/engine.py).
+        self.applications: dict[str, dict[str, Any]] = {}
+        self.apply_queue: dict[str, dict[str, Any]] = {}
+        self.contacts: dict[str, dict[str, str]] = {}
+        self.apply_paused: dict[str, str] = {}
         self._load()
 
     # ---- load / save ------------------------------------------------------
@@ -74,10 +83,16 @@ class State:
         self.sent = dict(data.get("sent", {}))
         self.sources = dict(data.get("sources", {}))
         self.last_run = data.get("last_run")
+        self.applications = dict(data.get("applications", {}))
+        self.apply_queue = dict(data.get("apply_queue", {}))
+        self.contacts = dict(data.get("contacts", {}))
+        self.apply_paused = dict(data.get("apply_paused", {}))
 
     def save(self) -> None:
         self._prune()
-        payload = {"sent": self.sent, "sources": self.sources, "last_run": self.last_run}
+        payload = {"sent": self.sent, "sources": self.sources, "last_run": self.last_run,
+                   "applications": self.applications, "apply_queue": self.apply_queue,
+                   "contacts": self.contacts, "apply_paused": self.apply_paused}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic replace so a mid-write crash never corrupts the file.
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".state-", suffix=".tmp")
@@ -91,11 +106,18 @@ class State:
 
     def _prune(self) -> None:
         """Bound the sent-set so the file cannot grow without limit."""
+        self._prune_applications()
         if len(self.sent) <= self.max_sent:
             return
         # Keep the most recent `max_sent` fingerprints by sent-at.
         keep = sorted(self.sent.items(), key=lambda kv: kv[1], reverse=True)[: self.max_sent]
         self.sent = dict(keep)
+
+    def _prune_applications(self) -> None:
+        if len(self.applications) > self.max_sent:
+            keep = sorted(self.applications.items(), key=lambda kv: kv[1].get("at", ""),
+                          reverse=True)[: self.max_sent]
+            self.applications = dict(keep)
 
     # ---- sent fingerprints ------------------------------------------------
     def already_sent(self, fingerprint: str) -> bool:

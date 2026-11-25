@@ -29,8 +29,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install PyInstaller
-        run: python -m pip install --upgrade pip pyinstaller
+      - name: Install PyInstaller (+ Telethon for Telegram auto-apply)
+        run: python -m pip install --upgrade pip pyinstaller telethon
 
       - name: Build jobradar.exe
         run: python -m PyInstaller --clean --noconfirm jobradar.spec

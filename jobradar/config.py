@@ -48,7 +48,7 @@ class Config:
     # Provider is "claude" (paid) or "gemini" (Google, has a free tier).
     use_ai: bool = False
     ai_provider: str = "claude"          # "claude" or "gemini"
-    ai_model: str = "claude-opus-5"      # Claude: "claude-haiku-4-5" is cheaper; Gemini: "gemini-2.5-flash"
+    ai_model: str = "claude-opus-5-5"    # Claude: "claude-haiku-5-5" is cheaper; Gemini: "gemini-2.5-flash"
     ai_max_chars: int = 6000             # cap post text sent to the API
     anthropic_api_key: str | None = None
     gemini_api_key: str | None = None    # free key from https://aistudio.google.com/apikey
@@ -58,6 +58,42 @@ class Config:
     reddit_client_id: str | None = None
     reddit_client_secret: str | None = None
     x_bearer_token: str | None = None    # Twitter/X — requires a PAID X API plan
+
+    # --- Auto-apply (see jobradar/apply/) ---------------------------------
+    # "off" (default), "dry_run" (draft each application and show it to you
+    # in your bot chat, send nothing), or "auto" (really send).
+    apply_mode: str = "off"
+    apply_channels: list[str] = field(default_factory=lambda: ["telegram", "email"])  # preference order
+    # Stricter gate than `keywords`: a posting must match one of these to be
+    # applied to. Required when AI is off (otherwise nothing is applied to).
+    apply_keywords: list[str] = field(default_factory=list)
+    apply_exclude_keywords: list[str] = field(default_factory=list)
+    apply_min_score: int = 70                   # AI fit score (0-100) needed to apply
+    apply_daily_cap: int = 10                   # max applications per rolling 24h
+    apply_delay_seconds: list[float] = field(default_factory=lambda: [45.0, 120.0])  # random gap between sends
+    apply_contact_cooldown_days: int = 30       # never message the same person twice within this
+    apply_max_age_days: int = 7                 # don't apply to postings older than this
+    applicant_name: str = ""
+    resume_pdf_path: str = "resume.pdf"         # attached to every application
+    resume_text_path: str = ""                  # optional plain-text résumé for the AI (else the PDF is sent to it)
+    # Used when AI is off or unavailable. Placeholders: {title} {name}.
+    apply_template: str = (
+        "Hi! I saw your post for {title} and would like to apply. "
+        "My résumé is attached — happy to share more details or jump on a call.\n\nThanks,\n{name}"
+    )
+    apply_email_subject: str = "Application: {title}"
+    # Your own Telegram account (MTProto via Telethon) — a bot cannot DM people.
+    telegram_api_id: str | None = None          # from https://my.telegram.org → API development tools
+    telegram_api_hash: str | None = None
+    telegram_phone: str | None = None           # e.g. "+60123456789" (only used by `telegram-login`)
+    telegram_session_path: str = "jobradar-user.session"
+    # Email (SMTP). For Gmail use smtp.gmail.com:587 and an App Password.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_ssl: bool = False                      # true for port 465 (implicit TLS)
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None                # defaults to smtp_user
 
     # How it runs.
     state_path: str = "jobradar-state.json"
@@ -115,6 +151,9 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
         "reddit_client_id": os.environ.get("JOBRADAR_REDDIT_CLIENT_ID"),
         "reddit_client_secret": os.environ.get("JOBRADAR_REDDIT_CLIENT_SECRET"),
         "x_bearer_token": os.environ.get("JOBRADAR_X_BEARER_TOKEN"),
+        "telegram_api_id": os.environ.get("JOBRADAR_TELEGRAM_API_ID"),
+        "telegram_api_hash": os.environ.get("JOBRADAR_TELEGRAM_API_HASH"),
+        "smtp_password": os.environ.get("JOBRADAR_SMTP_PASSWORD"),
     }
     for field_name, env_value in overrides.items():
         value = env_value or data.get(field_name)
