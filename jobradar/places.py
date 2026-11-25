@@ -86,7 +86,7 @@ COUNTRIES: dict[str, list[str]] = {
     "HK": ["Hong Kong", "HK", "香港"],
     "MO": ["Macau", "Macao", "澳门"],
     "TW": ["Taiwan", "Taipei", "台湾", "台北"],
-    "JP": ["Japan", "Tokyo", "Osaka", "日本", "东京"],
+    "JP": ["Japan", "Tokyo", "Osaka", "日本", "东京", "東京", "大阪"],
     "KR": ["South Korea", "Korea", "Seoul", "韩国", "首尔"],
     "SG": ["Singapore", "新加坡"],
     "MY": ["Malaysia", "Kuala Lumpur", "Penang", "马来西亚", "吉隆坡"],

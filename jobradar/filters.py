@@ -43,23 +43,7 @@ class Settings:
     send_unknown_location: bool = True
 
 
-# Rough currency → USD factors and period → per-year factors. Deliberately
-# approximate: the goal is "is this roughly above my floor", not accounting.
-_USD_RATES = {
-    "USD": 1.0, "EUR": 1.08, "GBP": 1.27, "CAD": 0.73, "AUD": 0.66, "SGD": 0.74,
-    "HKD": 0.128, "CNY": 0.14, "RMB": 0.14, "JPY": 0.0067,
-}
-_PERIOD_FACTOR = {"hour": 2080.0, "month": 12.0, "year": 1.0, None: 1.0}
-
-
-def annual_usd(salary) -> float | None:
-    """Best-effort annual-USD estimate from a parsed Salary, or None if unknown."""
-    amount = salary.max or salary.min
-    if amount is None:
-        return None
-    rate = _USD_RATES.get((salary.currency or "").upper(), 1.0)
-    factor = _PERIOD_FACTOR.get(salary.period, 1.0)
-    return amount * factor * rate
+from .salary import annual_usd  # noqa: E402,F401  (kept importable from here)
 
 
 @dataclass
@@ -153,9 +137,11 @@ def salary_stage(posting: Posting, settings: Settings) -> bool:
     """
     if not settings.min_salary_usd and not settings.require_salary:
         return True
+    if settings.require_salary and not (posting.salary.raw or posting.salary.max or posting.salary.min):
+        return False  # "only jobs that state a salary"
     est = annual_usd(posting.salary)
-    if est is None:
-        return not settings.require_salary
+    if est is None or not settings.min_salary_usd:
+        return True  # stated but can't be converted (e.g. period unknown): don't guess
     return est >= settings.min_salary_usd
 
 

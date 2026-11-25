@@ -404,12 +404,21 @@ these stages, in order; a posting must pass all the ones you've configured:
    fintech", "customers worldwide" or 全球领先 don't count. Neither does anything
    limited to a place: "anywhere in the US", "Remote within Canada", "US only",
    "must be based in the UK", 国内远程. On-site and hybrid jobs never count.
-4. **Salary** — set `min_salary_usd` to drop postings whose stated pay looks
-   below your floor (roughly normalised to annual USD across currencies and
-   pay periods). Postings that don't state a salary still pass, since we can't
-   judge them — unless you set `require_salary = true`, which sends only postings
-   that name a figure. Leave `min_salary_usd = 0` and `require_salary = false`
-   to skip this stage.
+4. **Salary** — set `min_salary_usd` to drop jobs whose stated pay is below
+   your floor, roughly converted to annual US dollars. Job Radar reads:
+   - **Currencies:** $, €, £, HK$, S$, A$, C$, NT$, RM, ₱, ₹, ¥/￥, and codes
+     like HKD, SGD, CNY or MYR. ¥ is yuan or yen depending on where the job is.
+   - **Chinese formats:** 月薪 20-30K, ·14薪 or 16薪 (paid months per year),
+     年薪 50-80万, 2万/月, 待遇 15k-25k, 元, 港币.
+   - **Pay periods:** /hour, /day, "day rate", /month, p.a.
+
+   It ignores numbers that aren't pay: funding ("raised $20M", "Series A"),
+   percentages, 401k, years and team sizes. When the period can't be told
+   ("Salary: $8,000"), the job isn't judged on pay rather than guessed at.
+   Jobs that don't state a salary pass too, unless you set
+   `require_salary = true`, which only sends jobs that state one. Leave
+   `min_salary_usd = 0` and `require_salary = false` to skip this stage.
+   Exchange rates are approximate (`jobradar/salary.py`).
 
 Postings older than `max_posting_age_days` (default 15) are skipped as well.
 
