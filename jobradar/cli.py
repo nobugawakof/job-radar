@@ -121,6 +121,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not svc.transport:
         print("  (no Telegram token configured — nothing was sent; set "
               "telegram_bot_token / telegram_chat_id in config.toml)")
+    if s.queued_review:
+        print(f"{s.queued_review} job(s) don't say where they hire — waiting for your review "
+              "(Telegram buttons, or the dashboard's Review tab).")
     if s.apply is not None:
         r = s.apply
         did = f"{r.previewed} previewed (dry run)" if r.mode == "dry_run" else f"{r.sent} sent"

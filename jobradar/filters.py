@@ -12,8 +12,9 @@ A posting must pass all configured stages to be sent:
    posting passes if it hires worldwide/anywhere OR its hiring geography
    overlaps those regions, compared as sets of countries ("Germany" fits "EU
    only", "Malaysia" fits "APAC"). A posting that names no place at all is
-   sent marked "location not stated" (SRS FR-20), unless
-   ``send_unknown_location`` is off. An empty region list disables this stage.
+   handled per ``unknown_location`` (SRS FR-20/21): "review" holds it for you
+   to approve, "send" sends it marked "location not stated", "drop" drops it.
+   An empty region list disables this stage.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ class Settings:
     # A job that doesn't say where it hires can't be judged by region (FR-20:
     # never silently discarded). Until a review queue exists, it is sent,
     # marked "location not stated", unless this is turned off.
-    send_unknown_location: bool = True
+    unknown_location: str = "review"   # review / send / drop
 
 
 from .salary import annual_usd  # noqa: E402,F401  (kept importable from here)
@@ -179,10 +180,13 @@ def evaluate(posting: Posting, settings: Settings) -> FilterResult:
     region = region_stage(posting, settings)
     if region == "reject":
         return FilterResult(REJECT, matched, "region", "outside_regions_and_not_worldwide")
-    if region == "unknown" and not settings.send_unknown_location:
+    if region == "unknown" and settings.unknown_location == "drop":
         return FilterResult(REJECT, matched, "region", "location_not_stated")
 
     if not salary_stage(posting, settings):
         return FilterResult(REJECT, matched, "salary", "below_min_salary")
 
-    return FilterResult(PASS, matched, "salary", "location_not_stated" if region == "unknown" else "ok")
+    if region == "unknown":
+        reason = "review" if settings.unknown_location == "review" else "location_not_stated"
+        return FilterResult(PASS, matched, "salary", reason)
+    return FilterResult(PASS, matched, "salary", "ok")

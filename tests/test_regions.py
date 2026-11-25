@@ -72,12 +72,12 @@ class RegionFilterTests(unittest.TestCase):
         for regions, text, want in CASES:
             with self.subTest(regions=regions, text=text):
                 r = evaluate(posting(text), Settings(keywords=[], remote_only=False, regions=regions))
-                got = "unknown" if r.reason == "location_not_stated" else r.decision
+                got = "unknown" if r.reason in ("location_not_stated", "review") else r.decision
                 self.assertEqual(got, want)
 
     def test_unknown_location_can_be_dropped(self):
         r = evaluate(posting("We're hiring a backend engineer. DM me."),
-                     Settings(keywords=[], remote_only=False, regions=["Germany"], send_unknown_location=False))
+                     Settings(keywords=[], remote_only=False, regions=["Germany"], unknown_location="drop"))
         self.assertEqual((r.decision, r.reason), ("reject", "location_not_stated"))
 
     def test_no_regions_means_no_region_filter(self):
@@ -142,7 +142,8 @@ class PipelineTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d, mock.patch.dict(REGISTRY, {"rss": Src}):
             t = T()
-            s = Pipeline(Config(keywords=[], regions=["Malaysia"], telegram_chat_id="1", message_interval_seconds=0),
+            s = Pipeline(Config(keywords=[], regions=["Malaysia"], unknown_location="send", telegram_chat_id="1",
+                                message_interval_seconds=0),
                          State(Path(d) / "db"), [{"name": "s", "type": "rss"}], transport=t).run()
         self.assertEqual((s.delivered, s.rejected_region), (1, 1))
         self.assertIn("Location: not stated", t.messages[0])

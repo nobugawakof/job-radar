@@ -247,6 +247,8 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
         "last_run": st.last_run, "next_run": ctrl.next_run(),
         "last_summary": _newest(ctrl.last_summary, st.last_run_summary()),
         "history": st.recent_runs(10),
+        "review": {"pending": st.review_counts().get("pending", 0), "mode": c.unknown_location,
+                   "regions_set": bool(c.regions)},
         "checklist": checklist,
         "config": values, "secrets": secrets_info,
         "known_sites": KNOWN_SITES,
@@ -343,6 +345,8 @@ class Api:
         return {
             ("GET", "/api/state"): lambda _: build_state(self.ctrl),
             ("GET", "/api/applications"): self.applications,
+            ("GET", "/api/review"): self.review_list,
+            ("POST", "/api/review/decide"): self.review_decide,
             ("POST", "/api/config"): self.save_config,
             ("POST", "/api/run"): self.run,
             ("POST", "/api/telegram/find"): self.telegram_find,
@@ -380,6 +384,24 @@ class Api:
             raise ApiError(str(e)) from e
         log.info("settings saved: %s", ", ".join(sorted(changes)))
         return build_state(self.ctrl)
+
+    def review_list(self, _: Any) -> dict[str, Any]:
+        st = self.ctrl.service.state
+        suggestions = []
+        for source, c in sorted(st.review_by_source().items()):
+            if c["rejected"] >= 5 and c["approved"] == 0:
+                suggestions.append({"source": source, "rejected": c["rejected"], "text":
+                    f"You've skipped all {c['rejected']} jobs from {source} that didn't say where they hire. "
+                    f"Switch {source} off in Job search, or set those jobs to Drop."})
+        return {"pending": st.review_pending(), "counts": st.review_counts(), "suggestions": suggestions}
+
+    def review_decide(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            item_id = int(body.get("id"))
+        except (TypeError, ValueError) as e:
+            raise ApiError("missing job id") from e
+        msg = self.ctrl.service.review_decide(item_id, bool(body.get("approve")), "dashboard")
+        return {"message": msg, **self.review_list(None)}
 
     def applications(self, _: Any) -> dict[str, Any]:
         st = self.ctrl.service.state

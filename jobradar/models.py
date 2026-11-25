@@ -49,6 +49,8 @@ class Posting:
     is_worldwide: bool = False
     # Regions are set but the post names no place (sent per SRS FR-20).
     location_unknown: bool = False
+    # Regions are set, the post names no place, and you asked to review those.
+    needs_review: bool = False
     salary: Salary = field(default_factory=Salary)
     apply_url: str | None = None
     content_hash: str = ""
@@ -61,3 +63,25 @@ class Posting:
     # Optional AI-extracted detail (empty unless use_ai is on).
     responsibilities: list[str] = field(default_factory=list)
     requirements: list[str] = field(default_factory=list)
+
+
+def posting_to_dict(p: Posting) -> dict:
+    """JSON-ready copy of a posting (e.g. to hold it in the review queue)."""
+    from dataclasses import asdict
+
+    d = asdict(p)
+    for k in ("posted_at", "collected_at"):
+        d[k] = d[k].isoformat() if d[k] else None
+    return d
+
+
+def posting_from_dict(d: dict) -> Posting:
+    from dataclasses import fields
+
+    known = {f.name for f in fields(Posting)}
+    data = {k: v for k, v in d.items() if k in known}
+    for k in ("posted_at", "collected_at"):
+        if isinstance(data.get(k), str):
+            data[k] = datetime.fromisoformat(data[k])
+    data["salary"] = Salary(**(data.get("salary") or {}))
+    return Posting(**data)

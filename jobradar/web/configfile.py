@@ -44,7 +44,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
      ["telegram_bot_token", "telegram_chat_id"]),
     ("Sites to search", ["en", "cn"]),
     ("What you want",
-     ["keywords", "exclude_keywords", "remote_only", "regions", "send_unknown_location", "min_salary_usd",
+     ["keywords", "exclude_keywords", "remote_only", "regions", "unknown_location", "review_expiry_days", "min_salary_usd",
       "require_salary", "max_posting_age_days", "repost_window_days"]),
     ("Schedule", ["auto_run", "run_interval_hours", "max_messages_per_run"]),
     ("AI (optional)", ["use_ai", "ai_provider", "ai_model", "gemini_api_key", "anthropic_api_key"]),
@@ -65,6 +65,7 @@ _FIELDS = {f.name: f for f in dataclasses.fields(Config)}
 _CHOICES = {
     "apply_mode": ("off", "dry_run", "auto"),
     "ai_provider": ("gemini", "claude"),
+    "unknown_location": ("review", "send", "drop"),
 }
 
 
@@ -142,6 +143,8 @@ def coerce(key: str, value: Any) -> Any:
 
 def apply_changes(raw: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
     out = dict(raw)
+    if "unknown_location" in changes:
+        out.pop("send_unknown_location", None)  # replaced by unknown_location
     for key, value in changes.items():
         v = coerce(key, value)
         if v is None:

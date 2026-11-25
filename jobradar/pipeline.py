@@ -55,6 +55,7 @@ class RunSummary:
     rejected_ai: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
+    queued_review: int = 0       # new jobs waiting for your review (no stated location)
     reposts_skipped: int = 0     # subset of already_sent_skipped: reworded reposts
     held_back: int = 0
     delivered: int = 0
@@ -86,6 +87,7 @@ class RunSummary:
             "passed": self.passed_filter, "merged": self.duplicates_merged,
             "already_sent": self.already_sent_skipped, "reposts": self.reposts_skipped,
             "held_back": self.held_back, "delivered": self.delivered, "ai_vetoed": self.rejected_ai,
+            "review": self.queued_review,
             "rejected": {"keyword": self.rejected_keyword, "excluded": self.rejected_excluded,
                          "remote": self.rejected_remote, "region": self.rejected_region,
                          "salary": self.rejected_salary, "old": self.skipped_old},
@@ -138,7 +140,7 @@ class Pipeline:
                             regions=self.config.regions, min_salary_usd=self.config.min_salary_usd,
                             require_salary=self.config.require_salary,
                             exclude_keywords=self.config.exclude_keywords,
-                            send_unknown_location=self.config.send_unknown_location)
+                            unknown_location=self.config.unknown_location)
         max_age = self.config.max_posting_age_days
         age_cutoff = now - timedelta(days=max_age) if max_age and max_age > 0 else None
         for sdef, item in raw_items:
@@ -179,7 +181,8 @@ class Pipeline:
                     summary.rejected_excluded += 1
                 continue
             posting.matched_keywords = result.matched_keywords
-            posting.location_unknown = result.reason == "location_not_stated"
+            posting.location_unknown = result.reason in ("location_not_stated", "review")
+            posting.needs_review = result.reason == "review"
             ps["passed"] = ps.get("passed", 0) + 1
             kept.append(posting)
         summary.passed_filter = len(kept)
@@ -188,6 +191,12 @@ class Pipeline:
         # already sent on a previous run.
         deduped = self._merge_duplicates(kept, summary)
         fresh = [p for p in deduped if not self._already_sent(p, summary)]
+
+        # Jobs that don't say where they hire wait for your decision instead of
+        # being sent (review queue, SRS FR-21); they don't use delivery slots.
+        reviews = [p for p in fresh if p.needs_review]
+        fresh = [p for p in fresh if not p.needs_review]
+        self._queue_for_review(reviews, summary)
 
         # Cap sends per run so a first-run backlog doesn't flood the chat with
         # hundreds of messages. Keep the newest, hold the rest for later runs
@@ -369,6 +378,47 @@ class Pipeline:
             summary.reposts_skipped += 1
             return True
         return False
+
+    def deliver_one(self, posting: Posting) -> None:
+        """Send one job now (e.g. approved from the review queue) and record it
+        exactly like a normal delivery. Raises if Telegram fails."""
+        if not (self.transport and self.config.telegram_chat_id):
+            raise RuntimeError("no Telegram bot/chat set up")
+        self.transport.send_message(self.config.telegram_chat_id, self._message(posting))
+        self._remember_sent(posting)
+        self.state.record_job({
+            "fingerprint": posting.content_hash, "at": iso(utcnow()), "title": posting.title[:300],
+            "url": posting.source_url, "source": ", ".join(posting.origins or [posting.source]),
+            "remote": posting.is_remote, "location": posting.location or "",
+            "salary": posting.salary.raw or "", "posted_at": iso(posting.posted_at),
+            "description": posting.description,
+        })
+
+    def _queue_for_review(self, postings: list[Posting], summary: RunSummary) -> None:
+        """Hold jobs with no stated location for your decision: expire old
+        unanswered ones (FR-25), queue the new ones, and ask once per check
+        with ✅/❌ buttons (FR-22, FR-23, FR-26)."""
+        from .delivery import review as review_fmt
+        from .models import posting_to_dict
+
+        for fp in self.state.review_expire(self.config.review_expiry_days):
+            self.state.mark_sent(fp)  # never queued again
+        new: list[tuple[int, dict[str, Any]]] = []
+        for p in postings:
+            if self.state.review_has(p.content_hash):
+                continue  # already waiting, or already decided
+            d = posting_to_dict(p)
+            item_id = self.state.review_add(p.content_hash, d)
+            if item_id is not None:
+                new.append((item_id, d))
+        summary.queued_review = len(new)
+        if not new or not (self.transport and self.config.telegram_chat_id):
+            return
+        text, markup = review_fmt.prompt(new, self.state.review_counts().get("pending", len(new)))
+        try:
+            self.transport.send_message(self.config.telegram_chat_id, text, reply_markup=markup)
+        except Exception as e:  # noqa: BLE001 - the dashboard still has them
+            log.warning("couldn't send the review message: %s", e)
 
     def _signature(self, posting: Posting) -> tuple[str | None, Any]:
         """MinHash + role signature, computed once per posting per run (from the

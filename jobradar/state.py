@@ -33,7 +33,7 @@ from typing import Any, Iterator
 
 log = logging.getLogger("jobradar.state")
 
-SCHEMA_VERSION = 3   # 2: runs (check history); 3: bot inbox (chats, channel posts)
+SCHEMA_VERSION = 4   # 2: runs (check history); 3: bot inbox; 4: review queue
 
 
 def utcnow() -> datetime:
@@ -150,6 +150,19 @@ CREATE TABLE IF NOT EXISTS bot_posts (
     PRIMARY KEY (chat_id, message_id)
 );
 CREATE INDEX IF NOT EXISTS bot_posts_by_user ON bot_posts (username, posted_at);
+CREATE TABLE IF NOT EXISTS review_queue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    added_at    TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT '',
+    title       TEXT NOT NULL DEFAULT '',
+    url         TEXT NOT NULL DEFAULT '',
+    posting     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    resolved_at TEXT,
+    resolved_via TEXT
+);
+CREATE INDEX IF NOT EXISTS review_by_status ON review_queue (status, added_at);
 """
 RUNS_KEPT = 500
 
@@ -341,6 +354,75 @@ class State:
         rows = self._q("SELECT * FROM bot_posts WHERE (username = ? OR chat_id = ?) AND posted_at > ? "
                        "ORDER BY posted_at", (ch, channel, iso(since) if since else ""))
         return [dict(r) for r in rows]
+
+    # --------------------------------------------------------- review queue
+    def review_add(self, fingerprint: str, posting: dict[str, Any]) -> int | None:
+        """Queue a job for your review (SRS FR-21). Returns its id, or None if
+        it was queued before (pending or already decided)."""
+        with self._tx() as db:
+            cur = db.execute(
+                "INSERT OR IGNORE INTO review_queue (fingerprint, added_at, source, title, url, posting) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (fingerprint, iso(utcnow()), ", ".join(posting.get("origins") or [posting.get("source") or ""]),
+                 (posting.get("title") or "")[:300], posting.get("source_url") or "",
+                 json.dumps(posting, ensure_ascii=False)))
+            return cur.lastrowid if cur.rowcount else None
+
+    def review_has(self, fingerprint: str) -> bool:
+        return self._one("SELECT 1 FROM review_queue WHERE fingerprint = ?", (fingerprint,)) is not None
+
+    def review_get(self, item_id: int) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM review_queue WHERE id = ?", (item_id,))
+        if not row:
+            return None
+        d = dict(row)
+        d["posting"] = json.loads(d["posting"])
+        return d
+
+    def review_pending(self, limit: int = 200) -> list[dict[str, Any]]:
+        rows = self._q("SELECT id, fingerprint, added_at, source, title, url, posting FROM review_queue "
+                       "WHERE status = 'pending' ORDER BY added_at DESC LIMIT ?", (limit,))
+        out = []
+        for r in rows:
+            d = dict(r)
+            p = json.loads(d.pop("posting"))
+            d["excerpt"] = (p.get("description") or "")[:600]
+            out.append(d)
+        return out
+
+    def review_resolve(self, item_id: int, status: str, via: str) -> bool:
+        """Mark a pending item approved/rejected. False if it wasn't pending."""
+        with self._tx() as db:
+            cur = db.execute("UPDATE review_queue SET status = ?, resolved_at = ?, resolved_via = ? "
+                             "WHERE id = ? AND status = 'pending'", (status, iso(utcnow()), via, item_id))
+            return cur.rowcount == 1
+
+    def review_reopen(self, item_id: int) -> None:
+        with self._tx() as db:
+            db.execute("UPDATE review_queue SET status = 'pending', resolved_at = NULL, resolved_via = NULL "
+                       "WHERE id = ?", (item_id,))
+
+    def review_expire(self, days: int) -> list[str]:
+        """Expire items left unanswered for ``days`` (FR-25); returns their fingerprints."""
+        cutoff = iso(utcnow() - timedelta(days=days))
+        with self._tx() as db:
+            rows = db.execute("SELECT fingerprint FROM review_queue WHERE status = 'pending' AND added_at < ?",
+                              (cutoff,)).fetchall()
+            db.execute("UPDATE review_queue SET status = 'expired', resolved_at = ?, resolved_via = 'expired' "
+                       "WHERE status = 'pending' AND added_at < ?", (iso(utcnow()), cutoff))
+            db.execute("DELETE FROM review_queue WHERE status != 'pending' AND resolved_at < ?",
+                       (iso(utcnow() - timedelta(days=180)),))
+        return [r["fingerprint"] for r in rows]
+
+    def review_counts(self) -> dict[str, int]:
+        return {r["status"]: r["n"] for r in self._q("SELECT status, COUNT(*) AS n FROM review_queue GROUP BY status")}
+
+    def review_by_source(self) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = {}
+        for r in self._q("SELECT source, status, COUNT(*) AS n FROM review_queue "
+                         "WHERE status IN ('approved', 'rejected') GROUP BY source, status"):
+            out.setdefault(r["source"], {"approved": 0, "rejected": 0})[r["status"]] = r["n"]
+        return out
 
     # ------------------------------------------------------------- run lock
     def acquire_run_lock(self, owner: str, *, ttl: timedelta = timedelta(hours=3)) -> bool:

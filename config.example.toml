@@ -47,7 +47,7 @@ exclude_keywords = [
 ]
 remote_only = true
 regions     = []            # e.g. ["Malaysia", "APAC", "中国"]; groupings like EU/APAC work; empty = anywhere
-send_unknown_location = true  # with regions set: still send jobs that don't say where they hire
+unknown_location = "review"  # jobs that don't say where they hire: "review" (ask me) / "send" / "drop"
 run_interval_hours = 4
 auto_run = false             # dashboard only: check automatically (the dashboard's switch)
 max_posting_age_days = 15    # ignore anything older than N days (0 = no limit)

@@ -39,9 +39,11 @@ class Config:
     # means no region filter. A posting passes if it's remote-worldwide OR its
     # location names one of these, e.g. ["Hong Kong", "Malaysia", "Worldwide"].
     regions: list[str] = field(default_factory=list)
-    # With regions set: also send jobs that don't say where they hire (marked
-    # "location not stated"). Off = drop them.
-    send_unknown_location: bool = True
+    # With regions set, jobs that don't say where they hire (SRS FR-20/21):
+    # "review" = ask you first (Telegram buttons / dashboard), "send" = send
+    # them marked "location not stated", "drop" = drop them.
+    unknown_location: str = "review"
+    review_expiry_days: int = 14                # unanswered review items expire (FR-25)
 
     # Where to send.
     telegram_bot_token: str | None = None
@@ -150,6 +152,9 @@ def load(path: str | os.PathLike[str] | None = None) -> Config:
                 data = tomllib.load(fh)
 
     kwargs = {k: v for k, v in data.items() if k in _KNOWN}
+    # Older configs had a yes/no switch for jobs with no stated location.
+    if "unknown_location" not in data and isinstance(data.get("send_unknown_location"), bool):
+        kwargs["unknown_location"] = "send" if data["send_unknown_location"] else "drop"
     cfg = Config(**kwargs)
 
     # Secrets from the environment win and are never persisted here.

@@ -401,11 +401,16 @@ these stages, in order; a posting must pass all the ones you've configured:
    Anything it doesn't know, like "Bay Area North", is matched as plain text.
    A city you type also matches jobs open to its whole country. Leave
    `regions = []` to skip this stage.
-   **Jobs that don't say where they hire** aren't silently dropped. They're
-   sent with "📍 Location: not stated", so you can check for yourself. Set
-   `send_unknown_location = false` (or untick it in the dashboard) to drop them
-   instead. On-site and hybrid jobs whose place isn't recognised are dropped,
-   since an office is somewhere specific.
+   **Jobs that don't say where they hire** are never silently dropped. By
+   default (`unknown_location = "review"`) Job Radar asks you. Once per check,
+   one Telegram message lists them with a ✅ / ❌ button pair each: ✅ sends you
+   the job, and queues it for auto-apply if that's on; ❌ skips it for good.
+   The dashboard's **Review** tab offers the same choice and shows the post.
+   Unanswered jobs expire after `review_expiry_days` (14). If you keep skipping
+   one source's jobs, the Review tab suggests switching it off. Prefer not to
+   be asked? Set `unknown_location = "send"` to get them marked "📍 Location:
+   not stated", or `"drop"` to drop them. On-site and hybrid jobs whose place
+   isn't recognised are dropped, since an office is somewhere specific.
    A job counts as **hire-from-anywhere** only when the post says so about
    the job: "Remote (Worldwide)", "work from anywhere in the world",
    "Location: Global", 全球远程, 工作地点不限. Company descriptions like "a global

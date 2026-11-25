@@ -217,6 +217,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
     <button data-tab="search">Job search</button>
     <button data-tab="ai">AI</button>
     <button data-tab="apply">Auto-apply <span class="badge" id="nav-apply"></span></button>
+    <button data-tab="review">Review <span class="badge" id="nav-review"></span></button>
     <button data-tab="history">Applications</button>
     <button data-tab="activity">Activity</button>
   </nav>
@@ -333,7 +334,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <div class="field"><label>Regions</label>
           <div class="chips" data-k="regions" data-ph="e.g. Malaysia, Hong Kong, Worldwide"></div>
           <span class="hint">Countries, cities or groupings like EU, APAC, Southeast Asia, 国内. A job passes if it hires worldwide or overlaps these, so Germany also matches “EU only”. Leave empty for anywhere.</span></div>
-        <label class="switch"><input type="checkbox" data-k="send_unknown_location"><span><b>Also send jobs that don't say where they hire</b><span class="muted small">They're marked “Location not stated”. Turn off to drop them when regions are set.</span></span></label>
+        <div class="field"><label for="unknown-loc">Jobs that don't say where they hire</label>
+          <select id="unknown-loc" data-k="unknown_location" style="max-width:26rem">
+            <option value="review">Ask me first (Telegram buttons, Review tab)</option>
+            <option value="send">Send them, marked “Location not stated”</option>
+            <option value="drop">Drop them</option>
+          </select><span class="hint">Only matters when you've set regions.</span></div>
       </div>
 
       <div class="card">
@@ -467,6 +473,14 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
       </details>
     </section>
 
+    <!-- ============================================================ REVIEW -->
+    <section class="view hidden" data-view="review">
+      <div class="view-head"><h2>Review</h2><p class="muted">Jobs that don't say where they hire. Decide here or with the buttons in Telegram. Unanswered jobs expire after two weeks.</p></div>
+      <div id="review-mode"></div>
+      <div id="review-suggestions" class="stack"></div>
+      <div id="review-list" class="stack"></div>
+    </section>
+
     <!-- ============================================================ HISTORY -->
     <section class="view hidden" data-view="history">
       <div class="view-head"><h2>Applications</h2><p class="muted">Everything auto-apply sent, previewed, skipped or failed.</p></div>
@@ -552,6 +566,7 @@ function show(name) {
   $$("[data-view]").forEach((v) => v.classList.toggle("hidden", v.dataset.view !== name));
   try { sessionStorage.setItem("jr-tab", name); } catch {}
   if (name === "history") loadApps();
+  if (name === "review") loadReview();
   if (name === "activity") pollLogs();
   window.scrollTo({ top: 0 });
 }
@@ -708,10 +723,10 @@ function renderOverview() {
   const L = S.last_summary;
   $("#last-when").textContent = L ? `${rel(L.at)} · ${L.trigger}` : "";
   if (L) {
-    const rj = L.rejected, drops = Object.entries(rj).filter(([, v]) => v).map(([k, v]) => `${v} ${k}`).join(", ");
-    const srcRows = L.sources.map((s) => {
+    const rj = L.rejected || {}, drops = Object.entries(rj).filter(([, v]) => v).map(([k, v]) => `${v} ${k}`).join(", ");
+    const srcRows = (L.sources || []).map((s) => {
       const st = s.status === "ok" ? "" : `<span class="tag bad">${esc(s.status)}</span> <span class="small muted">${esc(s.error)}</span>`;
-      const d = Object.entries(s.drops).map(([k, v]) => `${v} ${k.replace("_", "-")}`).join(", ");
+      const d = Object.entries(s.drops || {}).map(([k, v]) => `${v} ${k.replace("_", "-")}`).join(", ");
       return `<tr><td>${esc(s.name)} ${st}</td><td class="num">${s.items}</td><td class="num">${s.passed}</td><td class="num">${s.sent}</td><td class="small muted">${esc(d)}</td></tr>`;
     }).join("");
     const ap = L.apply ? `<p class="small">Auto-apply (${esc(L.apply.mode.replace("_", " "))}): ${L.apply.mode === "dry_run" ? L.apply.previewed + " previewed" : L.apply.sent + " sent"}, ${L.apply.skipped_fit} low fit, ${L.apply.failed} failed, ${L.apply.waiting} waiting.</p>` : "";
@@ -719,7 +734,7 @@ function renderOverview() {
       <div class="funnel"><span><span class="n">${L.fetched}</span> fetched</span><span class="arrow">→</span><span><span class="n">${L.detected}</span> job posts</span><span class="arrow">→</span><span><span class="n">${L.passed}</span> matched</span><span class="arrow">→</span><span><span class="n">${L.delivered}</span> sent to you</span></div>
       <p class="small muted">${drops ? `Dropped: ${esc(drops)}. ` : ""}${L.already_sent ? `${L.already_sent} already sent before${L.reposts ? ` (${L.reposts} reworded reposts)` : ""}. ` : ""}${L.merged ? `${L.merged} duplicates merged. ` : ""}${L.held_back ? `${L.held_back} held for the next check. ` : ""}</p>
       ${ap}
-      ${L.alerts.map((a) => `<div class="note warn small" style="margin:.4rem 0">${esc(a)}</div>`).join("")}
+      ${(L.alerts || []).map((a) => `<div class="note warn small" style="margin:.4rem 0">${esc(a)}</div>`).join("")}
       <div class="tablewrap"><table><thead><tr><th>Source</th><th class="num">Fetched</th><th class="num">Matched</th><th class="num">Sent</th><th>Dropped</th></tr></thead><tbody>${srcRows}</tbody></table></div>`;
   }
   $("#history").innerHTML = (S.history || []).length ? S.history.map((r) => `<tr><td class="small">${esc(when(r.started_at))}</td><td class="small muted">${esc(r.trigger)}</td><td class="num">${r.fetched}</td><td class="num">${r.delivered}</td><td>${r.errors ? `<span class="tag warn">${r.errors} source${r.errors > 1 ? "s" : ""} failed</span>` : `<span class="tag ok">none</span>`}</td></tr>`).join("")
@@ -794,6 +809,7 @@ function renderApply() {
   $$("#mode-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
   $("#mode-note").textContent = MODE_NOTES[mode] || "";
   $("#mode-note").className = `note ${mode === "auto" ? "warn" : ""}`;
+  $("#nav-review").innerHTML = S.review.pending ? '<span class="tag warn">' + S.review.pending + "</span>" : "";
   $("#nav-apply").innerHTML = mode === "auto" ? `<span class="tag ok">on</span>` : mode === "dry_run" ? `<span class="tag info">dry run</span>` : "";
   const r = S.apply.resume_pdf;
   $("#resume-status").innerHTML = r.exists ? `<div class="row"><span class="tag ok">✓ ${esc(r.name)}</span><span class="muted small">${Math.max(1, Math.round(r.size / 1024))} KB</span><button class="linkbtn" id="resume-del">Remove</button></div>`
@@ -879,6 +895,37 @@ $("#preview-btn").addEventListener("click", (e) => busy(e.currentTarget, async (
     <div><div class="label">Email: ${esc(d.email_subject)}</div><div class="draft">${esc(d.email_body)}</div></div></div>`;
 }));
 
+// ---------------------------------------------------------------- review
+async function loadReview(data) {
+  try {
+    const d = data || await api("GET", "/api/review");
+    const mode = S.review.mode;
+    let modeNote = "";
+    if (!S.review.regions_set) {
+      modeNote = '<div class="note">You haven\'t set any regions, so every job is sent and nothing needs review. Set regions in <button class="linkbtn" data-go="search">Job search</button>.</div>';
+    } else if (mode !== "review") {
+      const what = mode === "send" ? "sent marked “Location not stated”" : "dropped";
+      modeNote = '<div class="note">New jobs that don\'t say where they hire are currently <b>' + what +
+        '</b>. Choose “Ask me first” in <button class="linkbtn" data-go="search">Job search</button> to review them here.</div>';
+    }
+    $("#review-mode").innerHTML = modeNote;
+    $("#review-suggestions").innerHTML = d.suggestions.map((s) => '<div class="note warn">' + esc(s.text) + "</div>").join("");
+    $("#review-list").innerHTML = d.pending.length ? d.pending.map((r) =>
+      '<div class="card"><div class="stack">' +
+        '<div><a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(r.title || "(untitled)") + "</b></a>" +
+        '<div class="small muted">' + esc(r.source) + " · waiting " + esc(rel(r.added_at).replace(" ago", "")) + "</div></div>" +
+        '<details><summary class="small">Show the post</summary><div class="draft small" style="margin-top:.5rem">' + esc(r.excerpt) + "</div></details>" +
+        '<div class="row"><button class="btn primary small" data-rv="' + r.id + '" data-ok="1">✅ Send it to me</button>' +
+        '<button class="btn small" data-rv="' + r.id + '" data-ok="">❌ Not for me</button></div>' +
+      "</div></div>").join("") : '<div class="card empty">Nothing waiting for review.</div>';
+    $$("[data-rv]").forEach((b) => b.onclick = () => busy(b, async () => {
+      const r = await api("POST", "/api/review/decide", { id: Number(b.dataset.rv), approve: !!b.dataset.ok });
+      toast(r.message, /Couldn't/.test(r.message) ? "bad" : "ok"); loadReview(r); refresh();
+    }));
+    $$("#review-mode [data-go]").forEach((b) => b.onclick = () => show(b.dataset.go));
+  } catch (e) { toast(e.message, "bad"); }
+}
+
 // --------------------------------------------------------------- history
 const STATUS = { sent: ["Sent", "ok"], dry_run: ["Previewed", "info"], skipped_fit: ["Low fit", ""], skipped_cooldown: ["Already contacted", ""], failed: ["Failed", "bad"] };
 async function loadApps() {
@@ -931,7 +978,8 @@ function render(force) {
 let wasRunning = false;
 async function refresh() {
   try {
-    S = await api("GET", "/api/state"); render();
+    S = await api("GET", "/api/state");
+    try { render(); } catch (err) { console.error("render failed", err); }
     if (wasRunning && !S.running) { toast(`Check finished: ${S.last_summary ? S.last_summary.delivered : 0} new job(s) sent.`); if (tab === "history") loadApps(); }
     wasRunning = S.running;
   } catch (e) {

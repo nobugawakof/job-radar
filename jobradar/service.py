@@ -64,6 +64,53 @@ class Service:
         self.applier = self._build_applier()
         self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport,
                                  applier=self.applier, inbox=self.inbox)
+        if self.inbox is not None:
+            self.inbox.on_button("rv:", self._review_button)
+
+    # ------------------------------------------------------------ review
+    def review_decide(self, item_id: int, approve: bool, via: str) -> str:
+        """Approve (send it to me) or reject a job waiting in the review queue.
+        Safe against double presses and deciding in two places at once."""
+        from .models import posting_from_dict
+
+        item = self.state.review_get(item_id)
+        if item is None:
+            return "That job is no longer in the queue."
+        if not self.state.review_resolve(item_id, "approved" if approve else "rejected", via):
+            return "Already handled."
+        if not approve:
+            self.state.mark_sent(item["fingerprint"])  # never asked again
+            return "Skipped."
+        posting = posting_from_dict(item["posting"])
+        posting.needs_review, posting.location_unknown = False, True
+        try:
+            self.pipeline.deliver_one(posting)
+        except Exception as e:  # noqa: BLE001 - keep it in the queue
+            self.state.review_reopen(item_id)
+            log.warning("couldn't send an approved job: %s", e)
+            return "Couldn't send it right now — try again in a moment."
+        if self.applier is not None:
+            self.applier.enqueue([posting], utcnow())  # applied at the next check
+        return "Sent ✅"
+
+    def _review_button(self, cq: dict) -> str:
+        from .delivery.review import without_item
+
+        try:
+            _, raw_id, choice = (cq.get("data") or "").split(":")
+            item_id = int(raw_id)
+        except ValueError:
+            return "Unknown button."
+        note = self.review_decide(item_id, choice == "y", "telegram")
+        msg = cq.get("message") or {}
+        if msg.get("message_id") and self.inbox is not None:
+            try:
+                self.inbox.call("editMessageReplyMarkup", {
+                    "chat_id": (msg.get("chat") or {}).get("id"), "message_id": msg["message_id"],
+                    "reply_markup": without_item(msg.get("reply_markup"), item_id)})
+            except Exception:  # noqa: BLE001 - the decision is saved either way
+                pass
+        return note
 
     def notify_owner(self, text: str) -> None:
         """Send a message to your own bot chat (used by auto-apply)."""
