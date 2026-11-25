@@ -30,6 +30,7 @@ from datetime import datetime
 from typing import Any, Iterator, Protocol
 
 from ..models import RawItem
+from ..redact import redact
 
 
 class CollectorError(Exception):
@@ -122,11 +123,11 @@ class HttpClient:
             # public APIs (e.g. Bluesky) return transient 403s, and one blip
             # should not permanently kill a Tier A source. A real, persistent
             # block surfaces as repeated failures (and Tier B auto-disables).
-            raise CollectorError(f"HTTP {e.code} for {url}") from e
+            raise CollectorError(redact(f"HTTP {e.code} for {url}")) from e
         except urllib.error.URLError as e:
-            raise CollectorError(f"network error for {url}: {e.reason}") from e
+            raise CollectorError(redact(f"network error for {url}: {e.reason}")) from e
         except TimeoutError as e:
-            raise CollectorError(f"timeout for {url}") from e
+            raise CollectorError(redact(f"timeout for {url}")) from e
 
 
 # urllib.parse is used above; import here to avoid a top-level unused warning

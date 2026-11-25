@@ -48,6 +48,7 @@ exclude_keywords = [
 remote_only = true
 regions     = []            # e.g. ["Hong Kong", "中国", "Worldwide"]; empty = anywhere
 run_interval_hours = 4
+auto_run = false             # dashboard only: check automatically (the dashboard's switch)
 max_posting_age_days = 15    # ignore anything older than N days (0 = no limit)
 repost_window_days   = 60    # don't re-send a reworded repost of a job sent within N days (0 = off)
 

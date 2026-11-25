@@ -34,7 +34,7 @@ from .config import Config
 from .delivery import format_message
 from .filters import PASS, Settings, evaluate
 from .models import Posting
-from .state import State, parse_iso, utcnow
+from .state import State, iso, parse_iso, utcnow
 
 log = logging.getLogger("jobradar.pipeline")
 
@@ -347,6 +347,12 @@ class Pipeline:
                 self._remember_sent(posting)  # mark per message
                 summary.delivered += 1
                 summary.delivered_postings.append(posting)
+                self.state.add_recent({
+                    "at": iso(utcnow()), "title": posting.title[:200], "url": posting.source_url,
+                    "source": ", ".join(posting.origins or [posting.source]),
+                    "remote": posting.is_remote, "location": posting.location or "",
+                    "salary": posting.salary.raw or "",
+                })
                 ps = summary.per_source.setdefault(posting.source, {})
                 ps["sent"] = ps.get("sent", 0) + 1
             except Exception as e:  # noqa: BLE001 - outage is retried, not fatal

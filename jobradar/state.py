@@ -40,6 +40,9 @@ def parse_iso(s: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+RECENT_MAX = 100
+
+
 class State:
     """In-memory view of the state file, with explicit save().
 
@@ -65,6 +68,8 @@ class State:
         # Near-duplicate memory of sent postings (see dedup.RepostIndex).
         self.signatures: dict[str, list[str]] = {}
         self._repost_index = None
+        # The last few delivered jobs (title/link only), for the dashboard.
+        self.recent: list[dict[str, Any]] = []
         self.sent: dict[str, str] = {}
         self.sources: dict[str, dict[str, Any]] = {}
         self.last_run: str | None = None
@@ -94,13 +99,14 @@ class State:
         self.apply_paused = dict(data.get("apply_paused", {}))
         self.signatures = {k: v for k, v in dict(data.get("signatures", {})).items()
                            if isinstance(v, list) and len(v) == 3}
+        self.recent = [r for r in data.get("recent", []) if isinstance(r, dict)][:RECENT_MAX]
 
     def save(self) -> None:
         self._prune()
         payload = {"sent": self.sent, "sources": self.sources, "last_run": self.last_run,
                    "applications": self.applications, "apply_queue": self.apply_queue,
                    "contacts": self.contacts, "apply_paused": self.apply_paused,
-                   "signatures": self.signatures}
+                   "signatures": self.signatures, "recent": self.recent}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic replace so a mid-write crash never corrupts the file.
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".state-", suffix=".tmp")
@@ -149,6 +155,10 @@ class State:
 
     def mark_sent(self, fingerprint: str, when: datetime | None = None) -> None:
         self.sent[fingerprint] = iso(when or utcnow())  # type: ignore[assignment]
+
+    def add_recent(self, entry: dict[str, Any]) -> None:
+        self.recent.insert(0, entry)
+        del self.recent[RECENT_MAX:]
 
     # ---- near-duplicate (repost) memory ------------------------------------
     def remember_signature(self, fingerprint: str, signature: str, roles: str,

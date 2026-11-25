@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Radar</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --panel-2: #f9fafb; --text: #1c2230; --muted: #5f6878;
+  --line: #e2e5eb; --accent: #2457d6; --accent-soft: #e8eefc; --accent-ink: #ffffff;
+  --ok: #157a3c; --ok-soft: #e5f4ea; --warn: #a15c07; --warn-soft: #fdf1dc;
+  --bad: #b42318; --bad-soft: #fde8e6; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  --radius: 12px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1117; --panel: #161a22; --panel-2: #1b2029; --text: #e5e8ee; --muted: #9aa3b3;
+    --line: #2a303c; --accent: #6b93f5; --accent-soft: #1d2843; --accent-ink: #0e1117;
+    --ok: #5fd08a; --ok-soft: #15291d; --warn: #f2b84b; --warn-soft: #2d2412;
+    --bad: #f47b70; --bad-soft: #301817; --shadow: none; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif; }
+a { color: var(--accent); }
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, h3 { margin: 0; line-height: 1.25; }
+h2 { font-size: 1.35rem; }
+h3 { font-size: 1.02rem; }
+p { margin: .35rem 0; }
+.muted { color: var(--muted); }
+.small { font-size: .86rem; }
+.mono { font-family: var(--mono); font-size: .84rem; }
+.hidden { display: none !important; }
+
+/* layout */
+.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: .75rem;
+  padding: .7rem 1.25rem; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: .55rem; font-weight: 650; font-size: 1.05rem; }
+.brand svg { width: 26px; height: 26px; }
+.top .spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: .4rem; padding: .22rem .65rem; border-radius: 99px;
+  font-size: .84rem; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill.ok .dot { background: var(--ok); } .pill.warn .dot { background: var(--warn); }
+.pill.run .dot { background: var(--accent); animation: pulse 1s infinite alternate; }
+@keyframes pulse { to { opacity: .25; } }
+.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 1.5rem; max-width: 1120px;
+  margin: 0 auto; padding: 1.25rem; }
+nav { position: sticky; top: 4.4rem; align-self: start; display: flex; flex-direction: column; gap: .15rem; }
+nav button { display: flex; align-items: center; gap: .6rem; padding: .55rem .75rem; border: 0; border-radius: 8px;
+  background: none; text-align: left; cursor: pointer; color: var(--muted); }
+nav button:hover { background: var(--panel); color: var(--text); }
+nav button[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav .badge { margin-left: auto; }
+main { min-width: 0; }
+.view { display: flex; flex-direction: column; gap: 1rem; }
+.view-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; margin-bottom: .1rem; }
+.view-head p { flex-basis: 100%; }
+
+/* cards & forms */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1.1rem 1.2rem; box-shadow: var(--shadow); }
+.card > h3 { margin-bottom: .55rem; }
+.card .card-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.card .card-head h3 { margin: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem 1rem; }
+.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.field > label, .label { font-weight: 560; font-size: .9rem; }
+.field .hint { font-size: .82rem; color: var(--muted); }
+input[type=text], input[type=password], input[type=number], input[type=tel], select, textarea {
+  width: 100%; padding: .5rem .65rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+textarea { resize: vertical; min-height: 5.5rem; }
+input:focus, select:focus, textarea:focus, button:focus-visible, .chips:focus-within {
+  outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.stack { display: flex; flex-direction: column; gap: .75rem; }
+.btn { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem .95rem; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-weight: 560; white-space: nowrap; }
+.btn:hover { background: var(--panel-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.danger { color: var(--bad); }
+.btn.small { padding: .3rem .6rem; font-size: .86rem; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn .spin { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: rot .7s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: .86rem; }
+
+.switch { display: flex; align-items: flex-start; gap: .7rem; cursor: pointer; }
+.switch input { appearance: none; flex: none; width: 40px; height: 23px; margin: .1rem 0 0; border-radius: 99px;
+  background: var(--line); position: relative; cursor: pointer; transition: background .15s; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 17px; height: 17px;
+  border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { transform: translateX(17px); }
+.switch b { display: block; font-weight: 560; }
+
+.seg { align-self: flex-start; display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel-2); }
+.seg button { border: 0; background: none; padding: .5rem 1rem; cursor: pointer; font-weight: 560; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; padding: .35rem; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel-2); min-height: 2.5rem; cursor: text; }
+.chip { display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .2rem .12rem .55rem;
+  border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: .87rem; }
+.chip button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 .3rem; font-size: 1rem; line-height: 1; }
+.chips input { flex: 1; min-width: 8rem; border: 0; background: transparent; padding: .2rem .3rem; outline: none !important; }
+
+.sites { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+.site { display: flex; gap: .6rem; align-items: flex-start; padding: .55rem .7rem; border: 1px solid var(--line);
+  border-radius: 9px; cursor: pointer; background: var(--panel-2); }
+.site:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.site input { margin-top: .25rem; accent-color: var(--accent); }
+.site small { display: block; color: var(--muted); }
+
+.choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.choice label { display: flex; gap: .6rem; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: 10px;
+  cursor: pointer; background: var(--panel-2); }
+.choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice input { accent-color: var(--accent); margin-top: .25rem; }
+
+/* overview */
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: .85rem 1rem; box-shadow: var(--shadow); }
+.tile .k { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tile .v { font-size: 1.45rem; font-weight: 650; margin-top: .15rem; font-variant-numeric: tabular-nums; }
+.tile .s { font-size: .82rem; color: var(--muted); }
+.steps { list-style: none; margin: .3rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.steps li { display: flex; align-items: center; gap: .75rem; padding: .55rem .7rem; border-radius: 9px; background: var(--panel-2); }
+.steps .n { flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%;
+  border: 2px solid var(--line); font-weight: 650; font-size: .85rem; color: var(--muted); }
+.steps li.done .n { background: var(--ok); border-color: var(--ok); color: #fff; }
+.steps li.done span.t { color: var(--muted); text-decoration: line-through; }
+.steps li .btn { margin-left: auto; }
+.funnel { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; font-variant-numeric: tabular-nums; }
+.funnel span.n { font-weight: 650; }
+.funnel .arrow { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: .5rem .55rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+.tag { display: inline-block; padding: .05rem .5rem; border-radius: 99px; font-size: .78rem; font-weight: 600;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.tag.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.tag.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.tag.info { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.jobs { list-style: none; margin: 0; padding: 0; }
+.jobs li { padding: .6rem 0; border-bottom: 1px solid var(--line); }
+.jobs li:last-child { border-bottom: 0; }
+.jobs a { font-weight: 560; text-decoration: none; color: var(--text); }
+.jobs a:hover { color: var(--accent); text-decoration: underline; }
+.note { padding: .7rem .85rem; border-radius: 9px; font-size: .9rem; background: var(--accent-soft); }
+.note.warn { background: var(--warn-soft); }
+.note.bad { background: var(--bad-soft); }
+.note.ok { background: var(--ok-soft); }
+.result { margin-top: .5rem; }
+.empty { color: var(--muted); padding: .8rem 0; }
+.log { height: 60vh; overflow: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  padding: .6rem .75rem; font-family: var(--mono); font-size: .8rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.log .WARNING { color: var(--warn); } .log .ERROR, .log .CRITICAL { color: var(--bad); }
+.log .t { color: var(--muted); }
+.draft { white-space: pre-wrap; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: .75rem .85rem; }
+.drop { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-direction: column; text-align: center;
+  padding: 1.1rem; border: 2px dashed var(--line); border-radius: 10px; cursor: pointer; background: var(--panel-2); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.savebar { position: sticky; bottom: 1rem; z-index: 15; display: flex; align-items: center; gap: .75rem;
+  padding: .7rem 1rem; border-radius: 12px; background: var(--text); color: var(--bg); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.savebar .btn { border-color: transparent; }
+.savebar .btn.ghost { background: transparent; color: var(--bg); }
+.toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 50; display: flex; flex-direction: column; gap: .5rem; max-width: min(420px, calc(100vw - 2rem)); }
+.toast { padding: .7rem .9rem; border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+  box-shadow: 0 6px 20px rgba(0,0,0,.15); font-size: .92rem; }
+.toast.ok { border-left: 4px solid var(--ok); } .toast.bad { border-left: 4px solid var(--bad); }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); max-width: 30rem; padding: 1.2rem 1.3rem; }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+details summary { cursor: pointer; font-weight: 560; }
+hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; padding: 1rem; gap: .9rem; }
+  nav { position: static; flex-direction: row; overflow-x: auto; gap: .25rem; padding-bottom: .2rem; }
+  nav button { flex: none; }
+  nav button svg { display: none; }
+  .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .top { padding: .6rem 1rem; }
+  .top .pill { display: none; }
+  .grid2, .sites, .choice { grid-template-columns: 1fr; }
+  .card { padding: 1rem; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg>
+    Job Radar
+  </div>
+  <span id="status-pill" class="pill"><span class="dot"></span><span id="status-text">Loading…</span></span>
+  <span class="spacer"></span>
+  <button id="run-btn" class="btn primary" type="button">Check now</button>
+</header>
+
+<div class="shell">
+  <nav aria-label="Sections">
+    <button data-tab="overview">Overview</button>
+    <button data-tab="telegram">Telegram bot <span class="badge" id="nav-tg"></span></button>
+    <button data-tab="search">Job search</button>
+    <button data-tab="ai">AI</button>
+    <button data-tab="apply">Auto-apply <span class="badge" id="nav-apply"></span></button>
+    <button data-tab="history">Applications</button>
+    <button data-tab="activity">Activity</button>
+  </nav>
+
+  <main>
+    <!-- ============================================================ OVERVIEW -->
+    <section class="view" data-view="overview">
+      <div class="view-head"><h2>Overview</h2></div>
+
+      <div class="card" id="getting-started">
+        <h3>Get started</h3>
+        <p class="muted small">Three steps and Job Radar starts sending matching jobs to your Telegram.</p>
+        <ol class="steps" id="steps"></ol>
+      </div>
+
+      <div class="grid4">
+        <div class="tile"><div class="k">Last check</div><div class="v" id="t-last">—</div><div class="s" id="t-last-s"></div></div>
+        <div class="tile"><div class="k">Next check</div><div class="v" id="t-next">—</div><div class="s" id="t-next-s"></div></div>
+        <div class="tile"><div class="k">Jobs sent</div><div class="v" id="t-sent">0</div><div class="s">remembered, never sent twice</div></div>
+        <div class="tile"><div class="k">Applications</div><div class="v" id="t-apps">0</div><div class="s" id="t-apps-s"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="stack">
+          <label class="switch"><input type="checkbox" id="autorun">
+            <span><b>Check for new jobs automatically</b><span class="muted small">Keeps running while this window is open, and catches up after your computer wakes from sleep.</span></span></label>
+          <div class="row">
+            <label for="interval" class="label">Every</label>
+            <select id="interval" style="width:auto">
+              <option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option>
+              <option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Last check</h3><span class="muted small" id="last-when"></span></div>
+        <div id="last-run"><p class="empty">No check has run yet. Click <b>Check now</b> once your Telegram bot is connected.</p></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Recently sent jobs</h3></div>
+        <ul class="jobs" id="recent"></ul>
+      </div>
+    </section>
+
+    <!-- ============================================================ TELEGRAM -->
+    <section class="view hidden" data-view="telegram">
+      <div class="view-head"><h2>Telegram bot</h2><span id="tg-status"></span>
+        <p class="muted">Jobs arrive as messages from your own Telegram bot. It takes about two minutes to set up.</p></div>
+
+      <div class="card">
+        <div class="card-head"><span class="tag info">Step 1</span><h3>Create your bot</h3></div>
+        <p>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>, send <code>/newbot</code>, and follow the prompts. It replies with a token like <code>123456:ABC-def…</code>.</p>
+        <div class="field" style="margin-top:.6rem">
+          <label for="bot-token">Bot token</label>
+          <div class="row"><input id="bot-token" type="password" autocomplete="off" spellcheck="false" style="flex:1;min-width:14rem">
+            <button class="btn primary" id="bot-connect" type="button">Connect</button></div>
+          <span class="hint" id="bot-token-hint"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="tag info">Step 2</span><h3>Choose where jobs go</h3></div>
+        <p id="bot-open">Open your bot in Telegram and press <b>Start</b> (or send it any message). Then click <b>Find my chat</b>.</p>
+        <div class="row" style="margin:.5rem 0"><button class="btn" id="bot-find" type="button">Find my chat</button>
+          <span class="muted small" id="chat-current"></span></div>
+        <div id="chat-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="tag info">Step 3</span><h3>Send a test message</h3></div>
+        <div class="row"><button class="btn" id="bot-test" type="button">Send test message</button></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ SEARCH -->
+    <section class="view hidden" data-view="search">
+      <div class="view-head"><h2>Job search</h2><p class="muted">Where to look and what counts as a match.</p></div>
+
+      <div class="card">
+        <h3>Sites</h3>
+        <p class="muted small" id="sites-default-note"></p>
+        <div class="label" style="margin:.5rem 0 .35rem">Global</div>
+        <div class="sites" id="sites-en"></div>
+        <div class="label" style="margin:.9rem 0 .35rem">Chinese</div>
+        <div class="sites" id="sites-cn"></div>
+        <details style="margin-top:.9rem">
+          <summary>Other sites or RSS feeds</summary>
+          <div class="grid2" style="margin-top:.6rem">
+            <div class="field"><label for="other-en">Global (one per line)</label><textarea id="other-en" placeholder="https://example.com/jobs.rss"></textarea></div>
+            <div class="field"><label for="other-cn">Chinese (one per line)</label><textarea id="other-cn"></textarea></div>
+          </div>
+          <p class="hint muted small">Feeds (<code>.rss</code>, <code>.xml</code>, <code>/feed</code>) work reliably. Other pages are a best-effort scrape and switch themselves off if they keep failing. LinkedIn, BOSS直聘, 拉勾 and similar sites can't be read.</p>
+        </details>
+        <div id="sources-status" style="margin-top:.8rem"></div>
+      </div>
+
+      <div class="card stack">
+        <h3>What you want</h3>
+        <div class="field"><label>Keywords</label>
+          <div class="chips" data-k="keywords" data-ph="Type a keyword and press Enter"></div>
+          <span class="hint">A job must mention at least one. English words also match Chinese (backend ↔ 后端). Leave empty to get everything.</span></div>
+        <div class="field"><label>Never send</label>
+          <div class="chips" data-k="exclude_keywords" data-ph="e.g. marketing, sales, 销售"></div>
+          <span class="hint">Jobs mentioning any of these are dropped, even if a keyword matches.</span></div>
+        <label class="switch"><input type="checkbox" data-k="remote_only"><span><b>Remote jobs only</b><span class="muted small">On-site and hybrid roles are dropped. Jobs that don't say are kept.</span></span></label>
+        <div class="field"><label>Regions</label>
+          <div class="chips" data-k="regions" data-ph="e.g. Malaysia, Hong Kong, Worldwide"></div>
+          <span class="hint">Only jobs that hire worldwide or name one of these. Leave empty for anywhere.</span></div>
+      </div>
+
+      <div class="card">
+        <h3>More filters</h3>
+        <div class="grid2">
+          <div class="field"><label for="f-minsal">Minimum salary (USD per year)</label><input id="f-minsal" type="number" min="0" step="1000" data-k="min_salary_usd"><span class="hint">0 = no minimum. Roughly converted from other currencies.</span></div>
+          <div class="field"><label for="f-age">Ignore jobs older than (days)</label><input id="f-age" type="number" min="0" data-k="max_posting_age_days"><span class="hint">0 = no limit.</span></div>
+          <label class="switch"><input type="checkbox" data-k="require_salary"><span><b>Only jobs that state a salary</b></span></label>
+          <div class="field"><label for="f-repost">Treat reposts as duplicates for (days)</label><input id="f-repost" type="number" min="0" data-k="repost_window_days"><span class="hint">A reworded repost of a job you got recently isn't sent again. 0 = off.</span></div>
+          <div class="field"><label for="f-cap">Most jobs sent per check</label><input id="f-cap" type="number" min="1" data-k="max_messages_per_run"><span class="hint">The rest wait for the next check.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ AI -->
+    <section class="view hidden" data-view="ai">
+      <div class="view-head"><h2>AI</h2><p class="muted">Optional. Makes job cards cleaner, filters out posts from job seekers, and writes your applications.</p></div>
+      <div class="card stack">
+        <label class="switch"><input type="checkbox" data-k="use_ai"><span><b>Use AI</b><span class="muted small">Only jobs that passed your filters are sent to the AI, once each.</span></span></label>
+        <div class="choice" role="radiogroup" aria-label="AI provider">
+          <label><input type="radio" name="provider" value="gemini" data-k="ai_provider"><span><b>Google Gemini</b><br><span class="muted small">Free tier, enough for personal use. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a key</a></span></span></label>
+          <label><input type="radio" name="provider" value="claude" data-k="ai_provider"><span><b>Anthropic Claude</b><br><span class="muted small">Paid, needs credits. <a href="https://console.anthropic.com/" target="_blank" rel="noopener">Get a key</a></span></span></label>
+        </div>
+        <div class="field" id="key-gemini"><label for="k-gemini">Gemini API key</label><input id="k-gemini" type="password" autocomplete="off" data-k="gemini_api_key" data-secret></div>
+        <div class="field" id="key-claude"><label for="k-claude">Anthropic API key</label><input id="k-claude" type="password" autocomplete="off" data-k="anthropic_api_key" data-secret></div>
+        <div class="field"><label for="ai-model">Model <span class="muted small">(optional)</span></label><input id="ai-model" type="text" data-k="ai_model" spellcheck="false"><span class="hint" id="ai-model-hint"></span></div>
+        <div class="row"><button class="btn" id="ai-test" type="button">Test AI</button><span id="ai-result"></span></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ AUTO-APPLY -->
+    <section class="view hidden" data-view="apply">
+      <div class="view-head"><h2>Auto-apply</h2>
+        <p class="muted">Sends a short application with your résumé to the contact a job post names: a Telegram handle (from <b>your own</b> account) or an email address.</p></div>
+
+      <div class="card stack">
+        <h3>Mode</h3>
+        <div class="seg" role="group" aria-label="Auto-apply mode" id="mode-seg">
+          <button type="button" data-mode="off">Off</button><button type="button" data-mode="dry_run">Dry run</button><button type="button" data-mode="auto">Auto</button>
+        </div>
+        <div class="note" id="mode-note"></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Your résumé</h3>
+        <div id="resume-status"></div>
+        <label class="drop" id="drop"><input type="file" id="resume-file" accept="application/pdf,.pdf" class="hidden">
+          <span><b>Drop your résumé PDF here</b> or click to choose</span><span class="muted small">Sent with every application. Max 10 MB.</span></label>
+        <div class="field"><label for="applicant">Your name</label><input id="applicant" type="text" data-k="applicant_name"><span class="hint">Used to sign the messages.</span></div>
+        <details><summary>Résumé as plain text (optional)</summary>
+          <p class="muted small">If you paste it here, the AI reads this instead of the PDF (cheaper and a bit more reliable).</p>
+          <textarea id="resume-text" rows="8"></textarea>
+          <div class="row" style="margin-top:.5rem"><button class="btn small" id="resume-text-save" type="button">Save text</button></div>
+        </details>
+      </div>
+
+      <div class="card stack">
+        <h3>Which jobs to apply to</h3>
+        <div class="field"><label for="minscore">Minimum fit score: <b id="minscore-v"></b> / 100</label>
+          <input id="minscore" type="range" min="0" max="100" step="5" data-k="apply_min_score">
+          <span class="hint">With AI on, each job is scored against your résumé. 70 is a sensible start; raise it if the dry run shows poor matches.</span></div>
+        <div class="field"><label>Only apply to jobs mentioning</label>
+          <div class="chips" data-k="apply_keywords" data-ph="e.g. python, 后端"></div>
+          <span class="hint" id="apply-kw-hint">Optional with AI on. Required without AI, otherwise nothing is applied to.</span></div>
+        <div class="field"><label>Never apply to jobs mentioning</label>
+          <div class="chips" data-k="apply_exclude_keywords" data-ph="e.g. senior, lead, on-site"></div></div>
+        <div class="field"><span class="label">Send applications by</span>
+          <div class="row"><label class="row"><input type="checkbox" data-channel="telegram"> Telegram</label>
+            <label class="row"><input type="checkbox" data-channel="email"> Email</label></div>
+          <span class="hint">Telegram is tried first when a job lists both.</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Safety limits</h3>
+        <div class="grid2">
+          <div class="field"><label for="a-cap">Applications per day (max)</label><input id="a-cap" type="number" min="1" max="50" data-k="apply_daily_cap"><span class="hint">Keep it low: Telegram restricts accounts that message many strangers.</span></div>
+          <div class="field"><label for="a-cool">Never message the same person again for (days)</label><input id="a-cool" type="number" min="0" data-k="apply_contact_cooldown_days"></div>
+          <div class="field"><label for="a-dmin">Wait between sends (seconds)</label><div class="row"><input id="a-dmin" type="number" min="0" style="width:6rem" data-delay="0"> to <input type="number" min="0" style="width:6rem" data-delay="1" aria-label="Maximum wait"></div></div>
+          <div class="field"><label for="a-age">Don't apply to jobs older than (days)</label><input id="a-age" type="number" min="0" data-k="apply_max_age_days"></div>
+        </div>
+      </div>
+
+      <div class="card stack" id="tg-account">
+        <div class="card-head"><h3>Your Telegram account</h3><span id="tga-status"></span></div>
+        <p class="muted small">Needed to message hiring managers on Telegram (a bot can't). Get your <b>API ID</b> and <b>API hash</b> at <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> → <i>API development tools</i>.</p>
+        <div class="note warn hidden" id="telethon-missing">Telegram login needs an extra package. In a terminal, run <code>pip install telethon</code>, then restart Job Radar. (The Windows <code>.exe</code> already includes it.)</div>
+        <div class="grid2">
+          <div class="field"><label for="tg-id">API ID</label><input id="tg-id" type="text" inputmode="numeric" data-k="telegram_api_id"></div>
+          <div class="field"><label for="tg-hash">API hash</label><input id="tg-hash" type="password" autocomplete="off" data-k="telegram_api_hash" data-secret></div>
+        </div>
+        <div id="tga-login" class="stack">
+          <div class="field"><label for="tg-phone">Phone number</label>
+            <div class="row"><input id="tg-phone" type="tel" placeholder="+60123456789" style="flex:1;min-width:12rem"><button class="btn primary" id="tg-send" type="button">Send login code</button></div></div>
+          <div class="field hidden" id="tg-code-row"><label for="tg-code">Code from Telegram</label>
+            <div class="row"><input id="tg-code" type="text" inputmode="numeric" autocomplete="one-time-code" style="flex:1;min-width:8rem"><button class="btn primary" id="tg-code-btn" type="button">Log in</button></div></div>
+          <div class="field hidden" id="tg-pw-row"><label for="tg-pw">Two-step verification password</label>
+            <div class="row"><input id="tg-pw" type="password" style="flex:1;min-width:10rem"><button class="btn primary" id="tg-pw-btn" type="button">Log in</button></div></div>
+        </div>
+        <div id="tga-done" class="row hidden"><button class="btn" id="tg-check" type="button">Check login</button><button class="btn danger" id="tg-logout" type="button">Log out</button></div>
+        <p class="muted small">Logging in creates <code>jobradar-user.session</code> next to your config. It gives full access to your Telegram account, so never share it.</p>
+      </div>
+
+      <div class="card stack">
+        <h3>Email</h3>
+        <p class="muted small">For jobs that only list an email address. For Gmail use <code>smtp.gmail.com</code>, port 587, and an <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">App Password</a>, not your normal password.</p>
+        <div class="grid2">
+          <div class="field"><label for="m-host">SMTP server</label><input id="m-host" type="text" placeholder="smtp.gmail.com" data-k="smtp_host"></div>
+          <div class="field"><label for="m-port">Port</label><input id="m-port" type="number" data-k="smtp_port"></div>
+          <div class="field"><label for="m-user">Username / email</label><input id="m-user" type="text" autocomplete="off" data-k="smtp_user"></div>
+          <div class="field"><label for="m-pass">Password</label><input id="m-pass" type="password" autocomplete="off" data-k="smtp_password" data-secret></div>
+          <div class="field"><label for="m-from">Send as <span class="muted small">(optional)</span></label><input id="m-from" type="text" placeholder="same as username" data-k="smtp_from"></div>
+          <label class="switch" style="align-self:end"><input type="checkbox" data-k="smtp_ssl"><span><b>Use SSL</b><span class="muted small">Turn on for port 465.</span></span></label>
+        </div>
+        <div class="row"><button class="btn" id="mail-test" type="button">Test connection</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Preview an application</h3>
+        <p class="muted small">See exactly what would be sent. Paste a real job post, or leave it empty to use a sample.</p>
+        <textarea id="preview-text" rows="5" placeholder="Paste a job post (optional)"></textarea>
+        <div class="row"><button class="btn" id="preview-btn" type="button">Write a draft</button></div>
+        <div id="preview-out"></div>
+      </div>
+
+      <details class="card">
+        <summary>Message used without AI</summary>
+        <div class="stack" style="margin-top:.7rem">
+          <div class="field"><label for="tpl">Message</label><textarea id="tpl" rows="6" data-k="apply_template"></textarea><span class="hint"><code>{title}</code> becomes the job title, <code>{name}</code> your name.</span></div>
+          <div class="field"><label for="tpl-subj">Email subject</label><input id="tpl-subj" type="text" data-k="apply_email_subject"></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============================================================ HISTORY -->
+    <section class="view hidden" data-view="history">
+      <div class="view-head"><h2>Applications</h2><p class="muted">Everything auto-apply sent, previewed, skipped or failed.</p></div>
+      <div id="paused"></div>
+      <div class="card"><div class="tablewrap"><table>
+        <thead><tr><th>When</th><th>Result</th><th>Fit</th><th>To</th><th>Job</th></tr></thead>
+        <tbody id="apps"></tbody></table></div></div>
+      <div class="card"><h3>Waiting in the queue</h3><p class="muted small">Over today's limit, or waiting for a paused channel.</p><ul class="jobs" id="queue"></ul></div>
+    </section>
+
+    <!-- ============================================================ ACTIVITY -->
+    <section class="view hidden" data-view="activity">
+      <div class="view-head"><h2>Activity</h2><p class="muted">What Job Radar is doing, live. Useful when something doesn't work.</p></div>
+      <div class="log" id="log" aria-live="polite"></div>
+      <p class="muted small">Settings file: <span class="mono" id="cfg-path"></span></p>
+    </section>
+
+    <div class="savebar hidden" id="savebar" role="region" aria-label="Unsaved changes">
+      <span id="savebar-text" style="flex:1">Unsaved changes</span>
+      <button class="btn ghost" id="discard" type="button">Discard</button>
+      <button class="btn primary" id="save" type="button">Save changes</button>
+    </div>
+  </main>
+</div>
+
+<dialog id="confirm"><h3 id="confirm-title"></h3><p id="confirm-body" class="muted"></p>
+  <div class="row" style="justify-content:flex-end;margin-top:1rem"><button class="btn" value="cancel" id="confirm-no">Cancel</button><button class="btn primary" id="confirm-yes">Continue</button></div></dialog>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let S = null;            // last /api/state
+let dirty = {};          // unsaved setting changes: key -> value
+let tab = "overview";
+let logSeq = 0;
+
+// ------------------------------------------------------------------ api
+async function api(method, path, body, raw) {
+  const opts = { method, headers: { "X-Requested-With": "jobradar" }, credentials: "same-origin" };
+  if (raw) { opts.body = raw; opts.headers["Content-Type"] = "application/octet-stream"; }
+  else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
+  const res = await fetch(path, opts);
+  let data; try { data = await res.json(); } catch { data = { ok: false, error: `HTTP ${res.status}` }; }
+  if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+function toast(msg, kind = "ok") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`; el.textContent = msg;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), kind === "bad" ? 9000 : 4500);
+}
+async function busy(btn, fn) {
+  const label = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spin"></span>${label}`;
+  try { return await fn(); } catch (e) { toast(e.message, "bad"); } finally { btn.disabled = false; btn.innerHTML = label; }
+}
+function confirmBox(title, body) {
+  return new Promise((resolve) => {
+    const d = $("#confirm"); $("#confirm-title").textContent = title; $("#confirm-body").textContent = body;
+    const done = (v) => { d.close(); resolve(v); };
+    $("#confirm-yes").onclick = () => done(true); $("#confirm-no").onclick = () => done(false);
+    d.oncancel = () => resolve(false); d.showModal();
+  });
+}
+
+// --------------------------------------------------------------- time
+function rel(isoStr) {
+  if (!isoStr) return "—";
+  const d = (new Date(isoStr) - Date.now()) / 1000, a = Math.abs(d);
+  const f = a < 60 ? "just now" : a < 3600 ? `${Math.round(a / 60)} min` : a < 86400 ? `${Math.round(a / 3600)} h` : `${Math.round(a / 86400)} d`;
+  if (f === "just now") return d > 0 ? "now" : "just now";
+  return d > 0 ? `in ${f}` : `${f} ago`;
+}
+const when = (isoStr) => isoStr ? new Date(isoStr).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+
+// ---------------------------------------------------------- navigation
+function show(name) {
+  tab = name;
+  $$("nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === name ? "page" : "false"));
+  $$("[data-view]").forEach((v) => v.classList.toggle("hidden", v.dataset.view !== name));
+  try { sessionStorage.setItem("jr-tab", name); } catch {}
+  if (name === "history") loadApps();
+  if (name === "activity") pollLogs();
+  window.scrollTo({ top: 0 });
+}
+$$("nav button").forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
+
+// ----------------------------------------------------------- settings
+function cfg(k) { return k in dirty ? dirty[k] : S.config[k]; }
+function updateSavebar() {
+  const n = Object.keys(dirty).length;
+  $("#savebar").classList.toggle("hidden", n === 0);
+  $("#savebar-text").textContent = `${n} unsaved change${n === 1 ? "" : "s"}`;
+}
+function setDirty(k, v) {
+  const isSecret = k in (S.secrets || {});
+  if (!isSecret && JSON.stringify(S.config[k]) === JSON.stringify(v)) delete dirty[k]; else dirty[k] = v;
+  updateSavebar();
+}
+async function saveNow(changes, quiet) {
+  const r = await api("POST", "/api/config", { changes });
+  S = r; for (const k of Object.keys(changes)) delete dirty[k];
+  render(true); updateSavebar(); if (!quiet) toast("Saved.");
+}
+$("#save").addEventListener("click", (e) => busy(e.currentTarget, () => saveNow({ ...dirty })));
+$("#discard").addEventListener("click", () => { dirty = {}; updateSavebar(); render(true); });
+
+// generic inputs bound to a config key
+function bindInputs() {
+  for (const el of $$("[data-k]")) {
+    if (el.classList.contains("chips")) continue;
+    const k = el.dataset.k;
+    const ev = el.type === "checkbox" || el.type === "radio" || el.tagName === "SELECT" ? "change" : "input";
+    el.addEventListener(ev, () => {
+      let v;
+      if (el.type === "checkbox") v = el.checked;
+      else if (el.type === "radio") { if (!el.checked) return; v = el.value; }
+      else if (el.type === "number" || el.type === "range") v = el.value === "" ? 0 : Number(el.value);
+      else v = el.value;
+      if (el.hasAttribute("data-secret") && v === "") { delete dirty[k]; updateSavebar(); return; }
+      setDirty(k, v);
+      if (k === "ai_provider") renderAI();
+      if (k === "apply_min_score") $("#minscore-v").textContent = v;
+    });
+  }
+  for (const el of $$("[data-delay]")) el.addEventListener("input", () => {
+    const vals = $$("[data-delay]").map((x) => Number(x.value || 0)); setDirty("apply_delay_seconds", vals);
+  });
+  for (const el of $$("[data-channel]")) el.addEventListener("change", () => {
+    setDirty("apply_channels", ["telegram", "email"].filter((c) => $(`[data-channel=${c}]`).checked));
+  });
+  for (const box of $$(".chips")) chipInput(box);
+}
+function fillInputs(force) {
+  for (const el of $$("[data-k]")) {
+    if (el.classList.contains("chips")) {
+      const typing = el.contains(document.activeElement) && $("input", el)?.value;
+      if (!typing && (force || !(el.dataset.k in dirty))) chipRender(el, cfg(el.dataset.k) || []);
+      continue;
+    }
+    const k = el.dataset.k;
+    if (!force && (k in dirty || el === document.activeElement)) continue;
+    if (el.hasAttribute("data-secret")) {
+      const s = S.secrets[k] || {}; el.value = "";
+      el.placeholder = s.env ? "Set by an environment variable" : s.set ? `Saved (${s.hint}). Type to replace.` : "Paste here";
+      continue;
+    }
+    const v = cfg(k);
+    if (el.type === "checkbox") el.checked = !!v;
+    else if (el.type === "radio") el.checked = el.value === v;
+    else el.value = v ?? "";
+  }
+  const d = cfg("apply_delay_seconds") || [45, 120];
+  $$("[data-delay]").forEach((el, i) => { if (force || el !== document.activeElement) el.value = d[i] ?? ""; });
+  const ch = cfg("apply_channels") || [];
+  $$("[data-channel]").forEach((el) => el.checked = ch.includes(el.dataset.channel));
+  $("#minscore-v").textContent = cfg("apply_min_score");
+}
+
+// chip (tag) input for list settings
+function chipInput(box) {
+  box.addEventListener("click", (e) => { if (e.target === box) $("input", box)?.focus(); });
+}
+function chipRender(box, list) {
+  box.innerHTML = list.map((t, i) => `<span class="chip">${esc(t)}<button type="button" aria-label="Remove ${esc(t)}" data-i="${i}">×</button></span>`).join("")
+    + `<input type="text" placeholder="${esc(list.length ? "" : box.dataset.ph || "")}" aria-label="Add">`;
+  const input = $("input", box), k = box.dataset.k;
+  const add = () => {
+    const parts = input.value.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean);
+    if (!parts.length) return;
+    const cur = [...(cfg(k) || [])]; for (const p of parts) if (!cur.includes(p)) cur.push(p);
+    setDirty(k, cur); chipRender(box, cur); $("input", box).focus();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
+    else if (e.key === "Backspace" && !input.value) { const cur = [...(cfg(k) || [])]; cur.pop(); setDirty(k, cur); chipRender(box, cur); $("input", box).focus(); }
+  });
+  input.addEventListener("blur", add);
+  $$("button[data-i]", box).forEach((b) => b.addEventListener("click", () => {
+    const cur = [...(cfg(k) || [])]; cur.splice(Number(b.dataset.i), 1); setDirty(k, cur); chipRender(box, cur);
+  }));
+}
+
+// ---------------------------------------------------------------- sites
+function renderSites(force) {
+  for (const lang of ["en", "cn"]) {
+    const list = cfg(lang) || [], known = S.known_sites[lang];
+    const norm = (u) => u.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "").toLowerCase();
+    const knownSet = new Set(known.map((s) => norm(s.url)));
+    if (force || !(lang in dirty)) {
+      $(`#sites-${lang}`).innerHTML = known.map((s) => `<label class="site"><input type="checkbox" data-site="${lang}" value="${esc(s.url)}" ${list.map(norm).includes(norm(s.url)) ? "checked" : ""}><span><b>${esc(s.label)}</b><small>${esc(s.note)}</small></span></label>`).join("");
+      const other = $(`#other-${lang}`); if (force || other !== document.activeElement) other.value = list.filter((u) => !knownSet.has(norm(u))).join("\n");
+    }
+  }
+  $$("[data-site]").forEach((el) => el.onchange = () => sitesChanged(el.dataset.site));
+  $("#sites-default-note").textContent = S.using_default_sources
+    ? "Nothing selected yet, so 3 built-in sources are used (Bluesky, Hacker News, We Work Remotely)." : "Tick the sites to search. Everything is searched together.";
+}
+function sitesChanged(lang) {
+  const picked = $$(`[data-site=${lang}]`).filter((x) => x.checked).map((x) => x.value);
+  const other = $(`#other-${lang}`).value.split("\n").map((x) => x.trim()).filter(Boolean);
+  setDirty(lang, [...picked, ...other]);
+}
+for (const lang of ["en", "cn"]) $(`#other-${lang}`).addEventListener("input", () => sitesChanged(lang));
+
+function renderSourceStatus() {
+  const rows = S.sources.map((s) => {
+    const tag = s.disabled ? `<span class="tag bad">switched off</span> <button class="linkbtn" data-enable="${esc(s.name)}">turn back on</button>`
+      : s.failures ? `<span class="tag warn">${s.failures} failed check${s.failures > 1 ? "s" : ""}</span>`
+      : s.last_success ? `<span class="tag ok">working</span>` : `<span class="tag">not checked yet</span>`;
+    return `<tr><td>${esc(s.name)}</td><td class="muted small">${esc(s.type)}</td><td>${tag}</td><td class="muted small">${s.last_success ? rel(s.last_success) : ""}</td></tr>`;
+  }).join("");
+  $("#sources-status").innerHTML = S.sources.length ? `<details><summary>Source status (${S.sources.length})</summary><div class="tablewrap"><table><tbody>${rows}</tbody></table></div></details>` : "";
+  $$("[data-enable]").forEach((b) => b.onclick = () => busy(b, async () => { S = await api("POST", "/api/sources/enable", { name: b.dataset.enable }); render(); toast("Turned back on."); }));
+}
+
+// -------------------------------------------------------------- overview
+function renderOverview() {
+  const steps = S.checklist;
+  $("#getting-started").classList.toggle("hidden", steps.every((s) => s.done));
+  $("#steps").innerHTML = steps.map((s, i) => `<li class="${s.done ? "done" : ""}"><span class="n">${s.done ? "✓" : i + 1}</span><span class="t">${esc(s.label)}</span>${s.done ? "" : s.id === "autorun" ? "" : `<button class="btn small" data-go="${s.tab}">Set up</button>`}</li>`).join("");
+  $$("[data-go]").forEach((b) => b.onclick = () => show(b.dataset.go));
+  $("#t-last").textContent = S.last_run ? rel(S.last_run) : "Never";
+  $("#t-last-s").textContent = when(S.last_run);
+  $("#t-next").textContent = S.running ? "Running" : S.next_run ? rel(S.next_run) : "Off";
+  $("#t-next-s").textContent = S.next_run && !S.running ? when(S.next_run) : S.configured ? "Automatic checks are off" : "Connect Telegram first";
+  $("#t-sent").textContent = S.sent_total;
+  const c = S.apply.counts, sentApps = c.sent || 0, dry = c.dry_run || 0;
+  $("#t-apps").textContent = S.config.apply_mode === "dry_run" ? dry : sentApps;
+  $("#t-apps-s").textContent = S.config.apply_mode === "off" ? "Auto-apply is off" : S.config.apply_mode === "dry_run" ? "previewed (dry run)" : "sent";
+  const ar = $("#autorun"); if (ar !== document.activeElement) ar.checked = !!S.config.auto_run;
+  const iv = $("#interval"); const hours = String(Math.round(S.config.run_interval_hours));
+  if (![...iv.options].some((o) => o.value === hours)) iv.add(new Option(`${hours} hours`, hours));
+  if (iv !== document.activeElement) iv.value = hours;
+
+  const L = S.last_summary;
+  $("#last-when").textContent = L ? `${rel(L.at)} · ${L.trigger}` : "";
+  if (L) {
+    const rj = L.rejected, drops = Object.entries(rj).filter(([, v]) => v).map(([k, v]) => `${v} ${k}`).join(", ");
+    const srcRows = L.sources.map((s) => {
+      const st = s.status === "ok" ? "" : `<span class="tag bad">${esc(s.status)}</span> <span class="small muted">${esc(s.error)}</span>`;
+      const d = Object.entries(s.drops).map(([k, v]) => `${v} ${k.replace("_", "-")}`).join(", ");
+      return `<tr><td>${esc(s.name)} ${st}</td><td class="num">${s.items}</td><td class="num">${s.passed}</td><td class="num">${s.sent}</td><td class="small muted">${esc(d)}</td></tr>`;
+    }).join("");
+    const ap = L.apply ? `<p class="small">Auto-apply (${esc(L.apply.mode.replace("_", " "))}): ${L.apply.mode === "dry_run" ? L.apply.previewed + " previewed" : L.apply.sent + " sent"}, ${L.apply.skipped_fit} low fit, ${L.apply.failed} failed, ${L.apply.waiting} waiting.</p>` : "";
+    $("#last-run").innerHTML = `
+      <div class="funnel"><span><span class="n">${L.fetched}</span> fetched</span><span class="arrow">→</span><span><span class="n">${L.detected}</span> job posts</span><span class="arrow">→</span><span><span class="n">${L.passed}</span> matched</span><span class="arrow">→</span><span><span class="n">${L.delivered}</span> sent to you</span></div>
+      <p class="small muted">${drops ? `Dropped: ${esc(drops)}. ` : ""}${L.already_sent ? `${L.already_sent} already sent before${L.reposts ? ` (${L.reposts} reworded reposts)` : ""}. ` : ""}${L.merged ? `${L.merged} duplicates merged. ` : ""}${L.held_back ? `${L.held_back} held for the next check. ` : ""}</p>
+      ${ap}
+      ${L.alerts.map((a) => `<div class="note warn small" style="margin:.4rem 0">${esc(a)}</div>`).join("")}
+      <div class="tablewrap"><table><thead><tr><th>Source</th><th class="num">Fetched</th><th class="num">Matched</th><th class="num">Sent</th><th>Dropped</th></tr></thead><tbody>${srcRows}</tbody></table></div>`;
+  }
+  $("#recent").innerHTML = S.recent.length ? S.recent.map((j) => `<li><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a><div class="small muted">${esc(j.source)} · ${rel(j.at)}${j.location ? " · " + esc(j.location) : ""}${j.salary ? " · " + esc(j.salary) : ""}</div></li>`).join("")
+    : `<li class="empty">Nothing sent yet.</li>`;
+}
+$("#autorun").addEventListener("change", async (e) => {
+  if (e.target.checked && !S.configured) { e.target.checked = false; toast("Connect your Telegram bot first.", "bad"); show("telegram"); return; }
+  try { await saveNow({ auto_run: e.target.checked }, true); toast(e.target.checked ? "Automatic checks are on." : "Automatic checks are off."); }
+  catch (err) { toast(err.message, "bad"); e.target.checked = !e.target.checked; }
+});
+$("#interval").addEventListener("change", async (e) => {
+  try { await saveNow({ run_interval_hours: Number(e.target.value) }, true); toast(`Checking every ${e.target.value} h.`); } catch (err) { toast(err.message, "bad"); }
+});
+$("#run-btn").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  if (!S.configured) { show("telegram"); throw new Error("Connect your Telegram bot first."); }
+  S = await api("POST", "/api/run", {}); render(); toast("Checking for new jobs…");
+}));
+
+// -------------------------------------------------------------- telegram
+let botUser = "";
+function renderTelegram() {
+  const s = S.secrets.telegram_bot_token;
+  $("#bot-token").placeholder = s.env ? "Set by an environment variable" : s.set ? `Saved (${s.hint}). Paste a new one to replace.` : "123456789:AA…";
+  $("#tg-status").innerHTML = S.configured ? `<span class="tag ok">Connected</span>` : `<span class="tag warn">Not set up</span>`;
+  $("#nav-tg").innerHTML = S.configured ? "" : `<span class="tag warn">!</span>`;
+  $("#chat-current").textContent = S.config.telegram_chat_id ? `Current chat: ${S.config.telegram_chat_id}` : "No chat chosen yet.";
+}
+function showChats(found) {
+  botUser = found.bot.username;
+  $("#bot-token-hint").innerHTML = botUser ? `Connected to <b>@${esc(botUser)}</b>.` : "";
+  $("#bot-open").innerHTML = `Open <a href="https://t.me/${esc(botUser)}" target="_blank" rel="noopener">@${esc(botUser)}</a> in Telegram and press <b>Start</b> (or send it any message). Then click <b>Find my chat</b>.`;
+  const chats = found.chats;
+  $("#chat-list").innerHTML = chats.length ? `<div class="stack">${chats.map((c) => `<div class="row"><button class="btn small ${String(S.config.telegram_chat_id) === c.id ? "" : "primary"}" data-chat="${esc(c.id)}">${String(S.config.telegram_chat_id) === c.id ? "Selected" : "Use this"}</button><span><b>${esc(c.name)}</b> <span class="muted small">${esc(c.type)} · ${esc(c.id)}</span></span></div>`).join("")}</div>`
+    : `<div class="note warn">No chats found yet. Open your bot in Telegram, press <b>Start</b> or send it a message, then click <b>Find my chat</b> again.</div>`;
+  $$("[data-chat]").forEach((b) => b.onclick = () => busy(b, async () => { await saveNow({ telegram_chat_id: b.dataset.chat }, true); toast("Chat saved. Now send a test message."); showChats(found); }));
+}
+$("#bot-connect").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const token = $("#bot-token").value.trim();
+  if (!token && !S.secrets.telegram_bot_token.set) throw new Error("Paste your bot token first.");
+  const found = await api("POST", "/api/telegram/find", { token });
+  $("#bot-token").value = ""; S = await api("GET", "/api/state"); render(); showChats(found);
+  toast(`Connected to @${found.bot.username}.`);
+}));
+$("#bot-find").addEventListener("click", (e) => busy(e.currentTarget, async () => { showChats(await api("POST", "/api/telegram/find", {})); }));
+$("#bot-test").addEventListener("click", (e) => busy(e.currentTarget, async () => { toast((await api("POST", "/api/telegram/test", {})).message); }));
+
+// -------------------------------------------------------------------- AI
+function renderAI() {
+  const p = cfg("ai_provider");
+  $("#key-gemini").classList.toggle("hidden", p !== "gemini");
+  $("#key-claude").classList.toggle("hidden", p !== "claude");
+  $("#ai-model").placeholder = p === "gemini" ? "gemini-2.5-flash (default)" : "claude-opus-5-5 (default)";
+  $("#ai-model-hint").textContent = p === "gemini" ? "Leave empty to pick a working Gemini model automatically." : "claude-haiku-5-5 is cheaper.";
+}
+$("#ai-test").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  if (Object.keys(dirty).length) await saveNow({ ...dirty }, true);
+  $("#ai-result").innerHTML = "";
+  try { const r = await api("POST", "/api/ai/test", {}); $("#ai-result").innerHTML = `<span class="tag ok">${esc(r.message)}</span>`; }
+  catch (err) { $("#ai-result").innerHTML = `<span class="tag bad">Failed</span> <span class="small">${esc(err.message)}</span>`; }
+}));
+
+// ------------------------------------------------------------ auto-apply
+const MODE_NOTES = {
+  off: "Auto-apply is off. You still get every matching job on Telegram.",
+  dry_run: "Dry run: everything happens except contacting anyone. Each draft appears in your Telegram bot chat as “📝 DRY RUN — would apply”, so you can check the drafts and tune the settings below.",
+  auto: "Auto: applications are really sent, from your Telegram account or by email, and confirmed in your bot chat. They go out in your name.",
+};
+function renderApply() {
+  const mode = cfg("apply_mode");
+  $$("#mode-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+  $("#mode-note").textContent = MODE_NOTES[mode] || "";
+  $("#mode-note").className = `note ${mode === "auto" ? "warn" : ""}`;
+  $("#nav-apply").innerHTML = mode === "auto" ? `<span class="tag ok">on</span>` : mode === "dry_run" ? `<span class="tag info">dry run</span>` : "";
+  const r = S.apply.resume_pdf;
+  $("#resume-status").innerHTML = r.exists ? `<div class="row"><span class="tag ok">✓ ${esc(r.name)}</span><span class="muted small">${Math.max(1, Math.round(r.size / 1024))} KB</span><button class="linkbtn" id="resume-del">Remove</button></div>`
+    : `<div class="note warn">No résumé yet. Upload a PDF before switching auto-apply on.</div>`;
+  $("#resume-del")?.addEventListener("click", () => api("DELETE", "/api/resume").then((x) => { S = x; render(); toast("Résumé removed."); }).catch((e) => toast(e.message, "bad")));
+  const rt = $("#resume-text"); if (rt !== document.activeElement && !rt.dataset.touched) rt.value = S.apply.resume_text;
+  $("#apply-kw-hint").textContent = cfg("use_ai") ? "Optional, because the AI already checks fit against your résumé." : "Required while AI is off, otherwise nothing is applied to.";
+  // Telegram account
+  $("#telethon-missing").classList.toggle("hidden", S.apply.telethon);
+  const logged = S.apply.telegram_session;
+  $("#tga-status").innerHTML = logged ? `<span class="tag ok">Logged in</span>` : `<span class="tag">Not logged in</span>`;
+  $("#tga-login").classList.toggle("hidden", logged);
+  $("#tga-done").classList.toggle("hidden", !logged);
+  const ph = $("#tg-phone"); if (ph !== document.activeElement && !ph.value) ph.value = S.config.telegram_phone || "";
+  const stage = S.apply.login_stage;
+  $("#tg-code-row").classList.toggle("hidden", stage !== "code");
+  $("#tg-pw-row").classList.toggle("hidden", stage !== "password");
+}
+$$("#mode-seg button").forEach((b) => b.addEventListener("click", async () => {
+  const m = b.dataset.mode;
+  if (m === "auto" && S.config.apply_mode !== "auto") {
+    const ok = await confirmBox("Send real applications?", "Job Radar will message hiring contacts in your name, up to your daily limit. Telegram may restrict accounts that message many strangers, so keep the limit low. Try Dry run first if you haven't.");
+    if (!ok) return;
+  }
+  try { await saveNow({ apply_mode: m }, true); toast(m === "off" ? "Auto-apply is off." : m === "dry_run" ? "Dry run is on." : "Auto-apply is on."); }
+  catch (e) { toast(e.message, "bad"); }
+}));
+const drop = $("#drop"), fileInput = $("#resume-file");
+async function upload(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return toast("Please choose a PDF file.", "bad");
+  try { S = await api("PUT", "/api/resume", undefined, await file.arrayBuffer()); render(); toast("Résumé uploaded."); }
+  catch (e) { toast(e.message, "bad"); }
+}
+fileInput.addEventListener("change", () => upload(fileInput.files[0]));
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => upload(e.dataTransfer.files[0]));
+$("#resume-text").addEventListener("input", (e) => e.target.dataset.touched = "1");
+$("#resume-text-save").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  S = await api("POST", "/api/resume/text", { text: $("#resume-text").value }); delete $("#resume-text").dataset.touched; render(); toast("Résumé text saved.");
+}));
+async function saveAccountFirst() {
+  const keys = ["telegram_api_id", "telegram_api_hash"].filter((k) => k in dirty);
+  if (keys.length) await saveNow(Object.fromEntries(keys.map((k) => [k, dirty[k]])), true);
+}
+$("#tg-send").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  await saveAccountFirst();
+  const r = await api("POST", "/api/tg/start", { phone: $("#tg-phone").value });
+  S = await api("GET", "/api/state"); render();
+  if (r.stage === "done") toast(`Logged in${r.username ? " as " + r.username : ""}.`);
+  else { toast("Code sent. Check Telegram (the message comes from “Telegram”)."); $("#tg-code").focus(); }
+}));
+$("#tg-code-btn").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = await api("POST", "/api/tg/code", { code: $("#tg-code").value });
+  S = await api("GET", "/api/state"); render();
+  if (r.stage === "password") { toast("Enter your two-step verification password."); $("#tg-pw").focus(); }
+  else toast(`Logged in${r.username ? " as " + r.username : ""}.`);
+}));
+$("#tg-pw-btn").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = await api("POST", "/api/tg/password", { password: $("#tg-pw").value });
+  $("#tg-pw").value = ""; S = await api("GET", "/api/state"); render(); toast(`Logged in${r.username ? " as " + r.username : ""}.`);
+}));
+$("#tg-check").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = await api("POST", "/api/tg/check", {});
+  toast(r.logged_in ? `Logged in as ${r.username || r.name}.` : "The saved session isn't logged in any more. Log in again.", r.logged_in ? "ok" : "bad");
+}));
+$("#tg-logout").addEventListener("click", async (e) => {
+  if (!await confirmBox("Log out your Telegram account?", "Job Radar will stop sending applications over Telegram until you log in again.")) return;
+  busy(e.currentTarget, async () => { S = await api("POST", "/api/tg/logout", {}); render(); toast("Logged out."); });
+});
+$("#mail-test").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  if (Object.keys(dirty).length) await saveNow({ ...dirty }, true);
+  toast((await api("POST", "/api/email/test", {})).message);
+}));
+$("#preview-btn").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  if (Object.keys(dirty).length) await saveNow({ ...dirty }, true);
+  const d = await api("POST", "/api/apply/preview", { posting: $("#preview-text").value });
+  const fit = d.fit_score === null ? `<span class="tag">No AI: your template</span>`
+    : `<span class="tag ${d.fit_score >= d.threshold ? "ok" : "bad"}">Fit ${d.fit_score}/100 ${d.fit_score >= d.threshold ? "— would apply" : `— below ${d.threshold}, would skip`}</span>`;
+  $("#preview-out").innerHTML = `<div class="stack"><div class="row">${fit}<span class="small muted">${esc(d.fit_reason)}</span></div>
+    <div><div class="label">Telegram message</div><div class="draft">${esc(d.message)}</div></div>
+    <div><div class="label">Email: ${esc(d.email_subject)}</div><div class="draft">${esc(d.email_body)}</div></div></div>`;
+}));
+
+// --------------------------------------------------------------- history
+const STATUS = { sent: ["Sent", "ok"], dry_run: ["Previewed", "info"], skipped_fit: ["Low fit", ""], skipped_cooldown: ["Already contacted", ""], failed: ["Failed", "bad"] };
+async function loadApps() {
+  try {
+    const d = await api("GET", "/api/applications");
+    $("#apps").innerHTML = d.applications.length ? d.applications.map((a) => {
+      const [label, cls] = STATUS[a.status] || [a.status, ""];
+      const to = a.contact ? `${a.channel === "email" ? "✉️" : "✈️"} ${esc(a.contact)}` : "—";
+      const note = a.error || a.reason;
+      return `<tr><td class="small">${esc(when(a.at))}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}</td></tr>`;
+    }).join("") : `<tr><td colspan="5" class="empty">No applications yet.</td></tr>`;
+    $("#queue").innerHTML = d.queue.length ? d.queue.map((q) => `<li><a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer">${esc(q.title)}</a><div class="small muted">${esc([q.telegram, q.email].filter(Boolean).join(" · "))}</div></li>`).join("") : `<li class="empty">The queue is empty.</li>`;
+    const p = Object.entries(S.apply.paused);
+    $("#paused").innerHTML = p.map(([ch, until]) => `<div class="note warn">${ch === "telegram" ? "Telegram" : "Email"} applications are paused until ${esc(when(until))} after a rate-limit warning.${ch === "telegram" ? " Check @SpamBot in Telegram." : ""}</div>`).join("");
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+// -------------------------------------------------------------- activity
+let logTimer = null;
+async function pollLogs() {
+  clearTimeout(logTimer);
+  if (tab !== "activity") return;
+  try {
+    const d = await api("GET", `/api/logs?after=${logSeq}`);
+    const box = $("#log"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+    for (const l of d.lines) {
+      logSeq = l.seq;
+      const row = document.createElement("div"); row.className = l.level;
+      row.innerHTML = `<span class="t">${esc(new Date(l.t).toLocaleTimeString())}</span> ${esc(l.msg)}`;
+      box.appendChild(row);
+    }
+    while (box.childElementCount > 600) box.firstChild.remove();
+    if (atEnd) box.scrollTop = box.scrollHeight;
+    if (!box.childElementCount) box.innerHTML = `<div class="t">No activity yet.</div>`;
+  } catch {}
+  logTimer = setTimeout(pollLogs, 2000);
+}
+
+// ---------------------------------------------------------------- render
+function render(force) {
+  if (!S) return;
+  const pill = $("#status-pill"), text = $("#status-text");
+  pill.className = "pill " + (S.running ? "run" : !S.configured ? "warn" : S.config.auto_run ? "ok" : "");
+  text.textContent = S.running ? "Checking for jobs…" : !S.configured ? "Setup needed"
+    : S.config.auto_run ? `Checking every ${Math.round(S.config.run_interval_hours)} h` : "Automatic checks off";
+  $("#run-btn").disabled = S.running;
+  $("#cfg-path").textContent = S.config_file;
+  fillInputs(force); renderSites(force); renderSourceStatus(); renderOverview(); renderTelegram(); renderAI(); renderApply();
+}
+let wasRunning = false;
+async function refresh() {
+  try {
+    S = await api("GET", "/api/state"); render();
+    if (wasRunning && !S.running) { toast(`Check finished: ${S.last_summary ? S.last_summary.delivered : 0} new job(s) sent.`); if (tab === "history") loadApps(); }
+    wasRunning = S.running;
+  } catch (e) {
+    $("#status-text").textContent = "Disconnected"; $("#status-pill").className = "pill warn";
+  }
+}
+window.addEventListener("beforeunload", (e) => { if (Object.keys(dirty).length) { e.preventDefault(); e.returnValue = ""; } });
+
+(async function init() {
+  bindInputs();
+  await refresh();
+  let start = "overview"; try { start = sessionStorage.getItem("jr-tab") || (S && !S.configured ? "telegram" : "overview"); } catch {}
+  show(start);
+  setInterval(() => { if (!document.hidden) refresh(); }, 4000);
+})();
+</script>
+</body>
+</html>

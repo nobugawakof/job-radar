@@ -16,7 +16,8 @@ log = logging.getLogger("jobradar.service")
 
 
 class Service:
-    def __init__(self, config: Config, config_path: str | None = None):
+    def __init__(self, config: Config, config_path: str | None = None, *,
+                 state: State | None = None):
         self.config = config
         self.config_path = config_path
         # Resolve a relative state path next to the config file, so a packaged
@@ -25,8 +26,15 @@ class Service:
         state_path = Path(config.state_path)
         if not state_path.is_absolute():
             state_path = self.base_dir / state_path
-        self.state = State(str(state_path), max_sent=config.max_sent_remembered,
-                           repost_window_days=config.repost_window_days)
+        if state is not None and Path(state.path).resolve() == state_path.resolve():
+            # The dashboard rebuilds the Service after a settings change; it must
+            # keep sharing one State, or two copies would overwrite each other.
+            state.max_sent = config.max_sent_remembered
+            state.repost_window_days = config.repost_window_days
+            self.state = state
+        else:
+            self.state = State(str(state_path), max_sent=config.max_sent_remembered,
+                               repost_window_days=config.repost_window_days)
         self.source_defs = build_sources(config, config_path)
         self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
         self.applier = self._build_applier()

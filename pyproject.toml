@@ -18,6 +18,9 @@ build = ["pyinstaller>=6"]
 # Auto-apply via your own Telegram account (MTProto). Email needs nothing extra.
 apply = ["telethon>=1.36"]
 
+[tool.setuptools.package-data]
+jobradar = ["web/index.html"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["jobradar*"]

@@ -36,7 +36,37 @@ once its postings are delivered. If Telegram is down (or you haven't configured
 a token yet), nothing is marked sent — the postings are simply re-detected and
 sent on the next run.
 
-## Quick start
+## Quick start — the dashboard (recommended)
+
+Everything is set up from a page in your browser: no config file to edit.
+
+- **Windows:** download `jobradar-windows` from the repo's **Actions** tab
+  (the *build-exe* workflow), unzip it, and double-click `jobradar.exe`.
+- **Python 3.11+** (any OS):
+  ```bash
+  python3 -m jobradar.cli web
+  ```
+
+Your browser opens the dashboard, which walks you through three steps:
+
+1. **Telegram bot.** Create a bot with @BotFather, paste its token, press
+   **Start** in your bot, then click **Find my chat**. No need to look up your
+   chat id by hand.
+2. **Job search.** Tick the sites to search and type your keywords.
+3. **Switch on automatic checks** on the Overview page.
+
+Optional tabs: **AI** (paste a free Gemini key, then click **Test**) and
+**Auto-apply** (upload your résumé, log in to your Telegram account with a
+code, set up email, and preview drafts). **Applications** and **Activity** show
+what happened and why.
+
+Keep the window open: closing it stops Job Radar. The dashboard only accepts
+connections from your own computer. Opening it needs the link the program
+prints, which logs your browser in with a private cookie, and secrets are never
+shown back in full. Settings are saved to `config.toml`; your original file is
+kept as `config.toml.bak` the first time you save.
+
+## Quick start — command line
 
 Requires Python 3.11+. Nothing to install.
 
@@ -74,6 +104,7 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 
 | Command | Does |
 |---|---|
+| `web [--port N] [--no-browser]` | Open the dashboard (set up, run and watch everything in your browser) |
 | `run` | One collection cycle → one Telegram digest |
 | `serve` | Loop forever, running every `run_interval_hours` |
 | `sources` | List configured sources and their state |
@@ -308,11 +339,11 @@ workflow (`.github/workflows/build-exe.yml`) builds it on a `windows-latest`
 runner and uploads `jobradar-windows` (the `.exe` + a `config.toml`) as a
 downloadable artifact on every push, or from the Actions tab via "Run workflow".
 
-Put a `config.toml` next to the executable (copy `config.example.toml`, fill in
-your `telegram_bot_token` and `telegram_chat_id`) and run it — a double-clicked
-`.exe` with no arguments starts the daemon (`serve`), and its state file is
-written next to the executable. The `config.toml` beside the `.exe` holds
-everything; keep it private since it contains your token.
+Double-click the `.exe` and the dashboard opens in your browser, where you
+set everything up. Settings, state and your résumé are stored next to the
+executable. The `config.toml` beside it holds your tokens, so keep that folder
+private. To run it headless instead (for example on a server), use
+`jobradar.exe serve` with a hand-written `config.toml`.
 
 ## Filtering
 
@@ -386,6 +417,7 @@ jobradar/
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
   apply/             auto-apply: contacts, engine (gates/caps/queue), senders
+  web/               the dashboard: app.py (server + API), index.html, configfile.py
 tests/               python -m unittest discover -s tests
 ```
 

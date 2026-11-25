@@ -96,6 +96,10 @@ class Config:
     smtp_from: str | None = None                # defaults to smtp_user
 
     # How it runs.
+    # Dashboard (`jobradar web`) only: check for jobs automatically every
+    # run_interval_hours. Off until you switch it on, so a half-finished setup
+    # never sends anything. (`jobradar serve` always runs on schedule.)
+    auto_run: bool = False
     state_path: str = "jobradar-state.json"
     run_interval_hours: float = 4.0
     catchup_lookback_hours: float = 72.0        # cap how far back a source looks
