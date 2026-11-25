@@ -259,6 +259,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
       </div>
 
       <div class="card">
+        <div class="card-head"><h3>Check history</h3></div>
+        <div class="tablewrap"><table><thead><tr><th>When</th><th>Trigger</th><th class="num">Fetched</th><th class="num">Sent</th><th>Problems</th></tr></thead><tbody id="history"></tbody></table></div>
+      </div>
+
+      <div class="card">
         <div class="card-head"><h3>Recently sent jobs</h3></div>
         <ul class="jobs" id="recent"></ul>
       </div>
@@ -717,6 +722,8 @@ function renderOverview() {
       ${L.alerts.map((a) => `<div class="note warn small" style="margin:.4rem 0">${esc(a)}</div>`).join("")}
       <div class="tablewrap"><table><thead><tr><th>Source</th><th class="num">Fetched</th><th class="num">Matched</th><th class="num">Sent</th><th>Dropped</th></tr></thead><tbody>${srcRows}</tbody></table></div>`;
   }
+  $("#history").innerHTML = (S.history || []).length ? S.history.map((r) => `<tr><td class="small">${esc(when(r.started_at))}</td><td class="small muted">${esc(r.trigger)}</td><td class="num">${r.fetched}</td><td class="num">${r.delivered}</td><td>${r.errors ? `<span class="tag warn">${r.errors} source${r.errors > 1 ? "s" : ""} failed</span>` : `<span class="tag ok">none</span>`}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">No checks yet.</td></tr>`;
   $("#recent").innerHTML = S.recent.length ? S.recent.map((j) => `<li><a href="${esc(j.url)}" target="_blank" rel="noopener noreferrer">${esc(j.title)}</a><div class="small muted">${esc(j.source)} · ${rel(j.at)}${j.location ? " · " + esc(j.location) : ""}${j.salary ? " · " + esc(j.salary) : ""}</div></li>`).join("")
     : `<li class="empty">Nothing sent yet.</li>`;
 }

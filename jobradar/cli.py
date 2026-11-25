@@ -76,8 +76,14 @@ def _service(args: argparse.Namespace) -> Service:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    from .service import AlreadyRunning
+
     svc = _service(args)
-    s = svc.run("manual")
+    try:
+        s = svc.run("manual")
+    except AlreadyRunning as e:
+        print(f"Not checking now: {e}. Try again when it has finished.")
+        return 1
     # Per-source breakdown, so it's clear where postings come from (or don't).
     print(f"Fetched {s.items_fetched} item(s) from {len(s.per_source)} source(s):")
     for name, meta in s.per_source.items():

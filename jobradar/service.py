@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import socket
+import threading
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -13,6 +16,10 @@ from .pipeline import Pipeline, RunSummary
 from .state import State, iso, parse_iso, utcnow
 
 log = logging.getLogger("jobradar.service")
+
+
+class AlreadyRunning(RuntimeError):
+    """Another program sharing the database is in the middle of a check."""
 
 
 class Service:
@@ -66,7 +73,23 @@ class Service:
                              notify=self.notify_owner)
 
     def run(self, trigger: str = "manual") -> RunSummary:
-        return self.pipeline.run(trigger=trigger)
+        """One check. Only one check runs at a time across programs sharing
+        the database (raises :class:`AlreadyRunning` otherwise), and its summary
+        is stored in the run history."""
+        owner = f"{socket.gethostname()}:{os.getpid()}:{threading.get_ident()}"
+        if not self.state.acquire_run_lock(owner):
+            holder = self.state.run_lock_holder() or {}
+            raise AlreadyRunning(f"another Job Radar (process {holder.get('pid', '?')}) is checking "
+                                 f"right now, started {holder.get('at', '?')[:16]}Z")
+        try:
+            summary = self.pipeline.run(trigger=trigger)
+            try:
+                self.state.record_run(summary.to_dict())
+            except Exception:  # noqa: BLE001 - history is a nice-to-have
+                log.exception("could not store the run summary")
+            return summary
+        finally:
+            self.state.release_run_lock(owner)
 
     def run_forever(self, *, poll_seconds: float = 60.0) -> None:
         """Interval loop, hardened for an always-on desktop.
@@ -94,6 +117,8 @@ class Service:
             if now >= due:
                 self._safe_run("scheduled")
                 announced = None  # recompute/announce the next due time
+                if parse_iso(self.state.last_run) == parse_iso(iso(last)):
+                    time.sleep(poll_seconds)  # skipped (another program was checking)
                 continue
             if announced != due:
                 log.info("next run due %s (in ~%.1fh)", iso(due),
@@ -105,6 +130,9 @@ class Service:
         """Run once, never letting an exception escape and kill the daemon."""
         try:
             return self._run_logged(trigger)
+        except AlreadyRunning as e:
+            log.info("skipped this check: %s", e)
+            return None
         except Exception:  # noqa: BLE001 - a bad run must not stop the loop
             log.exception("run(%s) failed; the daemon will keep running and "
                           "retry at the next interval", trigger)

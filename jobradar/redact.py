@@ -17,3 +17,18 @@ def redact(text: str) -> str:
     for rx, repl in _PATTERNS:
         text = rx.sub(repl, text)
     return text
+
+
+def mask_contact(contact: str | None) -> str:
+    """Hide most of a hiring contact for logs (SRS DR-4): "@hr_anna" →
+    "@h***na", "jane.doe@acme.io" → "j***@acme.io". The full value stays in
+    the database, which needs it, and is shown only in your own dashboard."""
+    c = (contact or "").strip()
+    if not c:
+        return ""
+    if "@" in c and not c.startswith("@"):
+        local, _, domain = c.partition("@")
+        return f"{local[:1]}***@{domain}"
+    handle = c.lstrip("@")
+    shown = handle[:1] + "***" + (handle[-2:] if len(handle) > 4 else "")
+    return ("@" if c.startswith("@") else "") + shown

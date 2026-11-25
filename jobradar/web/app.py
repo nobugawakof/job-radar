@@ -32,7 +32,6 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from collections import deque
-from dataclasses import asdict
 from datetime import timedelta
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -193,24 +192,7 @@ class Controller:
 
 
 def summarize(s) -> dict[str, Any]:
-    per = []
-    for name, m in s.per_source.items():
-        drops = {k[4:] if k.startswith("rej_") else k: v for k, v in m.items()
-                 if (k.startswith("rej_") or k in ("not_job", "old", "unreadable")) and v}
-        per.append({"name": name, "status": m.get("status", "ok"), "error": redact(str(m.get("error") or "")),
-                    "items": m.get("items", 0), "passed": m.get("passed", 0), "sent": m.get("sent", 0),
-                    "drops": drops})
-    apply = asdict(s.apply) if s.apply is not None else None
-    return {
-        "trigger": s.trigger, "at": iso(s.started_at), "fetched": s.items_fetched,
-        "detected": s.postings_detected, "passed": s.passed_filter, "merged": s.duplicates_merged,
-        "already_sent": s.already_sent_skipped, "reposts": s.reposts_skipped,
-        "held_back": s.held_back, "delivered": s.delivered, "ai_vetoed": s.rejected_ai,
-        "rejected": {"keyword": s.rejected_keyword, "excluded": s.rejected_excluded,
-                     "remote": s.rejected_remote, "region": s.rejected_region,
-                     "salary": s.rejected_salary, "old": s.skipped_old},
-        "sources": per, "alerts": [redact(a) for a in s.alerts], "apply": apply,
-    }
+    return s.to_dict()
 
 
 # ------------------------------------------------------------------ state
@@ -254,7 +236,8 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
         "configured": ctrl.configured(),
         "running": ctrl.running, "run_started": ctrl.run_started,
         "last_run": st.last_run, "next_run": ctrl.next_run(),
-        "last_summary": ctrl.last_summary,
+        "last_summary": _newest(ctrl.last_summary, st.last_run_summary()),
+        "history": st.recent_runs(10),
         "checklist": checklist,
         "config": values, "secrets": secrets_info,
         "known_sites": KNOWN_SITES,
@@ -271,6 +254,14 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
             "telethon": _has_telethon(),
         },
     }
+
+
+def _newest(a: dict[str, Any] | None, b: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The more recent of two run summaries (this process's, or the stored
+    one, which may come from another program sharing the database)."""
+    if not a or not b:
+        return a or b
+    return a if (a.get("at") or "") >= (b.get("at") or "") else b
 
 
 def _has_telethon() -> bool:

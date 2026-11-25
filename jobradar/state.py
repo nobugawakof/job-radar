@@ -33,7 +33,7 @@ from typing import Any, Iterator
 
 log = logging.getLogger("jobradar.state")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # 2: runs table (check history)
 
 
 def utcnow() -> datetime:
@@ -123,10 +123,51 @@ CREATE TABLE IF NOT EXISTS apply_paused (
     channel TEXT PRIMARY KEY,
     until   TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    trigger     TEXT NOT NULL,
+    started_at  TEXT NOT NULL,
+    finished_at TEXT,
+    fetched     INTEGER NOT NULL DEFAULT 0,
+    delivered   INTEGER NOT NULL DEFAULT 0,
+    errors      INTEGER NOT NULL DEFAULT 0,
+    summary     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS runs_by_time ON runs (started_at);
 """
+RUNS_KEPT = 500
 
 _APP_FIELDS = ("at", "mode", "status", "channel", "contact", "title", "source_url",
                "score", "reason", "error")
+
+
+def _pid_alive(pid: int) -> bool:
+    """Is a process with this id running on this machine? (Never sends a
+    signal: on Windows os.kill(pid, 0) would deliver Ctrl+C.)"""
+    import os
+
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel32.CloseHandle(handle)
+        return bool(ok) and code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 class State:
@@ -230,6 +271,61 @@ class State:
                        "(SELECT fingerprint FROM signatures ORDER BY seen_at DESC LIMIT ?)", (keep,))
             if db.total_changes != before:
                 self._repost_index = None  # rebuilt on next use
+
+    # ---------------------------------------------------------- run history
+    def record_run(self, summary: dict[str, Any]) -> None:
+        """Store one check's summary (SRS FR-38: per run and per source)."""
+        errors = sum(1 for s in summary.get("sources", []) if s.get("status") != "ok")
+        with self._tx() as db:
+            db.execute("INSERT INTO runs (trigger, started_at, finished_at, fetched, delivered, errors, summary) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (summary.get("trigger", ""), summary.get("at") or iso(utcnow()), summary.get("finished"),
+                        summary.get("fetched", 0), summary.get("delivered", 0), errors,
+                        json.dumps(summary, ensure_ascii=False)))
+            db.execute("DELETE FROM runs WHERE id NOT IN (SELECT id FROM runs ORDER BY id DESC LIMIT ?)", (RUNS_KEPT,))
+
+    def recent_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._q("SELECT id, trigger, started_at, finished_at, fetched, delivered, errors "
+                       "FROM runs ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows]
+
+    def last_run_summary(self) -> dict[str, Any] | None:
+        row = self._one("SELECT summary FROM runs ORDER BY id DESC LIMIT 1")
+        return json.loads(row["summary"]) if row else None
+
+    # ------------------------------------------------------------- run lock
+    def acquire_run_lock(self, owner: str, *, ttl: timedelta = timedelta(hours=3)) -> bool:
+        """Only one check at a time across processes (e.g. the dashboard and
+        `jobradar serve` sharing this database). A lock whose process has died,
+        or that is older than ``ttl``, is taken over."""
+        import os
+        import socket
+
+        me = {"owner": owner, "pid": os.getpid(), "host": socket.gethostname(), "at": iso(utcnow())}
+        with self._tx() as db:
+            row = db.execute("SELECT value FROM meta WHERE key = 'run_lock'").fetchone()
+            if row:
+                try:
+                    held = json.loads(row["value"])
+                except (ValueError, TypeError):
+                    held = {}
+                fresh = (parse_iso(held.get("at")) or utcnow() - ttl * 2) > utcnow() - ttl
+                same_host = held.get("host") == me["host"]
+                alive = not same_host or _pid_alive(int(held.get("pid") or 0))
+                if held.get("owner") != owner and fresh and alive:
+                    return False
+            db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('run_lock', ?)", (json.dumps(me),))
+        return True
+
+    def release_run_lock(self, owner: str) -> None:
+        with self._tx() as db:
+            row = db.execute("SELECT value FROM meta WHERE key = 'run_lock'").fetchone()
+            if row and json.loads(row["value"]).get("owner") == owner:
+                db.execute("DELETE FROM meta WHERE key = 'run_lock'")
+
+    def run_lock_holder(self) -> dict[str, Any] | None:
+        row = self._one("SELECT value FROM meta WHERE key = 'run_lock'")
+        return json.loads(row["value"]) if row else None
 
     # ------------------------------------------------------------ last run
     @property

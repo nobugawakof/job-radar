@@ -29,6 +29,8 @@ from email.utils import make_msgid
 from pathlib import Path
 from typing import Protocol
 
+from ..redact import mask_contact
+
 log = logging.getLogger("jobradar.apply")
 
 
@@ -120,13 +122,13 @@ class TelegramUserSender:
         except (ValueError, errors.RPCError) as e:
             # ValueError: username doesn't resolve. RPCError: privacy settings,
             # blocked, deactivated user, etc. — this contact only.
-            raise ContactError(f"Telegram {contact}: {e}") from e
+            raise ContactError(f"Telegram {mask_contact(contact)}: {e}") from e
 
         if attachment:
             try:
                 run(lambda: client.send_file(entity, str(attachment), force_document=True), 120)
             except Exception as e:  # noqa: BLE001 - message already went out
-                log.warning("message sent to %s but the résumé upload failed: %s", contact, e)
+                log.warning("message sent to %s but the résumé upload failed: %s", mask_contact(contact), e)
 
     @staticmethod
     def _disconnect(runner, client) -> None:
@@ -199,12 +201,12 @@ class EmailSender:
         try:
             smtp.send_message(msg)
         except smtplib.SMTPRecipientsRefused as e:
-            raise ContactError(f"email {contact} refused: {e.recipients}") from e
+            raise ContactError(f"email {mask_contact(contact)} refused by the mail server") from e
         except smtplib.SMTPDataError as e:
             if 400 <= e.smtp_code < 500 or e.smtp_code in (550, 554) and b"rate" in (e.smtp_error or b"").lower():
                 raise ChannelUnavailable(f"SMTP is throttling us ({e.smtp_code}); pausing email",
                                          pause_seconds=3600.0) from e
-            raise ContactError(f"email {contact} rejected: {e.smtp_code} {e.smtp_error!r}") from e
+            raise ContactError(f"email {mask_contact(contact)} rejected: {e.smtp_code}") from e
         except (smtplib.SMTPServerDisconnected, OSError) as e:
             self._smtp = None
             raise ChannelUnavailable(f"SMTP connection lost: {e}") from e

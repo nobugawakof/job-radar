@@ -64,6 +64,34 @@ class RunSummary:
     messages: list[str] = field(default_factory=list)
     alerts: list[str] = field(default_factory=list)
     per_source: dict[str, dict[str, Any]] = field(default_factory=dict)
+    finished_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-ready summary: stored in the run history and shown by the
+        dashboard (secrets redacted)."""
+        from dataclasses import asdict
+
+        from .redact import redact
+
+        per = []
+        for name, m in self.per_source.items():
+            drops = {k[4:] if k.startswith("rej_") else k: v for k, v in m.items()
+                     if (k.startswith("rej_") or k in ("not_job", "old", "unreadable")) and v}
+            per.append({"name": name, "status": m.get("status", "ok"),
+                        "error": redact(str(m.get("error") or "")), "items": m.get("items", 0),
+                        "passed": m.get("passed", 0), "sent": m.get("sent", 0), "drops": drops})
+        return {
+            "trigger": self.trigger, "at": iso(self.started_at), "finished": iso(self.finished_at),
+            "fetched": self.items_fetched, "detected": self.postings_detected,
+            "passed": self.passed_filter, "merged": self.duplicates_merged,
+            "already_sent": self.already_sent_skipped, "reposts": self.reposts_skipped,
+            "held_back": self.held_back, "delivered": self.delivered, "ai_vetoed": self.rejected_ai,
+            "rejected": {"keyword": self.rejected_keyword, "excluded": self.rejected_excluded,
+                         "remote": self.rejected_remote, "region": self.rejected_region,
+                         "salary": self.rejected_salary, "old": self.skipped_old},
+            "sources": per, "alerts": [redact(a) for a in self.alerts],
+            "apply": asdict(self.apply) if self.apply is not None else None,
+        }
 
 
 class Pipeline:
@@ -207,6 +235,7 @@ class Pipeline:
 
         self.state.mark_run(now)
         self.state.save()
+        summary.finished_at = utcnow()
         return summary
 
     # -------------------------------------------------------------- collect
