@@ -106,6 +106,10 @@ class Config:
     message_interval_seconds: float = 3.0       # gap between sends (Telegram flood-limits ~20/min per chat)
     tier_b_failure_threshold: int = 3           # auto-disable a broken scraper
     max_sent_remembered: int = 5000             # bound the state file
+    # Remember a similarity signature of each sent posting for this many days,
+    # so a reworded repost (next month's HN thread, a cross-post) isn't sent
+    # again. 0 = only skip exact re-sends.
+    repost_window_days: int = 60
     notify_owner_on_source_disable: bool = True
 
     @property

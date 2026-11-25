@@ -53,13 +53,18 @@ class State:
           "applications": {"<fingerprint>": {"at", "mode", "status", ...}},
           "apply_queue":  {"<fingerprint>": {posting fields awaiting apply}},
           "contacts":     {"tg:@handle": {"sent": "<iso>", "dry_run": "<iso>"}},
-          "apply_paused": {"telegram": "<iso until>"}
+          "apply_paused": {"telegram": "<iso until>"},
+          "signatures":   {"<fingerprint>": ["<iso sent-at>", "<minhash>", "<roles>"]}
         }
     """
 
-    def __init__(self, path: str | Path, *, max_sent: int = 5000):
+    def __init__(self, path: str | Path, *, max_sent: int = 5000, repost_window_days: int = 60):
         self.path = Path(path)
         self.max_sent = max_sent
+        self.repost_window_days = repost_window_days
+        # Near-duplicate memory of sent postings (see dedup.RepostIndex).
+        self.signatures: dict[str, list[str]] = {}
+        self._repost_index = None
         self.sent: dict[str, str] = {}
         self.sources: dict[str, dict[str, Any]] = {}
         self.last_run: str | None = None
@@ -87,12 +92,15 @@ class State:
         self.apply_queue = dict(data.get("apply_queue", {}))
         self.contacts = dict(data.get("contacts", {}))
         self.apply_paused = dict(data.get("apply_paused", {}))
+        self.signatures = {k: v for k, v in dict(data.get("signatures", {})).items()
+                           if isinstance(v, list) and len(v) == 3}
 
     def save(self) -> None:
         self._prune()
         payload = {"sent": self.sent, "sources": self.sources, "last_run": self.last_run,
                    "applications": self.applications, "apply_queue": self.apply_queue,
-                   "contacts": self.contacts, "apply_paused": self.apply_paused}
+                   "contacts": self.contacts, "apply_paused": self.apply_paused,
+                   "signatures": self.signatures}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic replace so a mid-write crash never corrupts the file.
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".state-", suffix=".tmp")
@@ -107,11 +115,27 @@ class State:
     def _prune(self) -> None:
         """Bound the sent-set so the file cannot grow without limit."""
         self._prune_applications()
+        self._prune_signatures()
         if len(self.sent) <= self.max_sent:
             return
         # Keep the most recent `max_sent` fingerprints by sent-at.
         keep = sorted(self.sent.items(), key=lambda kv: kv[1], reverse=True)[: self.max_sent]
         self.sent = dict(keep)
+
+    def _prune_signatures(self) -> None:
+        from datetime import timedelta
+
+        before = len(self.signatures)
+        if self.repost_window_days > 0:
+            cutoff = iso(utcnow() - timedelta(days=self.repost_window_days))
+            self.signatures = {k: v for k, v in self.signatures.items() if v[0] >= cutoff}
+        else:
+            self.signatures = {}
+        if len(self.signatures) > self.max_sent:
+            keep = sorted(self.signatures.items(), key=lambda kv: kv[1][0], reverse=True)
+            self.signatures = dict(keep[: self.max_sent])
+        if len(self.signatures) != before:
+            self._repost_index = None  # rebuilt on next use
 
     def _prune_applications(self) -> None:
         if len(self.applications) > self.max_sent:
@@ -125,6 +149,24 @@ class State:
 
     def mark_sent(self, fingerprint: str, when: datetime | None = None) -> None:
         self.sent[fingerprint] = iso(when or utcnow())  # type: ignore[assignment]
+
+    # ---- near-duplicate (repost) memory ------------------------------------
+    def remember_signature(self, fingerprint: str, signature: str, roles: str,
+                           when: datetime | None = None) -> None:
+        self.signatures[fingerprint] = [iso(when or utcnow()), signature, roles]  # type: ignore[list-item]
+        if self._repost_index is not None:
+            self._repost_index.add(fingerprint, signature, roles)
+
+    def find_repost(self, signature: str, roles, *, threshold: float = 0.6) -> str | None:
+        """Fingerprint of a remembered sent posting this one is a reworded copy of."""
+        if self.repost_window_days <= 0 or not self.signatures:
+            return None
+        if self._repost_index is None:
+            from .dedup import RepostIndex
+
+            self._prune_signatures()
+            self._repost_index = RepostIndex({k: (v[1], v[2]) for k, v in self.signatures.items()})
+        return self._repost_index.find(signature, roles, threshold=threshold)
 
     # ---- per-source bookkeeping ------------------------------------------
     def source(self, name: str) -> dict[str, Any]:

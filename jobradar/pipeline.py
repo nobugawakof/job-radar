@@ -55,6 +55,7 @@ class RunSummary:
     rejected_ai: int = 0
     duplicates_merged: int = 0
     already_sent_skipped: int = 0
+    reposts_skipped: int = 0     # subset of already_sent_skipped: reworded reposts
     held_back: int = 0
     delivered: int = 0
     sent: list[Posting] = field(default_factory=list)
@@ -80,11 +81,13 @@ class Pipeline:
         self.source_defs = source_defs
         self.transport = transport  # send-only Telegram transport, or None
         self.applier = applier      # jobradar.apply.engine.Applier, or None (off)
+        self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
     # ------------------------------------------------------------------ run
     def run(self, trigger: str = "manual") -> RunSummary:
         now = utcnow()
         summary = RunSummary(trigger=trigger, started_at=now)
+        self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
         raw_items: list[tuple[dict[str, Any], Any]] = []
         for sdef in self.source_defs:
@@ -161,7 +164,7 @@ class Pipeline:
                     surviving.append(p)
                 else:
                     summary.rejected_ai += 1
-                    self.state.mark_sent(p.content_hash)  # don't re-check next run
+                    self._remember_sent(p)  # don't re-check next run
             fresh = surviving
         summary.sent = fresh
         summary.messages = [format_message(self._as_dict(p)) for p in fresh]
@@ -269,7 +272,8 @@ class Pipeline:
         for p in postings:
             match = None
             for k in kept:
-                if dedup.is_duplicate(p.description, k.description, p.apply_url, k.apply_url):
+                if dedup.is_duplicate(p.description, k.description, p.apply_url, k.apply_url,
+                                      title_a=p.title, title_b=k.title):
                     match = k
                     break
             if match is None:
@@ -293,7 +297,32 @@ class Pipeline:
             self.state.mark_sent(posting.content_hash)  # migrate to the new fingerprint
             summary.already_sent_skipped += 1
             return True
+        # A reworded repost of something sent within repost_window_days (next
+        # month's HN thread, a cross-post with a new title). Its own signature is
+        # remembered too, so a job that keeps being reposted with small edits
+        # keeps being recognised as the edits accumulate.
+        sig, roles = self._signature(posting)
+        if sig and self.state.find_repost(sig, roles):
+            self._remember_sent(posting)
+            summary.already_sent_skipped += 1
+            summary.reposts_skipped += 1
+            return True
         return False
+
+    def _signature(self, posting: Posting) -> tuple[str | None, Any]:
+        """MinHash + role signature, computed once per posting per run (from the
+        rule-based title, before AI enrichment can rename it)."""
+        if posting.id not in self._sigs:
+            sig = dedup.minhash(posting.description) if self.config.repost_window_days > 0 else None
+            self._sigs[posting.id] = (sig, dedup.role_signature(posting.title))
+        return self._sigs[posting.id]
+
+    def _remember_sent(self, posting: Posting) -> None:
+        """Record a posting as handled: exact fingerprint + near-dup signature."""
+        self.state.mark_sent(posting.content_hash)
+        sig, roles = self._signature(posting)
+        if sig:
+            self.state.remember_signature(posting.content_hash, sig, dedup.encode_roles(roles))
 
     # -------------------------------------------------------------- deliver
     def _deliver(self, postings: list[Posting], summary: RunSummary) -> bool:
@@ -315,7 +344,7 @@ class Pipeline:
         for i, posting in enumerate(postings):
             try:
                 self.transport.send_message(chat, format_message(self._as_dict(posting)))
-                self.state.mark_sent(posting.content_hash)  # mark per message
+                self._remember_sent(posting)  # mark per message
                 summary.delivered += 1
                 summary.delivered_postings.append(posting)
                 ps = summary.per_source.setdefault(posting.source, {})

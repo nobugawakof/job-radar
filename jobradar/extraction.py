@@ -134,7 +134,7 @@ def extract_apply_url(text: str) -> str | None:
 def _normalise_url(url: str) -> str:
     url = url.rstrip(".,);]")
     # Drop tracking query/fragment; compare on scheme+host+path.
-    url = re.split(r"[?#]", url, 1)[0]
+    url = re.split(r"[?#]", url, maxsplit=1)[0]
     return url.lower().rstrip("/")
 
 

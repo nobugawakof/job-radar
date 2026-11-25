@@ -49,6 +49,7 @@ remote_only = true
 regions     = []            # e.g. ["Hong Kong", "中国", "Worldwide"]; empty = anywhere
 run_interval_hours = 4
 max_posting_age_days = 15    # ignore anything older than N days (0 = no limit)
+repost_window_days   = 60    # don't re-send a reworded repost of a job sent within N days (0 = off)
 
 # --- Salary filter (approximate; 0 / false = off) ------------------------
 min_salary_usd = 0          # drop postings whose pay looks below this (annual USD est.)

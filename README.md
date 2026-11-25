@@ -347,6 +347,21 @@ these stages, in order; a posting must pass all the ones you've configured:
 
 Postings older than `max_posting_age_days` (default 15) are skipped as well.
 
+## Duplicates and reposts
+
+The same job is sent once, even when it's cross-posted to several sources in
+the same run (one message lists every source) or **reposted later with small
+edits**, like next month's HN thread, a bumped salary, or a cross-post with a new
+title. To catch reposts, the bot keeps a compact similarity signature of each
+job it sent for `repost_window_days` (default 60; `0` turns it off). A job that
+keeps being reposted keeps being recognised, because each repost refreshes the
+memory.
+
+Two postings are never treated as duplicates when their titles name clearly
+different roles, such as *Junior* vs *Senior*, *Backend* vs *Frontend*, or 初级 vs
+高级, even if they share most of their text (a company's boilerplate). A
+complete rewrite of the same job can't be recognised and will arrive again.
+
 ## Delivery
 
 Each matching posting is sent as its **own Telegram message** (not a batched

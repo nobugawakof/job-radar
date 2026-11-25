@@ -25,7 +25,8 @@ class Service:
         state_path = Path(config.state_path)
         if not state_path.is_absolute():
             state_path = self.base_dir / state_path
-        self.state = State(str(state_path), max_sent=config.max_sent_remembered)
+        self.state = State(str(state_path), max_sent=config.max_sent_remembered,
+                           repost_window_days=config.repost_window_days)
         self.source_defs = build_sources(config, config_path)
         self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
         self.applier = self._build_applier()
