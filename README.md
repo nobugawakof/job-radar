@@ -132,6 +132,9 @@ The classifier, remote detection, and keywords understand **Chinese** as well as
 English — a post like "招聘后端工程师，全球远程" is detected, and the keyword
 `backend` also matches `后端` (likewise `前端`, `全栈`, `远程`, `算法`…). Just add
 Chinese sites to the `cn` array (V2EX, Ruby China ship as sensible defaults).
+Duplicate detection reads Chinese too: the same job cross-posted to two V2EX
+nodes, or reposted with a small edit, arrives once. Two different jobs that
+merely share a tech stack ("Golang", "AI") are kept apart.
 
 Note: big Chinese job sites like BOSS直聘 (zhipin), 拉勾 (lagou), 猎聘 (liepin),
 智联 (zhaopin), Weibo, Douban, and LinkedIn are **not scrapable** — they're

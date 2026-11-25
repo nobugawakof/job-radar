@@ -285,6 +285,14 @@ class Pipeline:
         if self.state.already_sent(posting.content_hash):
             summary.already_sent_skipped += 1
             return True
+        # Also accept the fingerprint older versions stored (before CJK-aware
+        # dedup), so upgrading never re-sends what was already delivered. Safe to
+        # remove once state files from before that change have aged out.
+        legacy = dedup.legacy_content_hash(posting.description)
+        if legacy and legacy != posting.content_hash and self.state.already_sent(legacy):
+            self.state.mark_sent(posting.content_hash)  # migrate to the new fingerprint
+            summary.already_sent_skipped += 1
+            return True
         return False
 
     # -------------------------------------------------------------- deliver
