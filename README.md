@@ -386,6 +386,12 @@ these stages, in order; a posting must pass all the ones you've configured:
    regions**. So if you live in Malaysia and set `regions = ["Hong Kong"]`, you
    get Hong Kong-remote roles and hire-from-anywhere roles, but not US-only
    ones. Leave `regions = []` to skip this stage.
+   A job counts as **hire-from-anywhere** only when the post says so about
+   the job: "Remote (Worldwide)", "work from anywhere in the world",
+   "Location: Global", 全球远程, 工作地点不限. Company descriptions like "a global
+   fintech", "customers worldwide" or 全球领先 don't count. Neither does anything
+   limited to a place: "anywhere in the US", "Remote within Canada", "US only",
+   "must be based in the UK", 国内远程. On-site and hybrid jobs never count.
 4. **Salary** — set `min_salary_usd` to drop postings whose stated pay looks
    below your floor (roughly normalised to annual USD across currencies and
    pay periods). Postings that don't state a salary still pass, since we can't

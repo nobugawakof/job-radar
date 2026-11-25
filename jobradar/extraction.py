@@ -274,14 +274,17 @@ def extract(text: str, *, given_title: str | None = None, given_location: str | 
     description = text  # unmodified — the record of truth
     title = (given_title or "").strip() or extract_title(text)
     location = (given_location or "").strip() or extract_location(text)
-    worldwide = geo.is_worldwide(location) or geo.is_worldwide(text)
+    is_remote = detect_remote(text)
+    # Hiring from anywhere on Earth implies remote work: an explicitly on-site
+    # or hybrid job is never "worldwide", whatever its wording.
+    worldwide = geo.worldwide(location, text) and is_remote in ("remote", "unknown")
 
     return Extracted(
         title=title,
         description=description,
         contact=extract_contact(text),
         location=location,
-        is_remote=detect_remote(text),
+        is_remote=is_remote,
         is_worldwide=worldwide,
         apply_url=extract_apply_url(text),
         salary=parse_salary(text),
