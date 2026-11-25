@@ -56,6 +56,8 @@ class FetchContext:
     user_agent: str
     request_interval_s: float = 5.0   # SR-6 default
     config: dict[str, Any] = field(default_factory=dict)
+    # Posts your bot received from channels it's in: (channel, since) -> rows.
+    bot_posts: Callable[[str, datetime | None], list[dict[str, Any]]] | None = None
 
 
 class Collector(Protocol):

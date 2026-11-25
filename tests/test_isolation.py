@@ -19,7 +19,6 @@ from jobradar.collectors.reddit import RedditCollector
 from jobradar.collectors.registry import REGISTRY
 from jobradar.collectors.rss import RssCollector
 from jobradar.collectors.scrape import ScrapeCollector
-from jobradar.collectors.telegram import TelegramChannelCollector
 from jobradar.collectors.twitter import TwitterCollector
 from jobradar.config import Config, build_sources
 from jobradar.models import RawItem
@@ -158,7 +157,6 @@ class CollectorParsingTests(unittest.TestCase):
             lambda: list(RedditCollector.parse(HTML_ERROR_PAGE, "s")),
             lambda: list(TwitterCollector.parse(HTML_ERROR_PAGE, "s")),
             lambda: list(HackerNewsCollector._parse_comments(HTML_ERROR_PAGE, 1, "s")),
-            lambda: list(TelegramChannelCollector.parse(HTML_ERROR_PAGE, "s", "")),
         ]
         for i, call in enumerate(cases):
             with self.subTest(i=i), self.assertRaises(CollectorError) as cm:
@@ -184,12 +182,6 @@ class CollectorParsingTests(unittest.TestCase):
             "not-an-object",
         ]}}).encode()
         self.assertEqual([i.external_id for i in RedditCollector.parse(reddit, "r")], ["a"])
-
-        tg = json.dumps({"ok": True, "result": [
-            {"channel_post": {"chat": {"id": 1, "username": "jobs"}, "message_id": 5, "text": "Hiring", "date": 1700000000}},
-            {"channel_post": {"chat": {"id": 1, "username": "jobs"}, "message_id": 6, "text": "Hiring", "date": "x"}},
-        ]}).encode()
-        self.assertEqual(len(list(TelegramChannelCollector.parse(tg, "t", "jobs"))), 1)
 
     def test_each_item_helper(self):
         out = list(each_item([1, 0, 2], lambda n: RawItem(source="s", external_id=str(1 / n), raw_text="x"), "s"))

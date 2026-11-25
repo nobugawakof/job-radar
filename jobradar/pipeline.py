@@ -103,12 +103,14 @@ class Pipeline:
         *,
         transport: Any | None = None,
         applier: Any | None = None,
+        inbox: Any | None = None,
     ):
         self.config = config
         self.state = state
         self.source_defs = source_defs
         self.transport = transport  # send-only Telegram transport, or None
         self.applier = applier      # jobradar.apply.engine.Applier, or None (off)
+        self.inbox = inbox          # jobradar.delivery.inbox.BotInbox, or None (no bot)
         self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
     # ------------------------------------------------------------------ run
@@ -116,6 +118,11 @@ class Pipeline:
         now = utcnow()
         summary = RunSummary(trigger=trigger, started_at=now)
         self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
+        if self.inbox is not None:
+            try:
+                self.inbox.poll()  # channel posts + button presses received since the last poll
+            except Exception as e:  # noqa: BLE001 - the inbox is a helper, never a blocker
+                log.debug("bot inbox poll failed: %s", e)
 
         raw_items: list[tuple[dict[str, Any], Any]] = []
         for sdef in self.source_defs:
@@ -258,10 +265,11 @@ class Pipeline:
         # Make credentials from the config file available to collectors that
         # need them (Reddit, X). A source block can still override per source.
         for key in ("reddit_client_id", "reddit_client_secret", "x_bearer_token",
-                    "telegram_bot_token"):
+                    "telegram_bot_token", "telegram_api_id", "telegram_api_hash", "telegram_session_path"):
             cfg.setdefault(key, getattr(self.config, key, None))
         ctx = FetchContext(since=since, now=now, user_agent=self.config.user_agent,
-                           request_interval_s=interval, config=cfg)
+                           request_interval_s=interval, config=cfg,
+                           bot_posts=self.state.bot_posts if self.inbox is not None else None)
 
         ps = summary.per_source.setdefault(name, {"tier": tier})
         try:

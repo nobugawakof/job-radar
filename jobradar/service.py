@@ -7,11 +7,13 @@ import os
 import socket
 import threading
 import time
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
 from .config import Config, build_sources
 from .delivery import TelegramTransport
+from .delivery.inbox import inbox_for
 from .pipeline import Pipeline, RunSummary
 from .state import State, iso, parse_iso, utcnow
 
@@ -50,10 +52,18 @@ class Service:
                                repost_window_days=config.repost_window_days,
                                legacy_json=legacy_json)
         self.source_defs = build_sources(config, config_path)
-        self.transport = TelegramTransport(config.telegram_bot_token) if config.telegram_bot_token else None
+        # Resolve the Telegram account session next to the config, for every user of it.
+        session = Path(config.telegram_session_path).expanduser()
+        if not session.is_absolute():
+            session = self.base_dir / session
+        self.config = config = replace(config, telegram_session_path=str(session))
+        token = config.telegram_bot_token
+        has_bot = bool(token) and not str(token).upper().startswith("PASTE")
+        self.transport = TelegramTransport(token) if has_bot else None
+        self.inbox = inbox_for(token, self.state) if has_bot else None
         self.applier = self._build_applier()
         self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport,
-                                 applier=self.applier)
+                                 applier=self.applier, inbox=self.inbox)
 
     def notify_owner(self, text: str) -> None:
         """Send a message to your own bot chat (used by auto-apply)."""
@@ -107,6 +117,8 @@ class Service:
         interval = timedelta(hours=self.config.run_interval_hours)
         log.info("job-radar started; interval=%sh, sources=%d — leave this window open.",
                  self.config.run_interval_hours, len(self.source_defs))
+        if self.inbox is not None:
+            self.inbox.start()  # buttons (review queue) and channel posts, in the background
         # Always run once on startup (covers any downtime while it was closed).
         self._safe_run("startup")
         announced = None

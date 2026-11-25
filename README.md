@@ -148,6 +148,14 @@ cn = [
 ]
 ```
 
+**Telegram job channels:** add `t.me/<channel>` (or `@channel`) to either
+list. With your own Telegram account logged in, the same login auto-apply
+uses (dashboard → Auto-apply → Your Telegram account), Job Radar reads any
+*public* channel's recent posts without joining it. Without that login, it can
+only read channels your bot has been added to. Your bot's messages are read
+by a single background "inbox" that remembers its place, so nothing is read
+twice or missed when many arrive.
+
 Job Radar recognises common domains (Hacker News, WeWorkRemotely, V2EX, Ruby
 China, Reddit `/r/<sub>`, X/Twitter, Bluesky) and maps them to the correct
 collector. An unknown URL that looks like a feed (`.rss` / `.xml` / `.atom` /
@@ -171,7 +179,7 @@ add `[[sources]]` blocks — they're used *in addition to* `en`/`cn`:
 | `rss` | A | `url` | Any RSS/Atom feed |
 | `reddit` | A | `subreddit`, `listing` | Set `reddit_client_id` / `reddit_client_secret` in config |
 | `twitter` (`x`) | A | `query` | Set `x_bearer_token` in config — **requires a paid X API plan** |
-| `telegram` | A | `channel` | Bot must be in the channel |
+| `telegram` | A | `channel` | Or just list `t.me/<channel>` / `@channel` in `en`/`cn`. Reads any public channel through your logged-in Telegram account (see Auto-apply); without it, only channels your bot was added to |
 | `scrape` | B | `url`, `block_pattern` | Best-effort HTML; expected to break |
 
 ### Chinese (and other non-English) jobs

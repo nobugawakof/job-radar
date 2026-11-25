@@ -33,7 +33,7 @@ from typing import Any, Iterator
 
 log = logging.getLogger("jobradar.state")
 
-SCHEMA_VERSION = 2   # 2: runs table (check history)
+SCHEMA_VERSION = 3   # 2: runs (check history); 3: bot inbox (chats, channel posts)
 
 
 def utcnow() -> datetime:
@@ -134,6 +134,22 @@ CREATE TABLE IF NOT EXISTS runs (
     summary     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_by_time ON runs (started_at);
+CREATE TABLE IF NOT EXISTS bot_chats (
+    chat_id  TEXT PRIMARY KEY,
+    type     TEXT NOT NULL DEFAULT '',
+    name     TEXT NOT NULL DEFAULT '',
+    username TEXT NOT NULL DEFAULT '',
+    seen_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bot_posts (
+    chat_id    TEXT NOT NULL,
+    message_id INTEGER NOT NULL,
+    username   TEXT NOT NULL DEFAULT '',
+    posted_at  TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS bot_posts_by_user ON bot_posts (username, posted_at);
 """
 RUNS_KEPT = 500
 
@@ -292,6 +308,39 @@ class State:
     def last_run_summary(self) -> dict[str, Any] | None:
         row = self._one("SELECT summary FROM runs ORDER BY id DESC LIMIT 1")
         return json.loads(row["summary"]) if row else None
+
+    # ------------------------------------------------------------ bot inbox
+    def meta_get(self, key: str) -> str | None:
+        row = self._one("SELECT value FROM meta WHERE key = ?", (key,))
+        return row["value"] if row else None
+
+    def meta_set(self, key: str, value: str) -> None:
+        with self._tx() as db:
+            db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, value))
+
+    def remember_chat(self, chat: dict[str, Any]) -> None:
+        name = chat.get("title") or " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x)
+        with self._tx() as db:
+            db.execute("INSERT OR REPLACE INTO bot_chats VALUES (?, ?, ?, ?, ?)",
+                       (str(chat.get("id")), chat.get("type") or "", name or chat.get("username") or "",
+                        chat.get("username") or "", iso(utcnow())))
+
+    def bot_chats(self) -> list[dict[str, Any]]:
+        return [{"id": r["chat_id"], "type": r["type"], "name": r["name"] or r["chat_id"], "username": r["username"]}
+                for r in self._q("SELECT * FROM bot_chats ORDER BY seen_at DESC")]
+
+    def add_bot_post(self, chat_id: str, message_id: int, username: str, posted_at: str, text: str) -> None:
+        with self._tx() as db:
+            db.execute("INSERT OR IGNORE INTO bot_posts VALUES (?, ?, ?, ?, ?)",
+                       (str(chat_id), int(message_id), username.lower(), posted_at, text))
+            db.execute("DELETE FROM bot_posts WHERE posted_at < ?", (iso(utcnow() - timedelta(days=14)),))
+
+    def bot_posts(self, channel: str, since: datetime | None = None) -> list[dict[str, Any]]:
+        """Channel posts the bot received (it must be in the channel), newest last."""
+        ch = channel.lstrip("@").lower()
+        rows = self._q("SELECT * FROM bot_posts WHERE (username = ? OR chat_id = ?) AND posted_at > ? "
+                       "ORDER BY posted_at", (ch, channel, iso(since) if since else ""))
+        return [dict(r) for r in rows]
 
     # ------------------------------------------------------------- run lock
     def acquire_run_lock(self, owner: str, *, ttl: timedelta = timedelta(hours=3)) -> bool:

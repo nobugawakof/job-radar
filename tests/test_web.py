@@ -184,12 +184,24 @@ class ServerTests(unittest.TestCase):
         updates = [{"message": {"chat": {"id": 42, "type": "private", "first_name": "Mei"}}},
                    {"message": {"chat": {"id": 42, "type": "private", "first_name": "Mei"}}},
                    {"my_chat_member": {"chat": {"id": -100, "type": "channel", "title": "Jobs"}}}]
-        fake = lambda token, method, params=None, timeout=15: (
-            {"username": "my_jobs_bot", "first_name": "Jobs"} if method == "getMe" else updates)
-        with mock.patch.object(web, "bot_call", fake):
+        from jobradar.delivery import inbox as inbox_mod
+
+        pending = [dict(u, update_id=i) for i, u in enumerate(updates, 1)]
+        get_me = lambda token, method, params=None, timeout=15: {"username": "my_jobs_bot", "first_name": "Jobs"}
+
+        def fake_call(self_, method, params=None, timeout=None):
+            if method == "getUpdates":
+                out = [u for u in pending if u["update_id"] >= int(params["offset"])]
+                return out
+            return True
+
+        with mock.patch.object(web, "bot_call", get_me), mock.patch.object(inbox_mod.BotInbox, "call", fake_call):
             status, out = self.j("POST", "/api/telegram/find", {"token": "123456:ABCDEF"})
-        self.assertEqual(out["bot"]["username"], "my_jobs_bot")
-        self.assertEqual([c["id"] for c in out["chats"]], ["42", "-100"])
+            self.assertEqual(out["bot"]["username"], "my_jobs_bot")
+            self.assertEqual({c["id"] for c in out["chats"]}, {"42", "-100"})
+            # The updates are now confirmed, but the chats are remembered.
+            status, again = self.j("POST", "/api/telegram/find", {})
+            self.assertEqual({c["id"] for c in again["chats"]}, {"42", "-100"})
         self.assertEqual(cf.read_raw(self.cfg)["telegram_bot_token"], "123456:ABCDEF")  # saved
 
     def test_manual_run_uses_background_runner(self):

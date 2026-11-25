@@ -316,7 +316,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
             <div class="field"><label for="other-en">Global (one per line)</label><textarea id="other-en" placeholder="https://example.com/jobs.rss"></textarea></div>
             <div class="field"><label for="other-cn">Chinese (one per line)</label><textarea id="other-cn"></textarea></div>
           </div>
-          <p class="hint muted small">Feeds (<code>.rss</code>, <code>.xml</code>, <code>/feed</code>) work reliably. Other pages are a best-effort scrape and switch themselves off if they keep failing. LinkedIn, BOSS直聘, 拉勾 and similar sites can't be read.</p>
+          <p class="hint muted small">Feeds (<code>.rss</code>, <code>.xml</code>, <code>/feed</code>) work reliably. Telegram channels: add <code>t.me/channel</code>. Public channels need your Telegram account logged in (Auto-apply tab). Other pages are a best-effort scrape and switch themselves off if they keep failing. LinkedIn, BOSS直聘, 拉勾 and similar sites can't be read.</p>
         </details>
         <div id="sources-status" style="margin-top:.8rem"></div>
       </div>
@@ -418,7 +418,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
 
       <div class="card stack" id="tg-account">
         <div class="card-head"><h3>Your Telegram account</h3><span id="tga-status"></span></div>
-        <p class="muted small">Needed to message hiring managers on Telegram (a bot can't). Get your <b>API ID</b> and <b>API hash</b> at <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> → <i>API development tools</i>.</p>
+        <p class="muted small">Needed to message hiring managers on Telegram (a bot can't), and to read public Telegram job channels. Get your <b>API ID</b> and <b>API hash</b> at <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> → <i>API development tools</i>.</p>
         <div class="note warn hidden" id="telethon-missing">Telegram login needs an extra package. In a terminal, run <code>pip install telethon</code>, then restart Job Radar. (The Windows <code>.exe</code> already includes it.)</div>
         <div class="grid2">
           <div class="field"><label for="tg-id">API ID</label><input id="tg-id" type="text" inputmode="numeric" data-k="telegram_api_id"></div>

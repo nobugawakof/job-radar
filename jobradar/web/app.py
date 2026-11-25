@@ -126,7 +126,12 @@ class Controller:
 
     def reload(self) -> None:
         with self._svc_lock:
-            self.service = self._build(self.service)
+            old = self.service
+            self.service = self._build(old)
+            if old.inbox is not None and old.inbox is not self.service.inbox:
+                old.inbox.stop()  # the bot token changed
+            if self._thread is not None and self.service.inbox is not None:
+                self.service.inbox.start()
 
     @property
     def config(self) -> Config:
@@ -144,10 +149,14 @@ class Controller:
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, name="jobradar-runner", daemon=True)
         self._thread.start()
+        if self.service.inbox is not None:
+            self.service.inbox.start()  # Telegram buttons and channel posts
 
     def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        if self.service.inbox is not None:
+            self.service.inbox.stop()
 
     def request_run(self) -> bool:
         if self.running:
@@ -293,26 +302,24 @@ def bot_call(token: str, method: str, params: dict[str, Any] | None = None, time
     return data.get("result")
 
 
-def find_chats(token: str) -> dict[str, Any]:
+def find_chats(token: str, state) -> dict[str, Any]:
+    """The bot's name and every chat that has written to it. Chats are read
+    through the bot inbox, which remembers them, so they're still found after
+    the updates were read (by the background inbox, or by an earlier check)."""
+    from ..delivery.inbox import InboxError, inbox_for
+
     me = bot_call(token, "getMe")
-    chats: dict[str, dict[str, Any]] = {}
     try:
-        updates = bot_call(token, "getUpdates", {"limit": 100}) or []
-    except cf.ConfigError as e:
-        if "webhook" in str(e).lower():
+        inbox_for(token, state).poll()
+    except InboxError as e:
+        msg = str(e).lower()
+        if "webhook" in msg:
             raise cf.ConfigError("This bot has a webhook set, so its messages can't be read here. "
                                  "Remove the webhook or use a new bot.") from e
-        raise
-    for u in updates:
-        for kind in ("message", "edited_message", "channel_post", "my_chat_member", "chat_member"):
-            chat = (u.get(kind) or {}).get("chat")
-            if chat and str(chat.get("id")) not in chats:
-                name = chat.get("title") or " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x)
-                chats[str(chat["id"])] = {"id": str(chat["id"]), "type": chat.get("type", ""),
-                                          "name": name or chat.get("username") or str(chat["id"]),
-                                          "username": chat.get("username") or ""}
+        if "409" not in msg:  # 409: another program is reading this bot; its chats are still stored
+            raise cf.ConfigError(str(e)) from e
     return {"bot": {"username": me.get("username", ""), "name": me.get("first_name", "")},
-            "chats": list(chats.values())}
+            "chats": state.bot_chats()}
 
 
 # ---------------------------------------------------------------- the API
@@ -400,7 +407,7 @@ class Api:
         token = str(body.get("token") or "").strip() or (self.ctrl.config.telegram_bot_token or "")
         _require(token and not _placeholder(token), "Paste your bot token first.")
         try:
-            found = find_chats(token)
+            found = find_chats(token, self.ctrl.service.state)
         except cf.ConfigError as e:
             raise ApiError(str(e)) from e
         if body.get("token"):
