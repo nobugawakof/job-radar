@@ -192,6 +192,12 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bubble .job { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .2rem; }
 .composer { border-top: 1px solid var(--line); padding: .6rem; display: flex; gap: .5rem; align-items: flex-end; background: var(--panel); }
 .composer textarea { min-height: 2.6rem; max-height: 10rem; flex: 1; }
+/* other devices */
+.net-addrs { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .8rem; }
+.net-addr { border: 1px solid var(--line); border-radius: 10px; padding: .8rem; display: flex; flex-direction: column; gap: .5rem; align-items: flex-start; }
+.net-addr .net-qr { background: #fff; border-radius: 8px; padding: 4px; line-height: 0; }
+.net-addr .net-qr svg { width: 168px; height: 168px; }
+
 /* profile */
 input[type=email] { width: 100%; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
 .req { color: var(--bad); font-weight: 700; }
@@ -311,6 +317,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
       <div class="card">
         <div class="card-head"><h3>Recently sent jobs</h3></div>
         <ul class="jobs" id="recent"></ul>
+      </div>
+      <div class="card stack">
+        <div class="card-head"><h3>Use on other devices</h3></div>
+        <label class="switch"><input type="checkbox" data-k="web_allow_network"><span><b>Allow other devices to open this dashboard</b><span class="muted small">A phone or laptop on your home Wi-Fi, or anywhere through Tailscale (see the README). Takes effect when Job Radar restarts.</span></span></label>
+        <div id="net-status"></div>
       </div>
       <div class="card stack">
         <div class="card-head"><h3>Backup &amp; restore</h3></div>
@@ -1273,6 +1284,30 @@ $("#pf-import-file").addEventListener("change", async (e) => {
 });
 $("#pf-import-saved").addEventListener("click", (e) => busy(e.currentTarget, () => pfImport(api("POST", "/api/profile/import", {}))));
 
+// ------------------------------------------------------- other devices
+let netKey = "";
+function renderNetwork() {
+  const n = S.network; if (!n) return;
+  const key = JSON.stringify(n); if (key === netKey) return; netKey = key;   // don't redraw the QR codes on every poll
+  let html = "";
+  if (n.restart_needed) html += `<div class="note warn">${n.allow ? "Other devices will be able to connect" : "Other devices will be shut out"} after you restart Job Radar: close its window and open it again.</div>`;
+  if (n.forced) html += `<div class="note">Started with <span class="mono">--host</span>, which overrides this switch.</div>`;
+  if (n.listening && n.addresses.length) {
+    html += `<div class="note warn small">Each link below logs in whoever opens it, with full control of Job Radar and your Telegram account. Only open it on your own devices, and only on networks you trust.</div><div class="net-addrs">`
+      + n.addresses.map((a) => `<div class="net-addr"><b>${a.kind === "tailscale" ? "Through Tailscale (from anywhere)" : "On this network (same Wi-Fi)"}</b><div class="net-qr">${a.qr}</div><span class="mono small">${esc(a.url)}</span><button class="btn small" type="button" data-copy="${esc(a.url)}">Copy link</button></div>`).join("")
+      + `</div><p class="muted small">Scan the code with your phone's camera. A Tailscale address only appears when Tailscale is running on this computer.</p>`;
+  } else if (n.listening) {
+    html += `<div class="note warn">Listening for other devices, but this computer has no network address right now.</div>`;
+  } else if (!n.restart_needed) {
+    html += `<p class="muted small">Only this computer can open the dashboard now.</p>`;
+  }
+  $("#net-status").innerHTML = html;
+  $$("#net-status [data-copy]").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast("Link copied. Keep it private."); }
+    catch { toast("Couldn't copy; select the link and copy it yourself.", "bad"); }
+  }));
+}
+
 // --------------------------------------------------------------- history
 const STATUS = { sent: ["Sent", "ok"], dry_run: ["Previewed", "info"], skipped_fit: ["Low fit", ""], skipped_cooldown: ["Already contacted", ""], failed: ["Failed", "bad"] };
 async function loadApps() {
@@ -1339,6 +1374,7 @@ function render(force) {
   $("#cfg-path").textContent = S.config_file;
   $("#data-folder").textContent = S.data_folder;
   fillInputs(force); renderSites(force); renderSourceStatus(); renderOverview(); renderTelegram(); renderAI(); renderApply();
+  renderNetwork();
 }
 let wasRunning = false;
 async function refresh() {

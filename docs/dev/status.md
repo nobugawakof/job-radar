@@ -18,6 +18,7 @@ come from the audit the owner works through one item at a time; keep them.
   Chinese font; preview, import from an old résumé, `jobradar resume`.
 - Résumé layout copied from the owner's sample; title/verb guards, skill-gap
   report, page limit and paper size, newest-first order (ideas from career-ops).
+- Dashboard on other devices: switch, addresses + QR codes, Tailscale guide.
 
 ## Open
 
@@ -30,6 +31,7 @@ come from the audit the owner works through one item at a time; keep them.
 | V4 | SMTP email |
 | V5 | Live sites (HN, WeWorkRemotely, Reddit, V2EX, Ruby China, Bluesky; Bluesky search may need a login) |
 | V6 | The Windows .exe on real Windows, **including finding Microsoft YaHei/SimHei for the résumé PDF** |
+| V9 | Opening the dashboard from a real phone on home Wi-Fi and through Tailscale (and the Windows firewall prompt) |
 | V8 | Résumé PDFs opened in real viewers (Telegram preview, WeChat, Acrobat, phones); checked here only with poppler |
 | V7 | AC-10: a week of real use |
 

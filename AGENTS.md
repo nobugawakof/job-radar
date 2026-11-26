@@ -28,7 +28,8 @@ match to the owner's Telegram bot chat. Optional extras:
   required); a PDF résumé is made per application, tailored to the job by AI.
   The PDF writer is in-house (stdlib), embedding a subset TrueType font for Chinese.
 - **Conversations:** one thread per recruiter, mirrored from that Telegram account.
-- **Dashboard:** a local web page for all setup.
+- **Dashboard:** a local web page for all setup; optionally reachable from
+  the owner's other devices (home network or Tailscale), with a QR code.
 
 ## Hard rules
 

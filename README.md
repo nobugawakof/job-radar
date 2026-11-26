@@ -77,10 +77,53 @@ Optional tabs: **AI** (paste a free Gemini key, then click **Test**) and
 code, set up email, and preview drafts). **Applications** and **Activity** show
 what happened and why.
 
-Keep the window open: closing it stops Job Radar. The dashboard only accepts
-connections from your own computer. Opening it needs the link the program
-prints, which logs your browser in with a private cookie, and secrets are never
-shown back in full.
+Keep the window open: closing it stops Job Radar. By default the dashboard only
+accepts connections from your own computer (to open it on your phone or another
+computer, see below). Opening it needs the link the program prints, which logs
+your browser in with a private cookie, and secrets are never shown back in full.
+
+### Open the dashboard on your phone or another computer
+
+Job Radar keeps running on your computer; other devices just open its page.
+
+**On the same Wi-Fi (home network)**
+
+1. On the **Overview** page, turn on **Allow other devices to open this
+   dashboard**, save, then restart Job Radar (close its window, open it again).
+2. If Windows asks whether to allow Job Radar on the network, allow it for
+   **Private networks** only (not Public).
+3. The **Use on other devices** card now shows a link with a QR code. Scan it
+   with your phone's camera, or copy the link to the other computer. The
+   window also prints the link at startup.
+
+**From anywhere, safely: Tailscale**
+
+[Tailscale](https://tailscale.com) is a free, encrypted private network
+between your own devices. Nothing is opened to the internet, and you don't
+change any router settings.
+
+1. Install Tailscale on the computer that runs Job Radar and on your phone or
+   laptop, and sign in to the **same account** on both.
+2. Turn on **Allow other devices** in Job Radar and restart it, as above.
+3. The **Use on other devices** card now also shows a **Through Tailscale**
+   link (an address starting with `100.`). Open it from your phone, wherever
+   you are, as long as Tailscale is connected on both devices.
+4. Optional: in the Tailscale admin console you can restrict which of your
+   devices may reach this computer.
+
+**Keep it safe**
+
+- The link logs in whoever opens it, with full control of Job Radar and of your
+  Telegram account. Only open it on your own devices; don't post or forward it.
+  To shut out every device that has it, delete `jobradar-web.token` in
+  `jobradar-data` and restart; a new link is made.
+- On the home network, the page travels unencrypted (plain HTTP), so allow it
+  only on a network you trust. Leave the switch off on public Wi-Fi. Tailscale
+  encrypts everything.
+- **Don't forward a port on your router** to expose Job Radar to the internet;
+  use Tailscale instead.
+- Command line: `python3 -m jobradar.cli web --host 0.0.0.0` does the same for
+  one run; `--host 127.0.0.1` keeps it local whatever the switch says.
 
 **Your files** all live in one folder, `jobradar-data`, beside the program:
 

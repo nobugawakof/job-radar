@@ -47,6 +47,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
      ["keywords", "exclude_keywords", "remote_only", "regions", "unknown_location", "review_expiry_days", "min_salary_usd",
       "require_salary", "max_posting_age_days", "repost_window_days"]),
     ("Schedule", ["auto_run", "run_interval_hours", "max_messages_per_run"]),
+    ("Dashboard", ["web_allow_network"]),
     ("AI (optional)", ["use_ai", "ai_provider", "ai_model", "gemini_api_key", "anthropic_api_key"]),
     ("Auto-apply (optional)",
      ["apply_mode", "apply_channels", "applicant_name", "resume_source", "resume_page_size", "resume_max_pages",

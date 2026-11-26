@@ -3,6 +3,21 @@
 Newest first. Each entry says what was decided and why, so later work doesn't
 undo it by accident.
 
+## Dashboard on other devices (owner's request)
+- Off by default; `web_allow_network` (Overview switch) binds 0.0.0.0 on the
+  next start. `--host` on the command line wins over the switch.
+- Login stays the secret link → HttpOnly cookie; no Host check when listening
+  on the network (the cookie/token is what protects it; a DNS-rebinding page
+  never has the cookie). Plain HTTP on the LAN is accepted for a trusted home
+  network; the README recommends Tailscale for anything else and warns
+  against port forwarding. No HTTPS: a self-signed certificate would need the
+  owner to accept warnings on every device, and Tailscale already encrypts.
+- Addresses come from `web/netinfo.py`; 100.64.0.0/10 is labelled Tailscale.
+- QR codes: own encoder (`web/qr.py`, byte mode, versions 1-10, levels L/M),
+  because the project is stdlib-only. Verified during development by
+  decoding 73 codes (every version, both levels, CJK) and the on-screen code
+  with jsQR; the jsQR install lived only in the scratch folder.
+
 ## Ideas taken from career-ops (owner's request)
 - The owner pointed at career-ops (MIT). It uses the same overall design as
   ours: one source of facts, the AI returns JSON, deterministic rendering, and

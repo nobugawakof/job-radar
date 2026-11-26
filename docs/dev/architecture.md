@@ -53,6 +53,8 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `ai.py` | Gemini and Claude over raw HTTPS (stdlib). `draft_application(..., language=)` for fit score + message |
 | `web/app.py` | `http.server` dashboard: JSON API under `/api/*`, runner thread, `build_state()` |
 | `web/configfile.py` | Validates and writes `config.toml` atomically. `SECTIONS`, `_CHOICES`, `SECRET_KEYS` |
+| `web/netinfo.py` | This computer's network addresses (home network / Tailscale) for the "other devices" card |
+| `web/qr.py` | QR code encoder (stdlib) → SVG, for opening the dashboard on a phone |
 | `web/tglogin.py` | Phone → code → 2FA login for the user's Telegram account, plus check and logout |
 | `web/index.html` | The whole UI (vanilla JS). Tabs: overview, telegram, search, ai, apply, messages, review, history, activity |
 

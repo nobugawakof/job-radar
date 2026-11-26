@@ -80,6 +80,10 @@ ai_provider = "gemini"              # "gemini" (free tier) or "claude" (paid)
 apply_mode     = "off"                   # "off" | "dry_run" | "auto"
 apply_channels = ["telegram", "email"]   # tried in this order
 applicant_name = ""                      # signs the message
+# Let other devices (phone on your Wi-Fi, or via Tailscale) open the dashboard.
+# Applies when Job Radar restarts. See README → "Open the dashboard on your phone".
+web_allow_network = false
+
 # Your résumé is made from your Profile (dashboard → Profile), tailored to each
 # job when AI is on. "uploaded" sends your own resume.pdf instead.
 resume_source    = "generated"           # "generated" | "uploaded"

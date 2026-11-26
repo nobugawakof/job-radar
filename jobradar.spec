@@ -32,6 +32,8 @@ a = Analysis(
         "jobradar.web.app",
         "jobradar.web.configfile",
         "jobradar.web.tglogin",
+        "jobradar.web.netinfo",
+        "jobradar.web.qr",
         "jobradar.apply.conversations",
         "jobradar.apply.language",
         "jobradar.resume.builder",

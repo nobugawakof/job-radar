@@ -24,7 +24,6 @@ import json
 import logging
 import os
 import secrets
-import socket
 import threading
 import time
 import urllib.error
@@ -237,6 +236,28 @@ def summarize(s) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ state
+_QR_CACHE: dict[str, str] = {}
+
+
+def _network(ctrl: Controller) -> dict[str, Any]:
+    """Whether other devices can open the dashboard, and the links (with QR
+    codes) to do it. Only ever sent to a logged-in browser."""
+    net = getattr(ctrl, "network", None) or {}
+    allow = bool(ctrl.config.web_allow_network)
+    out: dict[str, Any] = {"allow": allow, "listening": bool(net.get("listening_all")),
+                           "forced": bool(net.get("forced")), "addresses": []}
+    out["restart_needed"] = not out["forced"] and allow != out["listening"]
+    if out["listening"]:
+        from . import netinfo, qr
+
+        for a in netinfo.addresses():
+            url = f"http://{a['ip']}:{net['port']}/?t={net['token']}"
+            if url not in _QR_CACHE:
+                _QR_CACHE[url] = qr.svg(url, scale=4)
+            out["addresses"].append({**a, "url": url, "qr": _QR_CACHE[url]})
+    return out
+
+
 def _profile_complete(st: Any) -> bool:
     from ..resume import profile as prof
 
@@ -290,6 +311,7 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
         "last_summary": _newest(ctrl.last_summary, st.last_run_summary()),
         "history": st.recent_runs(10),
         "unread_messages": st.unread_total(),
+        "network": _network(ctrl),
         "review": {"pending": st.review_counts().get("pending", 0), "mode": c.unknown_location,
                    "regions_set": bool(c.regions)},
         "checklist": checklist,
@@ -957,34 +979,48 @@ def _load_token(base_dir: Path) -> str:
     return tok
 
 
-def make_server(config_path: Path, *, host: str = "127.0.0.1", port: int = 8765,
+def make_server(config_path: Path, *, host: str | None = None, port: int = 8765,
                 logs: LogBuffer | None = None) -> DashboardServer:
+    """``host`` None follows the "Allow other devices" setting; a host given on
+    the command line wins over it."""
     ctrl = Controller(config_path, logs)
     token = _load_token(ctrl.base_dir)
+    forced = host is not None
+    if host is None:
+        host = "0.0.0.0" if ctrl.config.web_allow_network else "127.0.0.1"
     local = host in ("127.0.0.1", "localhost", "::1")
     last_err: OSError | None = None
     for p in ([port] + list(range(port + 1, port + 11)) if port else [0]):
         try:
-            return DashboardServer((host, p), ctrl, token, local_only=local)
+            server = DashboardServer((host, p), ctrl, token, local_only=local)
         except OSError as e:  # port in use: try the next one
             last_err = e
+            continue
+        ctrl.network = {"listening_all": not local, "forced": forced,
+                        "port": server.server_address[1], "token": token}
+        return server
     raise OSError(f"no free port near {port}: {last_err}")
 
 
-def main(config_path: str, *, host: str = "127.0.0.1", port: int = 8765,
+def main(config_path: str, *, host: str | None = None, port: int = 8765,
          open_browser: bool = True) -> int:
     logs = LogBuffer()
     logging.getLogger().addHandler(logs)
     path = Path(config_path)
     server = make_server(path, host=host, port=port, logs=logs)
     ctrl = server.ctrl
-    shown_host = "127.0.0.1" if server.local_only else socket.gethostname()
-    url = f"http://{shown_host}:{server.server_address[1]}/?t={server.token}"
+    port_ = server.server_address[1]
+    url = f"http://127.0.0.1:{port_}/?t={server.token}"
     print("\n  Job Radar dashboard:  " + url, flush=True)
     print("  Keep this window open — closing it stops Job Radar.\n", flush=True)
     if not server.local_only:
-        print("  WARNING: listening on all network interfaces. Anyone on your network with the\n"
-              "  link can change your settings. Use only on a network you trust.\n")
+        from .netinfo import addresses
+
+        for a in addresses():
+            where = "through Tailscale (from anywhere)" if a["kind"] == "tailscale" else "on your network"
+            print(f"  From another device {where}:  http://{a['ip']}:{port_}/?t={server.token}", flush=True)
+        print("\n  Other devices can reach the dashboard. The link above logs in whoever opens it:\n"
+              "  keep it private, and only allow this on networks you trust (home Wi-Fi, Tailscale).\n")
     if not path.exists():
         log.info("no config file yet at %s — it will be created when you save settings", path)
     ctrl.start()
