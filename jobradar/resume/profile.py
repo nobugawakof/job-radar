@@ -10,18 +10,18 @@ from __future__ import annotations
 import re
 from typing import Any
 
-BASIC = ("name", "gender", "birth_date", "location", "phone", "email", "job_title")
+BASIC = ("name", "gender", "birth_date", "location", "phone", "email", "job_title", "focus")
 REQUIRED = ("name", "job_title")
 GENDERS = ("", "male", "female")
 
 # list sections -> their fields
 LISTS: dict[str, tuple[str, ...]] = {
     "education": ("school", "degree", "major", "start", "end", "details"),
-    "experience": ("company", "role", "location", "start", "end", "details"),
-    "projects": ("name", "role", "link", "start", "end", "details"),
+    "experience": ("company", "role", "area", "location", "start", "end", "details"),
+    "projects": ("name", "role", "stack", "link", "start", "end", "details"),
     "languages": ("language", "level"),
 }
-_LIMITS = {"details": 3000, "summary": 2000, "skills": 2000, "link": 300, "start": 20, "end": 20}
+_LIMITS = {"details": 3000, "summary": 3000, "skills": 3000, "stack": 500, "link": 300, "start": 20, "end": 20}
 _MAX_ITEMS = 30
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -98,6 +98,19 @@ def lines(text: str) -> list[str]:
     return out
 
 
+def skill_lines(text: str) -> list[tuple[str, str]]:
+    """``"Backend: Go (1.21), gRPC / HTTP"`` → [("Backend", "Go (1.21), gRPC / HTTP")]:
+    one line each, kept exactly as typed; a short "Label:" prefix is the label."""
+    out = []
+    for ln in (text or "").split("\n"):
+        ln = ln.strip()
+        if not ln:
+            continue
+        m = re.match(r"^([^:：,，;；]{1,30}?)\s*[:：]\s*(.+)$", ln)
+        out.append((m.group(1).strip(), m.group(2).strip()) if m else ("", ln))
+    return out
+
+
 def skill_groups(text: str) -> list[tuple[str, list[str]]]:
     """``"Backend: Go, Python\\nDatabases: PostgreSQL"`` → [("Backend", [...]), …].
     Lines without a label go in a group with an empty label."""
@@ -120,6 +133,8 @@ def facts_text(p: dict[str, Any]) -> str:
     """The profile as plain text, for the AI's fit check. Leaves out phone,
     email, birth date and gender: the AI doesn't need them."""
     out = [f"Name: {p.get('name', '')}", f"Job title: {p.get('job_title', '')}"]
+    if p.get("focus"):
+        out.append(f"Focus: {p['focus']}")
     if p.get("location"):
         out.append(f"Location: {p['location']}")
     if p.get("summary"):

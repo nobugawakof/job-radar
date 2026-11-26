@@ -334,11 +334,19 @@ You don't need a résumé file. On the **Profile** page you enter:
 
 | Required | Optional |
 |---|---|
-| Name, job title, education (at least one school) | Gender, date of birth, location, phone, email, about you, tech stack, work experience, projects, languages |
+| Name, job title, education (at least one school) | Speciality (shown after the title), gender, date of birth, location, phone, email, professional summary, technical skills, work experience (role, company, team/area, dates, points), key projects (name, tech stack, points), languages |
 
 Each application then gets a **PDF résumé made for that job**, in this order:
-name → job title → personal introduction → tech stack → work experience →
-notable projects → education → languages. Sections you leave empty are left out.
+name → job title · speciality → 职业概述 (professional summary) → 技术技能
+(technical skills) → 工作经历 (work experience) → 重点项目 (key projects) →
+教育背景 (education) → 语言能力 (languages). Sections you leave empty are left out.
+
+The layout follows a classic Chinese tech résumé: US Letter, navy headings with a
+rule under each, "Role — Company" with the dates on the right and the team or
+area in italics below, bullet points, ◆ before each project with its tech stack
+in grey, education on one line, languages on one line ("中文：母语 ｜ 英语：专业工作级").
+Skills lines are kept exactly as you type them; "Label: …" makes the label bold.
+A real bold font is used when your computer has one (e.g. Microsoft YaHei Bold).
 
 - **With AI on**, the AI writes the introduction and, for each job post, picks
   and orders what's most relevant and polishes the wording, in your message

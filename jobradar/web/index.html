@@ -335,7 +335,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <h3>Basic details</h3>
         <div class="grid2">
           <div class="field"><label for="pf-name">Name <span class="req">*</span></label><input id="pf-name" type="text" data-pf="name" autocomplete="name"></div>
-          <div class="field"><label for="pf-job_title">Job title <span class="req">*</span></label><input id="pf-job_title" type="text" data-pf="job_title" placeholder="e.g. 后端工程师 / Backend Engineer"></div>
+          <div class="field"><label for="pf-job_title">Job title <span class="req">*</span></label><input id="pf-job_title" type="text" data-pf="job_title" placeholder="e.g. 高级后端工程师 / Senior Backend Engineer"></div>
+          <div class="field"><label for="pf-focus">Speciality</label><input id="pf-focus" type="text" data-pf="focus" placeholder="e.g. 支付与清结算系统 (shown after the title)"></div>
           <div class="field"><label for="pf-gender">Gender</label><select id="pf-gender" data-pf="gender"><option value="">— (leave off)</option><option value="male">男 Male</option><option value="female">女 Female</option></select></div>
           <div class="field"><label for="pf-birth_date">Date of birth</label><input id="pf-birth_date" type="text" data-pf="birth_date" placeholder="e.g. 1995-03"></div>
           <div class="field"><label for="pf-location">Location</label><input id="pf-location" type="text" data-pf="location" placeholder="e.g. 上海 / Kuala Lumpur"></div>
@@ -352,11 +353,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
       </div>
 
       <div class="card stack">
-        <h3>About you &amp; tech stack <span class="muted small">(optional)</span></h3>
-        <div class="field"><label for="pf-summary">About you</label><textarea id="pf-summary" data-pf="summary" rows="3" placeholder="A few facts you want in your introduction, e.g. 五年后端开发经验，专注支付系统。"></textarea>
+        <h3>Summary &amp; technical skills <span class="muted small">(optional)</span></h3>
+        <div class="field"><label for="pf-summary">About you (professional summary)</label><textarea id="pf-summary" data-pf="summary" rows="3" placeholder="A few facts you want in your introduction, e.g. 五年后端开发经验，专注支付系统。"></textarea>
           <span class="hint">The AI writes the personal introduction from this and the rest of your profile. Without AI, this text is the introduction.</span></div>
-        <div class="field"><label for="pf-skills">Tech stack</label><textarea id="pf-skills" data-pf="skills" rows="4" placeholder="后端：Go, Python, gRPC&#10;数据库：PostgreSQL, Redis&#10;Docker, Kubernetes"></textarea>
-          <span class="hint">One group per line; "Label: a, b, c" makes a labelled group.</span></div>
+        <div class="field"><label for="pf-skills">Technical skills</label><textarea id="pf-skills" data-pf="skills" rows="4" placeholder="后端：Go, Python, gRPC&#10;数据库：PostgreSQL, Redis&#10;Docker, Kubernetes"></textarea>
+          <span class="hint">One group per line, kept exactly as you type it; "Label: …" shows the label in bold.</span></div>
       </div>
 
       <div class="card stack">
@@ -1174,8 +1175,8 @@ async function loadReview(data) {
 // --------------------------------------------------------------- profile
 const PF_LISTS = {
   education: { label: "Education", fields: [["school", "School", "e.g. 复旦大学"], ["degree", "Degree", "e.g. 本科 / BSc"], ["major", "Major", "e.g. 计算机科学"], ["start", "From", "2015.09"], ["end", "To", "2019.06"], ["details", "Details (optional)", "Honours, GPA, relevant courses — one per line", true]] },
-  experience: { label: "Job", fields: [["company", "Company", ""], ["role", "Role", ""], ["location", "Location", ""], ["start", "From", "2021.07"], ["end", "To (empty = now)", ""], ["details", "What you did", "One point per line. Real facts and numbers only.", true]] },
-  projects: { label: "Project", fields: [["name", "Project", ""], ["role", "Your role", ""], ["link", "Link", "github.com/…"], ["start", "From", ""], ["end", "To", ""], ["details", "Details", "What it is and what you did, one point per line", true]] },
+  experience: { label: "Job", fields: [["role", "Role", "e.g. 高级 Go 后端工程师"], ["company", "Company", ""], ["area", "Team / area", "e.g. 支付核心链路 & 清结算"], ["location", "Location", ""], ["start", "From", "2021.07"], ["end", "To (empty = now)", ""], ["details", "What you did", "One point per line. Real facts and numbers only.", true]] },
+  projects: { label: "Project", fields: [["name", "Project", ""], ["stack", "Tech stack", "e.g. Go 1.22、gRPC、Kafka、Redis"], ["role", "Your role", ""], ["link", "Link", "github.com/…"], ["start", "From", ""], ["end", "To", ""], ["details", "Details", "What it is and what you did, one point per line", true]] },
   languages: { label: "Language", fields: [["language", "Language", "e.g. 英语 / English"], ["level", "Level", "e.g. 流利（CET-6） / Fluent"]] },
 };
 let PF = null, pfDirty = false;

@@ -345,3 +345,32 @@ def find_font(text: str, *, preferred: str | Path | None = None,
                     if best is None or cov > best[0]:
                         best = (cov, face)
     return best[1] if best and best[0] >= 0.9 else None
+
+
+# Regular → bold file names (lower-case), for a real bold weight.
+BOLD_OF = {"msyh.ttc": "msyhbd.ttc", "msyh.ttf": "msyhbd.ttf", "deng.ttf": "dengb.ttf", "msjh.ttc": "msjhbd.ttc",
+           "stheiti light.ttc": "stheiti medium.ttc", "arial.ttf": "arialbd.ttf", "segoeui.ttf": "segoeuib.ttf",
+           "calibri.ttf": "calibrib.ttf", "dejavusans.ttf": "dejavusans-bold.ttf",
+           "liberationsans-regular.ttf": "liberationsans-bold.ttf", "freesans.ttf": "freesansbold.ttf",
+           "carlito-regular.ttf": "carlito-bold.ttf", "notosanssc-regular.ttf": "notosanssc-bold.ttf"}
+
+
+def find_bold(regular: TrueTypeFont, text: str, *, extra_dirs: list[Path] | None = None) -> TrueTypeFont | None:
+    """The bold sibling of ``regular`` (e.g. msyhbd.ttc for msyh.ttc) if it is
+    installed and covers ``text``; None means "draw bold by stroking"."""
+    name = Path(regular.path).name.lower()
+    want = BOLD_OF.get(name)
+    if not want:
+        if "regular" in name:
+            want = name.replace("regular", "bold")
+        else:
+            return None
+    path = Path(regular.path).with_name(want)
+    if not path.exists():
+        path = next((p for p in Path(regular.path).parent.iterdir() if p.name.lower() == want), None) \
+            or _candidates(list(extra_dirs or [])).get(want)
+    if not path:
+        return None
+    faces = _faces(path)
+    face = faces[regular.index] if regular.index < len(faces) else (faces[0] if faces else None)
+    return face if face and face.coverage(text) >= 0.999 else None

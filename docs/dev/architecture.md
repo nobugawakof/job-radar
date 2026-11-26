@@ -46,7 +46,7 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `resume/content.py` | `ResumeContent` in the fixed section order; `from_profile` (no AI); `from_ai` with the no-invention checks |
 | `resume/fonts.py` | TrueType/TTC parser, per-OS font discovery (+ `jobradar-data/fonts`), glyph subsetting |
 | `resume/pdf.py` | Minimal PDF writer: embedded subset font, ToUnicode, wrapping (CJK + Latin), drawn bullets |
-| `resume/render.py` | A4 layout of the résumé; `ResumeError` when no usable font |
+| `resume/render.py` | Letter layout copied from the owner's sample résumé; `ResumeError` when no usable font |
 | `resume/builder.py` | `ResumeBuilder.build(posting, key)` → `resumes/<key>/<Name>_简历.pdf`; `make_builder` |
 | `apply/language.py` | `resolve(setting, text)` → zh/en; `PHRASES` + `t()` for notices; `ui()` |
 | `ai.py` | Gemini and Claude over raw HTTPS (stdlib). `draft_application(..., language=)` for fit score + message |

@@ -1,7 +1,7 @@
 """What goes on the résumé, in this fixed order:
 
-name → job title → personal introduction → tech stack → work experience →
-notable projects → education → languages.
+name → job title (· focus) → professional summary → technical skills → work
+experience → key projects → education → languages.
 
 Two ways to fill it:
 
@@ -25,10 +25,13 @@ from . import profile as prof
 
 @dataclass
 class Entry:
-    title: str                 # company / project / school
-    subtitle: str = ""         # role · location / degree · major
-    period: str = ""
+    title: str                                   # role / project name / "major · degree · school"
+    org: str = ""                                # company, shown as "title — org" in the accent colour
+    period: str = ""                             # right-aligned dates
+    sub: str = ""                                # italic grey line: team / area · location
+    meta: list[tuple[str, str]] = field(default_factory=list)   # grey line: ("技术栈：", "Go、gRPC")
     bullets: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)              # small grey lines (education details)
 
 
 @dataclass
@@ -36,21 +39,27 @@ class ResumeContent:
     lang: str
     name: str
     job_title: str
+    focus: str = ""
     contact: list[str] = field(default_factory=list)
     intro: str = ""
-    skills: list[tuple[str, list[str]]] = field(default_factory=list)
+    skills: list[tuple[str, str]] = field(default_factory=list)  # (label, text)
     experience: list[Entry] = field(default_factory=list)
     projects: list[Entry] = field(default_factory=list)
     education: list[Entry] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     tailored: bool = False
 
+    @property
+    def headline(self) -> str:
+        return _join(self.job_title, self.focus)
+
     def plain_text(self) -> str:
-        """Everything on the page, for tests and previews."""
-        out = [self.name, self.job_title, " · ".join(self.contact), self.intro]
-        out += [f"{k}: {', '.join(v)}" if k else ", ".join(v) for k, v in self.skills]
+        """Everything on the page, for font checks, tests and previews."""
+        out = [self.name, self.headline, " · ".join(self.contact), self.intro]
+        colon = "：" if self.lang == "zh" else ": "
+        out += [f"{k}{colon}{v}" if k else v for k, v in self.skills]
         for e in self.experience + self.projects + self.education:
-            out += [e.title, e.subtitle, e.period, *e.bullets]
+            out += [e.title, e.org, e.period, e.sub, *(f"{k}{v}" for k, v in e.meta), *e.bullets, *e.notes]
         out += self.languages
         return "\n".join(x for x in out if x)
 
@@ -59,7 +68,7 @@ def _period(start: str, end: str, lang: str) -> str:
     start, end = (start or "").strip(), (end or "").strip()
     if start and not end:
         end = language.t("cv_present", lang)
-    return f"{start} – {end}" if start else end
+    return f"{start} — {end}" if start else end
 
 
 def _join(*parts: str) -> str:
@@ -76,20 +85,38 @@ def contact_line(p: dict[str, Any], lang: str) -> list[str]:
     return out
 
 
+def _language_line(lang_name: str, level: str, lang: str) -> str:
+    if lang_name and level:
+        return f"{lang_name}{'：' if lang == 'zh' else ': '}{level}"
+    return lang_name or level
+
+
+def _meta(stack: str, role: str, link: str, lang: str) -> list[tuple[str, str]]:
+    out = []
+    if stack:
+        out.append((language.t("cv_stack", lang), stack))
+    if role:
+        out.append((language.t("cv_role", lang), role))
+    if link:
+        out.append(("", link))
+    return out
+
+
 def from_profile(p: dict[str, Any], lang: str) -> ResumeContent:
     p = prof.normalize(p)
-    c = ResumeContent(lang=lang, name=p["name"], job_title=p["job_title"], contact=contact_line(p, lang),
-                      intro=p["summary"], skills=prof.skill_groups(p["skills"]))
+    c = ResumeContent(lang=lang, name=p["name"], job_title=p["job_title"], focus=p["focus"],
+                      contact=contact_line(p, lang), intro=p["summary"], skills=prof.skill_lines(p["skills"]))
     for e in p["experience"]:
-        c.experience.append(Entry(e["company"] or e["role"], _join(e["role"] if e["company"] else "", e["location"]),
-                                  _period(e["start"], e["end"], lang), prof.lines(e["details"])))
+        c.experience.append(Entry(e["role"] or e["company"], e["company"] if e["role"] else "",
+                                  _period(e["start"], e["end"], lang), _join(e["area"], e["location"]),
+                                  bullets=prof.lines(e["details"])))
     for e in p["projects"]:
-        c.projects.append(Entry(e["name"], _join(e["role"], e["link"]), _period(e["start"], e["end"], lang),
-                                prof.lines(e["details"])))
+        c.projects.append(Entry(e["name"], period=_period(e["start"], e["end"], lang),
+                                meta=_meta(e["stack"], e["role"], e["link"], lang), bullets=prof.lines(e["details"])))
     for e in p["education"]:
-        c.education.append(Entry(e["school"] or e["degree"], _join(e["degree"] if e["school"] else "", e["major"]),
-                                 _period(e["start"], e["end"], lang), prof.lines(e["details"])))
-    c.languages = [_join(x["language"], x["level"]) for x in p["languages"]]
+        c.education.append(Entry(_join(e["major"], e["degree"], e["school"]), period=_period(e["start"], e["end"], lang),
+                                 notes=prof.lines(e["details"])))
+    c.languages = [_language_line(x["language"], x["level"], lang) for x in p["languages"]]
     return c
 
 
@@ -137,7 +164,7 @@ def _bullets(ai_items: Any, details: str) -> list[str]:
             continue
         text, source = str(b.get("text") or "").strip(), str(b.get("source") or "")
         if _backed(text, source, details):
-            out.append(text[:400])
+            out.append(text[:500])
     return out or mine
 
 
@@ -153,9 +180,19 @@ def _by_index(items: Any, n: int) -> dict[int, dict[str, Any]]:
     return out
 
 
-def _short(v: Any, fallback: str, limit: int = 120) -> str:
+def _short(v: Any, fallback: str, limit: int = 120, numbers_from: str | None = None) -> str:
+    """The AI's (translated) label, or the profile's when it's missing or adds numbers."""
     s = str(v or "").strip()
-    return s[:limit] if s else fallback
+    if not s or (numbers_from is not None and not _same_numbers(s, numbers_from)):
+        return fallback
+    return s[:limit]
+
+
+def _int(v: Any) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return -1
 
 
 def from_ai(obj: dict[str, Any] | None, p: dict[str, Any], lang: str) -> ResumeContent:
@@ -166,58 +203,61 @@ def from_ai(obj: dict[str, Any] | None, p: dict[str, Any], lang: str) -> ResumeC
     if not isinstance(obj, dict):
         return base
     corpus = prof.facts_text(p)
-    c = ResumeContent(lang=lang, name=p["name"], job_title=_short(obj.get("job_title"), p["job_title"], 80),
+    c = ResumeContent(lang=lang, name=p["name"],
+                      job_title=_short(obj.get("job_title"), p["job_title"], 80, p["job_title"]),
+                      focus=_short(obj.get("focus"), p["focus"], 80, p["focus"]) if p["focus"] else "",
                       contact=base.contact, tailored=True)
 
     intro = str(obj.get("intro") or "").strip()
-    c.intro = intro[:900] if intro and _same_numbers(intro, corpus) else base.intro
+    c.intro = intro[:1500] if intro and _same_numbers(intro, corpus) else base.intro
 
-    groups: list[tuple[str, list[str]]] = []
+    groups: list[tuple[str, str]] = []
+    sep = "、" if lang == "zh" else ", "
     for g in obj.get("tech_stack") or []:
         if not isinstance(g, dict):
             continue
         items = []
         for it in g.get("items") or []:
             if isinstance(it, dict) and _backed(str(it.get("text") or ""), str(it.get("source") or ""), corpus):
-                items.append(str(it["text"]).strip()[:60])
+                items.append(str(it["text"]).strip()[:80])
         if items:
-            groups.append((str(g.get("category") or "").strip()[:40], items))
+            groups.append((str(g.get("category") or "").strip()[:40], sep.join(items)))
     c.skills = groups or base.skills
 
     ex = _by_index(obj.get("experience"), len(p["experience"]))
     for i, e in enumerate(p["experience"]):          # every job, in your order
-        a = ex.get(i, {})
+        a, b = ex.get(i, {}), base.experience[i]
+        role = _short(a.get("role"), e["role"], numbers_from=e["role"])
+        company = _short(a.get("company"), e["company"], numbers_from=e["company"])
         c.experience.append(Entry(
-            _short(a.get("company"), base.experience[i].title),
-            _join(_short(a.get("role"), e["role"]), _short(a.get("location"), e["location"])),
-            base.experience[i].period, _bullets(a.get("bullets"), e["details"])))
+            role or company, company if role else "", b.period,
+            _join(_short(a.get("area"), e["area"], numbers_from=e["area"]) if e["area"] else "",
+                  _short(a.get("location"), e["location"], numbers_from=e["location"]) if e["location"] else ""),
+            bullets=_bullets(a.get("bullets"), e["details"])))
 
     pr = _by_index(obj.get("projects"), len(p["projects"]))
     order = [i for i in (_int(x) for x in obj.get("project_order") or []) if i in range(len(p["projects"]))]
     order = list(dict.fromkeys(order + list(range(len(p["projects"])))))   # most relevant first, none lost
     for i in order:
         e, a = p["projects"][i], pr.get(i, {})
-        c.projects.append(Entry(_short(a.get("name"), e["name"]), _join(_short(a.get("role"), e["role"]), e["link"]),
-                                base.projects[i].period, _bullets(a.get("bullets"), e["details"])))
+        c.projects.append(Entry(
+            _short(a.get("name"), e["name"], numbers_from=e["name"]), period=base.projects[i].period,
+            meta=_meta(e["stack"], _short(a.get("role"), e["role"], numbers_from=e["role"]) if e["role"] else "",
+                       e["link"], lang),
+            bullets=_bullets(a.get("bullets"), e["details"])))
 
     ed = _by_index(obj.get("education"), len(p["education"]))
     for i, e in enumerate(p["education"]):
         a = ed.get(i, {})
         c.education.append(Entry(
-            _short(a.get("school"), base.education[i].title),
-            _join(_short(a.get("degree"), e["degree"]), _short(a.get("major"), e["major"])),
-            base.education[i].period, _bullets(a.get("bullets"), e["details"])))
+            _join(*(_short(a.get(k), e[k], numbers_from=e[k]) if e[k] else "" for k in ("major", "degree", "school"))),
+            period=base.education[i].period, notes=_bullets(a.get("bullets"), e["details"])))
 
     la = _by_index(obj.get("languages"), len(p["languages"]))
-    c.languages = [_short(la.get(i, {}).get("text"), base.languages[i]) for i in range(len(p["languages"]))]
+    c.languages = [_language_line(_short(la.get(i, {}).get("language"), x["language"], 60, x["language"]),
+                                  _short(la.get(i, {}).get("level"), x["level"], 60, x["level"]), lang)
+                   for i, x in enumerate(p["languages"])]
     return c
-
-
-def _int(v: Any) -> int:
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return -1
 
 
 def file_stem(p: dict[str, Any], lang: str) -> str:

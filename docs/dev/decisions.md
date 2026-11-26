@@ -3,6 +3,23 @@
 Newest first. Each entry says what was decided and why, so later work doesn't
 undo it by accident.
 
+## Résumé layout follows the owner's sample
+- The owner supplied a sample résumé (.docx) to copy. Measured from it: US
+  Letter; margins 36 pt top/bottom, 45 pt sides; name 20 pt bold #1A1A1A;
+  title line 11 pt bold #1F3A5F ("title · speciality"); headings 12 pt bold
+  #1F3A5F with a 1 pt rule; body 10 pt; "Role — Company" 11 pt bold (company in
+  navy) with grey dates on the right; italic grey team/area line; navy "•"
+  bullets; "◆ project" 10.5 pt bold with a grey "技术栈：" line; education
+  "major · degree · school" on one line with grey notes; languages joined with
+  " ｜ ". Headings: 职业概述, 技术技能, 工作经历, 重点项目, 教育背景, 语言能力.
+- New optional fields for it: `focus` (speciality), experience `area`,
+  project `stack`. Skills lines are kept verbatim (labels before "：").
+- The sample uses Noto Sans CJK SC, a CFF font we can't embed (R1); Microsoft
+  YaHei (with msyhbd for bold) is the closest on Windows. Real bold is used when
+  a bold sibling font exists, otherwise bold is drawn by stroking.
+- The sample's content stays out of the repository (personal data); only
+  made-up profiles are used in tests and checks.
+
 ## Generated résumés (schema v6)
 - The owner asked for résumés made automatically from a simple profile instead
   of uploading one. Required: name, job title, education; everything else is

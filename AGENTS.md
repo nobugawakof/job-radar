@@ -128,6 +128,12 @@ dashboard tests, start `web.make_server(cfg, port=0)` and send the cookie and th
   fallback for Latin-only text. `resume/fonts.py` parses TTF/TTC, finds fonts
   per OS, and subsets by emptying unused glyphs (glyph ids stay the same).
 - Only TrueType outlines (`glyf`) are supported; CFF `.otf` fonts are skipped.
+- Bold: `fonts.find_bold` finds the bold sibling (msyh→msyhbd, arial→arialbd,
+  DejaVuSans→DejaVuSans-Bold…) and embeds it as F2; otherwise bold is stroked.
+  Italic is a skewed text matrix. The layout copies the owner's sample résumé
+  (see decisions.md); compare visually after any change to `resume/render.py`.
+- `soffice` (LibreOffice) is installed here and can turn a .docx into a PDF for
+  side-by-side comparison: `soffice --headless --convert-to pdf --outdir DIR FILE`.
 - To check a PDF here: `pdftotext file.pdf -`, `pdffonts file.pdf`,
   `pdftoppm -r 70 -png file.pdf out` (poppler is installed; then Read the PNG).
   Installing other PDF libraries with pip was refused in this sandbox.

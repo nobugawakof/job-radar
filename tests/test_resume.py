@@ -29,18 +29,20 @@ NOW = utcnow()
 
 PROFILE = {
     "name": "陈美", "gender": "female", "birth_date": "1995-03", "location": "上海", "phone": "+86 138 0000 0000",
-    "email": "mei@example.com", "job_title": "后端工程师",
+    "email": "mei@example.com", "job_title": "后端工程师", "focus": "支付系统",
     "summary": "五年后端开发经验，专注支付系统。",
     "skills": "后端：Go, Python\n数据库：PostgreSQL",
     "experience": [
-        {"company": "蚂蚁科技", "role": "高级后端工程师", "location": "杭州", "start": "2021.07", "end": "",
+        {"company": "蚂蚁科技", "role": "高级后端工程师", "area": "清结算平台", "location": "杭州",
+         "start": "2021.07", "end": "",
          "details": "- 负责支付清结算系统，日均处理订单 300 万笔\n- 将对账服务从 Python 重写为 Go"},
         {"company": "小红科技", "role": "后端工程师", "start": "2019.07", "end": "2021.06",
          "details": "开发订单服务"},
     ],
-    "projects": [{"name": "go-ledger", "role": "作者", "details": "复式记账库"},
+    "projects": [{"name": "go-ledger", "role": "作者", "stack": "Go、PostgreSQL", "details": "复式记账库"},
                  {"name": "支付网关", "details": "统一支付接口"}],
-    "education": [{"school": "复旦大学", "degree": "本科", "major": "计算机科学", "start": "2015.09", "end": "2019.06"}],
+    "education": [{"school": "复旦大学", "degree": "本科", "major": "计算机科学", "start": "2015.09", "end": "2019.06",
+                   "details": "主修：操作系统、数据库"}],
     "languages": [{"language": "英语", "level": "流利"}],
 }
 
@@ -82,6 +84,8 @@ class ProfileTests(unittest.TestCase):
 
     def test_lines_and_skills(self):
         self.assertEqual(prof.lines("- a\n• b\n1. c\n\n（2）d"), ["a", "b", "c", "d"])
+        self.assertEqual(prof.skill_lines("核心语言 / 架构：Go 1.21，GMP 调度；Java 8/11\nDocker, K8s"),
+                         [("核心语言 / 架构", "Go 1.21，GMP 调度；Java 8/11"), ("", "Docker, K8s")])  # kept as typed
         self.assertEqual(prof.skill_groups("后端：Go, Python、gRPC\nDocker"),
                          [("后端", ["Go", "Python", "gRPC"]), ("", ["Docker"])])
 
@@ -96,12 +100,24 @@ class ContentTests(unittest.TestCase):
     def test_from_profile_order_and_labels(self):
         c = cv.from_profile(PROFILE, "zh")
         self.assertEqual(c.contact, ["女", "出生：1995-03", "上海", "+86 138 0000 0000", "mei@example.com"])
-        self.assertEqual(c.experience[0].period, "2021.07 – 至今")
-        self.assertEqual(c.experience[0].bullets, ["负责支付清结算系统，日均处理订单 300 万笔", "将对账服务从 Python 重写为 Go"])
-        self.assertEqual(c.skills[0], ("后端", ["Go", "Python"]))
+        self.assertEqual(c.headline, "后端工程师 · 支付系统")
+        e = c.experience[0]
+        self.assertEqual((e.title, e.org, e.period, e.sub), ("高级后端工程师", "蚂蚁科技", "2021.07 — 至今", "清结算平台 · 杭州"))
+        self.assertEqual(e.bullets, ["负责支付清结算系统，日均处理订单 300 万笔", "将对账服务从 Python 重写为 Go"])
+        self.assertEqual(c.skills[0], ("后端", "Go, Python"))
+        self.assertEqual(c.projects[0].meta, [("技术栈：", "Go、PostgreSQL"), ("角色：", "作者")])
+        self.assertEqual((c.education[0].title, c.education[0].notes), ("计算机科学 · 本科 · 复旦大学", ["主修：操作系统、数据库"]))
+        self.assertEqual(c.languages, ["英语：流利"])
         self.assertEqual(cv.from_profile(PROFILE, "en").contact[:2], ["Female", "Born 1995-03"])
         self.assertEqual(cv.file_stem(PROFILE, "zh"), "陈美_简历")
         self.assertEqual(cv.file_stem({"name": "Mei Chen"}, "en"), "Mei_Chen_Resume")
+
+    def test_english_text_has_no_chinese_punctuation(self):
+        # (a Chinese colon here once made English résumés pick a Chinese font)
+        c = cv.from_profile({"name": "Mei", "job_title": "Dev", "education": [{"school": "MIT"}],
+                             "skills": "Languages: Go"}, "en")
+        self.assertIn("Languages: Go", c.plain_text())
+        self.assertFalse(any(ord(ch) > 0x2E80 for ch in c.plain_text()))
 
     def test_sections_left_out_when_empty(self):
         c = cv.from_profile({"name": "Mei", "job_title": "Dev", "education": [{"school": "MIT"}]}, "en")
@@ -116,7 +132,8 @@ class ContentTests(unittest.TestCase):
                 {"text": "Rust", "source": "Rust"},                      # not in the profile
                 {"text": "PostgreSQL", "source": "PostgreSQL"}]}],
             "experience": [
-                {"index": 0, "company": "Ant Tech", "role": "Senior Backend Engineer", "location": "Hangzhou",
+                {"index": 0, "company": "Ant Tech", "role": "Senior Backend Engineer", "area": "Clearing platform",
+                 "location": "Hangzhou",
                  "bullets": [
                      {"text": "Built the settlement system for 3M orders a day", "source": "日均处理订单 300 万笔"},
                      {"text": "Rewrote reconciliation from Python to Go", "source": "将对账服务从 Python 重写为 Go"}]},
@@ -128,7 +145,8 @@ class ContentTests(unittest.TestCase):
             "projects": [{"index": 1, "name": "Payment gateway", "role": "",
                           "bullets": [{"text": "Unified payment API", "source": "统一支付接口"}]}],
             "education": [{"index": 0, "school": "Fudan University", "degree": "BSc", "major": "CS", "bullets": []}],
-            "languages": [{"index": 0, "text": "English — fluent"}],
+            "languages": [{"index": 0, "language": "English", "level": "Fluent"}],
+            "focus": "Payments",
         }
         obj.update(over)
         return obj
@@ -136,15 +154,19 @@ class ContentTests(unittest.TestCase):
     def test_ai_version_is_checked_against_the_profile(self):
         c = cv.from_ai(self.ai_answer(), PROFILE, "en")
         self.assertTrue(c.tailored)
-        self.assertEqual(c.skills, [("Backend", ["Go", "PostgreSQL"])])          # Rust dropped
-        self.assertEqual([e.title for e in c.experience], ["Ant Tech", "Xiaohong"])  # no Google
-        self.assertEqual(c.experience[0].period, "2021.07 – Present")          # dates from the profile
+        self.assertEqual(c.skills, [("Backend", "Go, PostgreSQL")])              # Rust dropped
+        self.assertEqual([e.org for e in c.experience], ["Ant Tech", "Xiaohong"])  # no Google
+        self.assertEqual(c.experience[0].title, "Senior Backend Engineer")
+        self.assertEqual(c.experience[0].period, "2021.07 — Present")          # dates from the profile
+        self.assertEqual(c.experience[0].sub, "Clearing platform · Hangzhou")
         self.assertEqual(c.experience[0].bullets[0], "Built the settlement system for 3M orders a day")
         # "3M" has a 3 that's in the source (300万); a bullet adding "12" is dropped → your own line
         self.assertEqual(c.experience[1].bullets, ["开发订单服务"])
         self.assertEqual([p.title for p in c.projects], ["Payment gateway", "go-ledger"])   # most relevant first
         self.assertEqual(c.projects[1].bullets, ["复式记账库"])
-        self.assertEqual(c.languages, ["English — fluent"])
+        self.assertEqual(c.projects[1].meta[0], ("Tech stack: ", "Go、PostgreSQL"))   # stack as typed
+        self.assertEqual(c.languages, ["English: Fluent"])
+        self.assertEqual(c.headline, "Backend Engineer · Payments")
         self.assertEqual(c.contact[0], "Female")
 
     def test_numbers_must_come_from_the_profile(self):
@@ -157,7 +179,7 @@ class ContentTests(unittest.TestCase):
         self.assertFalse(cv.from_ai(None, PROFILE, "zh").tailored)
         c = cv.from_ai({"experience": "nope", "tech_stack": [1, None], "languages": [{"index": "x"}]}, PROFILE, "zh")
         self.assertEqual(c.experience[0].bullets, cv.from_profile(PROFILE, "zh").experience[0].bullets)
-        self.assertEqual(c.languages, ["英语 · 流利"])
+        self.assertEqual(c.languages, ["英语：流利"])
 
 
 class PdfTests(unittest.TestCase):
@@ -170,6 +192,34 @@ class PdfTests(unittest.TestCase):
             data = render.render(c)
         self.assertTrue(data.startswith(b"%PDF-1.7") and data.endswith(b"%%EOF\n"))
         self.assertIn(b"/Helvetica-Bold", data)
+        check_xref(self, data)
+
+    def test_sample_look(self):
+        """Letter page, navy headings and rule, italic area line, ◆ for projects."""
+        p = {"name": "Mei Chen", "job_title": "Backend Engineer", "education": [{"school": "MIT"}],
+             "experience": [{"company": "Acme", "role": "Dev", "area": "Payments", "start": "2020", "details": "- x"}],
+             "projects": [{"name": "Ledger", "stack": "Go"}]}
+        pages = []
+        orig = PdfDoc.to_bytes
+
+        def spy(self):
+            pages.append("\n".join(self.pages[0]))
+            return orig(self)
+        with mock.patch.object(render, "pick_font", lambda *a, **k: None), mock.patch.object(PdfDoc, "to_bytes", spy):
+            data = render.render(cv.from_profile(p, "en"))
+        ops = pages[0]
+        self.assertIn(b"/MediaBox [0 0 612.00 792.00]", data)          # US Letter, like the sample
+        self.assertIn("0.122 0.227 0.373 RG 1.00 w", ops)               # the navy rule under headings
+        self.assertIn("1 0 0.2 1", ops)                                 # italic area line
+        self.assertRegex(ops, r"l h f")                                 # the ◆ shape
+
+    @unittest.skipUnless(fonts.find_font("Hello") and fonts.find_bold(fonts.find_font("Hello"), "Hello"),
+                         "no Latin regular+bold TrueType pair installed")
+    def test_real_bold_font_is_embedded(self):
+        font = fonts.find_font("Mei Chen Backend")
+        data = render.render(cv.from_profile({"name": "Mei Chen", "job_title": "Backend Engineer",
+                                              "education": [{"school": "MIT"}]}, "en"), font=font)
+        self.assertEqual(data.count(b"/FontFile2"), 2)                   # regular + bold
         check_xref(self, data)
 
     def test_no_chinese_font_is_a_clear_error(self):
@@ -197,10 +247,11 @@ class PdfTests(unittest.TestCase):
         self.assertLess(len(data), len(font.data) / 10)       # subset, not the whole font
         if shutil.which("pdftotext"):
             text = pdf_text(data)
-            for s in ("陈美", "后端工程师", "个人简介", "技术栈", "工作经历", "项目经历", "教育背景", "语言能力",
-                      "蚂蚁科技", "复旦大学", "2021.07 – 至今"):
+            for s in ("陈美", "后端工程师 · 支付系统", "职业概述", "技术技能", "工作经历", "重点项目", "教育背景", "语言能力",
+                      "高级后端工程师 — 蚂蚁科技", "清结算平台 · 杭州", "技术栈：Go、PostgreSQL",
+                      "计算机科学 · 本科 · 复旦大学", "2021.07 — 至今", "英语：流利"):
                 self.assertIn(s, text)
-            order = [text.index(s) for s in ("个人简介", "技术栈", "工作经历", "项目经历", "教育背景", "语言能力")]
+            order = [text.index(s) for s in ("职业概述", "技术技能", "工作经历", "重点项目", "教育背景", "语言能力")]
             self.assertEqual(order, sorted(order))
 
     @unittest.skipUnless(HAS_CJK_FONT, "no Chinese TrueType font installed")

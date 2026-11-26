@@ -530,16 +530,17 @@ _CITED = {"type": "array", "items": _obj({"text": _STR, "source": _STR})}
 
 _RESUME_SCHEMA: dict[str, Any] = _obj({
     "job_title": _STR,
+    "focus": _STR,
     "intro": _STR,
     "tech_stack": {"type": "array", "items": _obj({"category": _STR, "items": _CITED})},
     "experience": {"type": "array", "items": _obj({"index": {"type": "integer"}, "company": _STR, "role": _STR,
-                                                   "location": _STR, "bullets": _CITED})},
+                                                   "area": _STR, "location": _STR, "bullets": _CITED})},
     "project_order": {"type": "array", "items": {"type": "integer"}},
     "projects": {"type": "array", "items": _obj({"index": {"type": "integer"}, "name": _STR, "role": _STR,
                                                  "bullets": _CITED})},
     "education": {"type": "array", "items": _obj({"index": {"type": "integer"}, "school": _STR, "degree": _STR,
                                                   "major": _STR, "bullets": _CITED})},
-    "languages": {"type": "array", "items": _obj({"index": {"type": "integer"}, "text": _STR})},
+    "languages": {"type": "array", "items": _obj({"index": {"type": "integer"}, "language": _STR, "level": _STR})},
 })
 
 _RESUME_SYSTEM = (
@@ -557,10 +558,13 @@ _RESUME_SYSTEM = (
     "- You may: translate; rephrase for clarity and impact; order skills and bullets so the ones "
     "most relevant to the posting come first; group skills into categories; set project_order to "
     "list the most relevant projects first.\n"
-    "- Keep every experience, education and language entry (same index). job_title is the "
-    "candidate's own title, translated if needed — never the posting's title unless it means the same.\n"
-    "- intro: 2-4 sentences in the first person implied (no 'I'), presenting the candidate for this "
-    "kind of role, built only from the facts.\n"
+    "- Keep every experience, education and language entry (same index). job_title and focus are "
+    "the candidate's own, translated if needed — never the posting's title unless it means the same; "
+    "leave focus empty if the candidate has none. company/role/area/location/school/degree/major/"
+    "language/level: the candidate's values, only translated.\n"
+    "- intro: a professional summary of 3-6 sentences without 'I', presenting the candidate for this "
+    "kind of role: experience, core strengths and delivered results, built only from the facts.\n"
+    "- Bullets: lead with the action and the result, keep the candidate's numbers exactly.\n"
     "- {language}"
 )
 _RESUME_LANGUAGE = {
@@ -569,11 +573,11 @@ _RESUME_LANGUAGE = {
     "en": "Write every text field in English. Sources stay verbatim.",
 }
 _RESUME_GEMINI_FIELDS = (
-    "\n\nReturn a JSON object with exactly these keys: job_title (string), intro (string), tech_stack "
-    "(array of {category, items: array of {text, source}}), experience (array of {index, company, role, "
-    "location, bullets: array of {text, source}}), project_order (array of integers), projects (array of "
-    "{index, name, role, bullets}), education (array of {index, school, degree, major, bullets}), "
-    "languages (array of {index, text})."
+    "\n\nReturn a JSON object with exactly these keys: job_title (string), focus (string), intro (string), "
+    "tech_stack (array of {category, items: array of {text, source}}), experience (array of {index, company, "
+    "role, area, location, bullets: array of {text, source}}), project_order (array of integers), projects "
+    "(array of {index, name, role, bullets}), education (array of {index, school, degree, major, bullets}), "
+    "languages (array of {index, language, level})."
 )
 
 
@@ -582,7 +586,8 @@ def resume_facts(profile: dict[str, Any]) -> dict[str, Any]:
     def numbered(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [{"index": i, **r} for i, r in enumerate(rows or [])]
     return {
-        "job_title": profile.get("job_title", ""), "location": profile.get("location", ""),
+        "job_title": profile.get("job_title", ""), "focus": profile.get("focus", ""),
+        "location": profile.get("location", ""),
         "about_me": profile.get("summary", ""), "skills": profile.get("skills", ""),
         "experience": numbered(profile.get("experience")), "projects": numbered(profile.get("projects")),
         "education": numbered(profile.get("education")), "languages": numbered(profile.get("languages")),
@@ -613,26 +618,30 @@ def tailor_resume(profile: dict[str, Any], posting_text: str, *, language: str =
 
 
 _ROW = {"education": ("school", "degree", "major", "start", "end", "details"),
-        "experience": ("company", "role", "location", "start", "end", "details"),
-        "projects": ("name", "role", "link", "start", "end", "details"),
+        "experience": ("company", "role", "area", "location", "start", "end", "details"),
+        "projects": ("name", "role", "stack", "link", "start", "end", "details"),
         "languages": ("language", "level")}
 _PROFILE_SCHEMA: dict[str, Any] = _obj({
     **{k: _STR for k in ("name", "gender", "birth_date", "location", "phone", "email", "job_title",
-                         "summary", "skills")},
+                         "focus", "summary", "skills")},
     **{k: {"type": "array", "items": _obj({f: _STR for f in fields})} for k, fields in _ROW.items()},
 })
 _IMPORT_SYSTEM = (
     "Copy the facts from a résumé into the JSON fields. Copy, don't improve: keep the candidate's "
     "own wording and language, and don't invent anything. Leave a field empty when the résumé "
-    "doesn't say. gender: 'male', 'female' or ''. Dates as written (e.g. 2019.07). `details`: the "
-    "entry's bullet points, one per line. skills: one line per group, like 'Backend: Go, Python'."
+    "doesn't say. gender: 'male', 'female' or ''. Dates as written (e.g. 2019.07). job_title: the "
+    "title only; focus: the speciality written next to it, if any (e.g. '高级后端工程师 · 支付系统' → "
+    "job_title '高级后端工程师', focus '支付系统'). summary: the summary/profile paragraph as written. "
+    "experience.area: the team, product or area line under a job, if any. projects.stack: the project's "
+    "tech-stack line without its label. `details`: the entry's bullet points, one per line. skills: one "
+    "line per group exactly as written, like 'Backend: Go, Python'."
 )
 _IMPORT_GEMINI_FIELDS = (
     "\n\nReturn a JSON object with keys name, gender, birth_date, location, phone, email, job_title, "
-    "summary, skills (strings) and education, experience, projects, languages (arrays of objects with "
-    "the fields: education {school, degree, major, start, end, details}, experience {company, role, "
-    "location, start, end, details}, projects {name, role, link, start, end, details}, languages "
-    "{language, level})."
+    "focus, summary, skills (strings) and education, experience, projects, languages (arrays of objects "
+    "with the fields: education {school, degree, major, start, end, details}, experience {company, role, "
+    "area, location, start, end, details}, projects {name, role, stack, link, start, end, details}, "
+    "languages {language, level})."
 )
 
 

@@ -1,4 +1,11 @@
-"""Lay a :class:`ResumeContent` out on A4 pages and return the PDF bytes."""
+"""Lay a :class:`ResumeContent` out and return the PDF bytes.
+
+The look follows the owner's sample résumé: US Letter, a navy accent
+(#1F3A5F) for headings and rules, near-black body text (#1A1A1A), grey
+(#555555) for dates and secondary lines, "Role — Company" with the dates on the
+right, an italic line for the team or area, ◆ before each project, and one-line
+education and languages. Sizes and spacing are the sample's (in points).
+"""
 
 from __future__ import annotations
 
@@ -6,13 +13,13 @@ from pathlib import Path
 
 from ..apply import language
 from .content import Entry, ResumeContent
-from .fonts import TrueTypeFont, find_font
-from .pdf import PdfDoc
+from .fonts import TrueTypeFont, find_bold, find_font
+from .pdf import LETTER, PdfDoc, Run, Style
 
-ACCENT = (0.11, 0.30, 0.55)
-GREY = (0.38, 0.40, 0.44)
-INK = (0.10, 0.10, 0.12)
-MARGIN_X, TOP, BOTTOM = 52.0, 56.0, 50.0
+INK = (0x1A / 255, 0x1A / 255, 0x1A / 255)
+ACCENT = (0x1F / 255, 0x3A / 255, 0x5F / 255)
+GREY = (0x55 / 255, 0x55 / 255, 0x55 / 255)
+TOP, BOTTOM, SIDE = 36.0, 36.0, 45.0          # page margins (the sample's 0.5" / 0.625")
 
 
 class ResumeError(RuntimeError):
@@ -21,7 +28,7 @@ class ResumeError(RuntimeError):
 
 def pick_font(text: str, *, font_path: str = "", font_dirs: list[Path] | None = None) -> TrueTypeFont | None:
     font = find_font(text, preferred=font_path or None, extra_dirs=font_dirs)
-    if font is None and any(ord(c) > 0xFF and c not in "•–—‘’“”…·" for c in text):
+    if font is None and any(ord(c) > 0xFF and c not in "•–—‘’“”…·｜" for c in text):
         raise ResumeError("No font with Chinese characters was found on this computer. Put a .ttf/.ttc font "
                           "(e.g. SimHei, Microsoft YaHei, WenQuanYi) in the jobradar-data/fonts folder, or set "
                           "resume_font_path.")
@@ -31,100 +38,130 @@ def pick_font(text: str, *, font_path: str = "", font_dirs: list[Path] | None = 
 class _Layout:
     def __init__(self, doc: PdfDoc):
         self.doc = doc
-        self.left, self.right = MARGIN_X, doc.width - MARGIN_X
+        self.left, self.right = SIDE, doc.width - SIDE
         self.y = doc.height - TOP
+        f = doc.font
+        # Line height from the font's own ascent/descent (CJK fonts are tall).
+        self.lead = min(1.5, max(1.2, (f.ascent - f.descent) / 1000)) if f is not None else 1.25
+        self.asc = 0.8
+
+    @property
+    def width(self) -> float:
+        return self.right - self.left
 
     def need(self, h: float) -> None:
         if self.y - h < BOTTOM:
             self.doc.new_page()
             self.y = self.doc.height - TOP
 
-    def para(self, text: str, size: float = 10, *, color=INK, indent: float = 0, lead: float = 1.5,
-             bold: bool = False) -> None:
-        for ln in self.doc.wrap(text, size, self.right - self.left - indent):
-            self.need(size * lead)
-            self.y -= size * lead
-            self.doc.text(self.left + indent, self.y + size * 0.3, ln, size, color=color, bold=bold)
+    def space(self, pt: float) -> None:
+        if self.y < self.doc.height - TOP - 0.1:   # no gap at the top of a page
+            self.y -= pt
+
+    def lines(self, runs: list[Run], *, indent: float = 0.0, after: float = 0.0,
+              right: tuple[str, Style] | None = None) -> None:
+        """Wrapped styled text; ``right`` is drawn right-aligned on the first line."""
+        right_w = self.doc.text_width(right[0], right[1].size, right[1].bold) + 12 if right and right[0] else 0
+        size = max(st.size for _, st in runs) if runs else 10
+        wrapped = self.doc.wrap_runs(runs, self.width - indent, first_indent=right_w) if runs else [[]]
+        for i, line in enumerate(wrapped):
+            h = size * self.lead
+            self.need(h)
+            base = self.y - h * self.asc
+            self.doc.runs(self.left + indent, base, line)
+            if i == 0 and right_w:
+                t, st = right
+                self.doc.text(self.right - self.doc.text_width(t, st.size, st.bold), base, t, st.size,
+                              color=st.color, bold=st.bold, italic=st.italic)
+            self.y -= h
+        self.y -= after
 
     def heading(self, text: str) -> None:
-        self.need(40)
-        self.y -= 20
-        self.doc.text(self.left, self.y, text, 12, color=ACCENT, bold=True)
+        self.need(12 + 12 * self.lead + 18 * self.lead)   # keep a heading with its first line
+        self.space(12)
+        self.lines([(text, Style(12, ACCENT, bold=True))])
+        self.y -= 3
+        self.doc.line(self.left, self.y, self.right, self.y, color=ACCENT, width=1.0)
         self.y -= 6
-        self.doc.line(self.left, self.y, self.right, self.y, color=(0.75, 0.80, 0.88), width=0.8)
-        self.y -= 2
-
-    def entry(self, e: Entry) -> None:
-        self.need(34)
-        self.y -= 16
-        date_w = self.doc.text_width(e.period, 9.5)
-        title_lines = self.doc.wrap(e.title, 10.5, self.right - self.left - date_w - 12)
-        self.doc.text(self.left, self.y, title_lines[0], 10.5, color=INK, bold=True)
-        if e.period:
-            self.doc.text(self.right - date_w, self.y, e.period, 9.5, color=GREY)
-        for ln in title_lines[1:]:
-            self.y -= 14
-            self.doc.text(self.left, self.y, ln, 10.5, color=INK, bold=True)
-        if e.subtitle:
-            self.para(e.subtitle, 9.5, color=GREY, lead=1.75)
-        for b in e.bullets:
-            self.bullet(b)
 
     def bullet(self, text: str, size: float = 10) -> None:
-        lines = self.doc.wrap(text, size, self.right - self.left - 14)
-        for i, ln in enumerate(lines):
-            self.need(size * 1.5)
-            self.y -= size * 1.5
-            if i == 0:
-                self.doc.dot(self.left + 5, self.y + size * 0.3 + size * 0.33, size * 0.16, color=ACCENT)
-            self.doc.text(self.left + 14, self.y + size * 0.3, ln, size, color=INK)
+        h = size * self.lead
+        self.need(h)
+        top = self.y
+        self.lines([(text, Style(size, INK))], indent=15, after=2)
+        base = top - h * self.asc
+        self.doc.dot(self.left + 6, base + size * 0.32, size * 0.18, color=ACCENT)
 
 
-def render(c: ResumeContent, *, font: TrueTypeFont | None = None, font_path: str = "",
-           font_dirs: list[Path] | None = None) -> bytes:
+def _entry_head(L: _Layout, e: Entry, size: float, *, marker: bool = False) -> None:
+    runs: list[Run] = [(e.title, Style(size, INK, bold=True))]
+    if e.org:
+        runs.append((f" — {e.org}", Style(size, ACCENT, bold=True)))
+    indent = 0.0
+    if marker:   # ◆ drawn as a shape, so it never depends on the font
+        indent = size * 1.1
+    h = size * L.lead
+    L.need(h + 10 * L.lead)
+    top = L.y
+    L.lines(runs, indent=indent, after=1, right=(e.period, Style(10, GREY)) if e.period else None)
+    if marker:
+        L.doc.diamond(L.left + size * 0.4, top - h * L.asc + size * 0.35, size * 0.33, color=INK)
+
+
+def render(c: ResumeContent, *, font: TrueTypeFont | None = None, bold_font: TrueTypeFont | None = None,
+           font_path: str = "", font_dirs: list[Path] | None = None) -> bytes:
+    text = c.plain_text()
     if font is None:
-        font = pick_font(c.plain_text(), font_path=font_path, font_dirs=font_dirs)
-    doc = PdfDoc(font, title=f"{c.name} — {c.job_title}", author=c.name)
+        font = pick_font(text, font_path=font_path, font_dirs=font_dirs)
+    if font is not None and bold_font is None:
+        bold_font = find_bold(font, text, extra_dirs=font_dirs)
+    doc = PdfDoc(font, bold_font=bold_font, title=f"{c.name} — {c.job_title}", author=c.name, size=LETTER)
     L = _Layout(doc)
     lang = c.lang
+    colon = "：" if lang == "zh" else ": "
 
-    # name, job title, contact details
-    L.y -= 6
-    doc.text(L.left, L.y, c.name, 22, color=INK, bold=True)
-    L.y -= 22
-    doc.text(L.left, L.y, c.job_title, 12.5, color=ACCENT)
+    # name, job title · focus, contact details
+    L.lines([(c.name, Style(20, INK, bold=True))], after=1)
+    L.lines([(c.headline, Style(11, ACCENT, bold=True))], after=6 if not c.contact else 2)
     if c.contact:
-        L.y -= 4
-        L.para("  ·  ".join(c.contact), 9.5, color=GREY, lead=1.5)
-    L.y -= 6
-    doc.line(L.left, L.y, L.right, L.y, color=ACCENT, width=1.2)
+        L.lines([("  ·  ".join(c.contact), Style(9.5, GREY))], after=4)
 
     if c.intro:
         L.heading(language.t("cv_intro", lang))
-        for part in [x for x in c.intro.split("\n") if x.strip()]:
-            L.para(part.strip(), 10)
+        for part in [x.strip() for x in c.intro.split("\n") if x.strip()]:
+            L.lines([(part, Style(10, INK))], after=4)
     if c.skills:
         L.heading(language.t("cv_skills", lang))
-        sep = "、" if lang == "zh" else ", "
         for label, items in c.skills:
-            if label:
-                L.para(f"{label}{'：' if lang == 'zh' else ': '}{sep.join(items)}", 10)
-            else:
-                L.para(sep.join(items), 10)
+            runs: list[Run] = [(label + colon, Style(10, ACCENT, bold=True))] if label else []
+            L.lines(runs + [(items, Style(10, INK))], after=3)
     if c.experience:
         L.heading(language.t("cv_experience", lang))
-        for e in c.experience:
-            L.entry(e)
+        for i, e in enumerate(c.experience):
+            L.space(7 if i else 2)
+            _entry_head(L, e, 11)
+            if e.sub:
+                L.lines([(e.sub, Style(10, GREY, italic=True))], after=3)
+            for b in e.bullets:
+                L.bullet(b)
     if c.projects:
         L.heading(language.t("cv_projects", lang))
-        for e in c.projects:
-            L.entry(e)
+        for i, e in enumerate(c.projects):
+            L.space(7 if i else 2)
+            _entry_head(L, e, 10.5, marker=True)
+            for label, value in e.meta:
+                L.lines(([(label, Style(9.5, GREY, bold=True))] if label else []) + [(value, Style(9.5, GREY))],
+                        after=2)
+            for b in e.bullets:
+                L.bullet(b)
     if c.education:
         L.heading(language.t("cv_education", lang))
-        for e in c.education:
-            L.entry(e)
+        for i, e in enumerate(c.education):
+            L.space(5 if i else 0)
+            L.lines([(e.title, Style(10, INK, bold=True))], after=2, right=(e.period, Style(10, GREY)) if e.period else None)
+            for n in e.notes:
+                L.lines([(n, Style(9.5, GREY))], after=2)
     if c.languages:
         L.heading(language.t("cv_languages", lang))
-        for ln in c.languages:
-            L.bullet(ln)
+        L.lines([((" ｜ " if lang == "zh" else "  |  ").join(c.languages), Style(10, INK))])
     return doc.to_bytes()
