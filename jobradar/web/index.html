@@ -33,7 +33,7 @@ h3 { font-size: 1.02rem; }
 p { margin: .35rem 0; }
 .muted { color: var(--muted); }
 .small { font-size: .86rem; }
-.mono { font-family: var(--mono); font-size: .84rem; }
+.mono { font-family: var(--mono); font-size: .84rem; overflow-wrap: anywhere; }
 .hidden { display: none !important; }
 
 /* layout */
@@ -168,6 +168,54 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .log .WARNING { color: var(--warn); } .log .ERROR, .log .CRITICAL { color: var(--bad); }
 .log .t { color: var(--muted); }
 .draft { white-space: pre-wrap; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: .75rem .85rem; }
+.msgs { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); min-height: 62vh; overflow: hidden; }
+.msg-list { border-right: 1px solid var(--line); overflow-y: auto; max-height: 72vh; }
+.conv { display: flex; gap: .65rem; padding: .7rem .85rem; border-bottom: 1px solid var(--line); cursor: pointer; background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; text-align: left; }
+.conv:hover { background: var(--panel-2); }
+.conv[aria-current="true"] { background: var(--accent-soft); }
+.avatar { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.conv .meta { min-width: 0; flex: 1; }
+.conv .conv-top { display: flex; gap: .4rem; align-items: baseline; }
+.conv .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.conv .when { font-size: .75rem; color: var(--muted); white-space: nowrap; }
+.conv .last { font-size: .85rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unread { background: var(--accent); color: var(--accent-ink); border-radius: 99px; font-size: .72rem; font-weight: 700; padding: 0 .45rem; }
+.msg-thread { display: flex; flex-direction: column; min-width: 0; max-height: 72vh; }
+.thread-head { padding: .75rem 1rem; border-bottom: 1px solid var(--line); display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.thread-body { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .45rem; background: var(--bg); }
+.day { align-self: center; font-size: .75rem; color: var(--muted); margin: .4rem 0; }
+.bubble { max-width: min(78%, 34rem); padding: .55rem .75rem; border-radius: 14px; white-space: pre-wrap; word-break: break-word; font-size: .93rem; }
+.bubble.in { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bubble.out { align-self: flex-end; background: var(--accent-soft); border-bottom-right-radius: 4px; }
+.bubble .t { display: block; font-size: .7rem; color: var(--muted); margin-top: .2rem; text-align: right; }
+.bubble .att { display: block; font-weight: 600; }
+.bubble .job { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .2rem; }
+.composer { border-top: 1px solid var(--line); padding: .6rem; display: flex; gap: .5rem; align-items: flex-end; background: var(--panel); }
+.composer textarea { min-height: 2.6rem; max-height: 10rem; flex: 1; }
+/* other devices */
+.net-addrs { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .8rem; }
+.net-addr { border: 1px solid var(--line); border-radius: 10px; padding: .8rem; display: flex; flex-direction: column; gap: .5rem; align-items: flex-start; }
+.net-addr .net-qr { background: #fff; border-radius: 8px; padding: 4px; line-height: 0; }
+.net-addr .net-qr svg { width: 168px; height: 168px; }
+
+/* profile */
+input[type=email] { width: 100%; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.req { color: var(--bad); font-weight: 700; }
+.pf-rows { display: flex; flex-direction: column; gap: .8rem; }
+.pf-row { border: 1px solid var(--line); border-radius: 10px; padding: .8rem; background: var(--panel-2); display: flex; flex-direction: column; gap: .6rem; }
+.pf-row-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.pf-row-head b { font-size: .92rem; }
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .6rem .8rem; }
+.pf-actions { position: sticky; bottom: 0; z-index: 5; background: var(--bg); padding: .7rem 0; border-top: 1px solid var(--line); }
+
+.back { display: none; }
+@media (max-width: 760px) {
+  .msgs { grid-template-columns: 1fr; }
+  .msg-list { border-right: 0; max-height: none; }
+  .msgs.open .msg-list { display: none; }
+  .msgs:not(.open) .msg-thread { display: none; }
+  .back { display: inline-flex; }
+}
 .drop { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-direction: column; text-align: center;
   padding: 1.1rem; border: 2px dashed var(--line); border-radius: 10px; cursor: pointer; background: var(--panel-2); }
 .drop.over { border-color: var(--accent); background: var(--accent-soft); }
@@ -192,14 +240,58 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
   .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  .top { padding: .6rem 1rem; }
+  .top { padding: .6rem 1rem; flex-wrap: wrap; row-gap: .45rem; }
+  .me-box #me-role { display: none; }
   .top .pill { display: none; }
   .grid2, .sites, .choice { grid-template-columns: 1fr; }
   .card { padding: 1rem; }
 }
+
+/* accounts */
+.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem 1rem; }
+.auth-card { width: min(26rem, 100%); }
+.auth-card .brand { justify-content: center; margin-bottom: .4rem; }
+.auth-tabs { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.auth-tabs button { flex: 1; border: 0; background: var(--panel-2); padding: .55rem; cursor: pointer; font-weight: 560; color: var(--muted); }
+.auth-tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.me-box { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+.me-box .me-name { font-weight: 600; }
+body.signed-out .top, body.signed-out .shell { display: none; }
+body:not(.signed-out) .auth-wrap { display: none; }
+body.role-user [data-admin] { display: none !important; }
+body.role-admin [data-user-only] { display: none !important; }
+.users-table td, .users-table th { white-space: nowrap; }
+.users-table .acts { display: flex; gap: .35rem; flex-wrap: nowrap; }
+input[type=password] { width: 100%; }
 </style>
 </head>
-<body>
+<body class="signed-out">
+<div class="auth-wrap">
+  <div class="card stack auth-card">
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true" width="26" height="26"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg> Job Radar</div>
+    <div class="auth-tabs" role="group" aria-label="Log in or create an account">
+      <button type="button" data-auth="login" aria-pressed="true">Log in</button><button type="button" data-auth="signup" aria-pressed="false">Create account</button>
+    </div>
+    <form id="auth-form" class="stack" autocomplete="on">
+      <div class="field"><label for="auth-user">Username</label><input id="auth-user" type="text" autocomplete="username" required></div>
+      <div class="field"><label for="auth-pass">Password</label><input id="auth-pass" type="password" autocomplete="current-password" required></div>
+      <div class="field hidden" id="auth-pass2-row"><label for="auth-pass2">Password again</label><input id="auth-pass2" type="password" autocomplete="new-password"></div>
+      <div class="hint small muted hidden" id="auth-hint">3-32 letters, digits, dot, dash or underscore. Password: at least 8 characters.</div>
+      <div class="note bad hidden" id="auth-error"></div>
+      <button class="btn primary" type="submit" id="auth-submit">Log in</button>
+    </form>
+  </div>
+</div>
+<dialog id="account-dlg"><h3>Your account</h3>
+  <p class="muted small" id="account-who"></p>
+  <form id="account-form" class="stack">
+    <div class="field" id="account-current-row"><label for="account-current">Current password</label><input id="account-current" type="password" autocomplete="current-password"></div>
+    <div class="field"><label for="account-new">New password</label><input id="account-new" type="password" autocomplete="new-password"></div>
+    <div class="field"><label for="account-new2">New password again</label><input id="account-new2" type="password" autocomplete="new-password"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="account-close">Close</button><button class="btn primary" type="submit">Change password</button></div>
+  </form>
+</dialog>
+
 <header class="top">
   <div class="brand">
     <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg>
@@ -207,19 +299,25 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
   </div>
   <span id="status-pill" class="pill"><span class="dot"></span><span id="status-text">Loading…</span></span>
   <span class="spacer"></span>
-  <button id="run-btn" class="btn primary" type="button">Check now</button>
+  <span class="me-box"><span class="me-name" id="me-name"></span><span class="tag info hidden" id="me-role"></span>
+    <button class="btn small" type="button" id="account-btn">Account</button><button class="btn small" type="button" id="logout-btn">Log out</button></span>
+  <button id="run-btn" class="btn primary" type="button" data-admin>Check now</button>
 </header>
 
 <div class="shell">
   <nav aria-label="Sections">
-    <button data-tab="overview">Overview</button>
-    <button data-tab="telegram">Telegram bot <span class="badge" id="nav-tg"></span></button>
-    <button data-tab="search">Job search</button>
-    <button data-tab="ai">AI</button>
-    <button data-tab="apply">Auto-apply <span class="badge" id="nav-apply"></span></button>
-    <button data-tab="review">Review <span class="badge" id="nav-review"></span></button>
+    <button data-tab="overview" data-admin>Overview</button>
+    <button data-tab="profile">Profile <span class="badge" id="nav-profile"></span></button>
+    <button data-tab="mytg" data-user-only>My Telegram</button>
+    <button data-tab="telegram" data-admin>Telegram bot <span class="badge" id="nav-tg"></span></button>
+    <button data-tab="search" data-admin>Job search</button>
+    <button data-tab="ai" data-admin>AI</button>
+    <button data-tab="apply" data-admin>Auto-apply <span class="badge" id="nav-apply"></span></button>
+    <button data-tab="messages">Messages <span class="badge" id="nav-messages"></span></button>
+    <button data-tab="review" data-admin>Review <span class="badge" id="nav-review"></span></button>
     <button data-tab="history">Applications</button>
-    <button data-tab="activity">Activity</button>
+    <button data-tab="users" data-admin>Users</button>
+    <button data-tab="activity" data-admin>Activity</button>
   </nav>
 
   <main>
@@ -269,6 +367,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <ul class="jobs" id="recent"></ul>
       </div>
       <div class="card stack">
+        <div class="card-head"><h3>Use on other devices</h3></div>
+        <label class="switch"><input type="checkbox" data-k="web_allow_network"><span><b>Allow other devices to open this dashboard</b><span class="muted small">A phone or laptop on your home Wi-Fi, or anywhere through Tailscale (see the README). Takes effect when Job Radar restarts.</span></span></label>
+        <div id="net-status"></div>
+      </div>
+      <div class="card stack">
         <div class="card-head"><h3>Backup &amp; restore</h3></div>
         <p class="muted small">Everything Job Radar keeps is in one folder: <span class="mono" id="data-folder"></span>. A backup saves your settings, history and résumé as one file, to move to another computer or keep safe. It contains your keys, so keep it private.</p>
         <label class="row small"><input type="checkbox" id="backup-login"> Include my Telegram login (full access to your Telegram account — only for moving to another computer)</label>
@@ -277,6 +380,125 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
           <label class="btn" for="restore-file">Restore from a backup…</label>
           <input type="file" id="restore-file" accept=".zip,application/zip" class="hidden">
         </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ PROFILE -->
+    <section class="view hidden" data-view="profile">
+      <div class="view-head"><h2>Profile</h2>
+        <p class="muted">Enter the facts once; Job Radar makes your résumé from them and, with AI on, tailors it to each job before sending it. <span class="req">*</span> = required.</p></div>
+      <div class="note">The AI only rewrites, translates and reorders what you enter here. It never adds jobs, skills, dates or numbers you didn't write, and anything it can't trace back to this page is left out. Empty sections are simply not on the résumé.</div>
+      <div id="pf-status"></div>
+
+      <div class="card stack">
+        <h3>Basic details</h3>
+        <div class="grid2">
+          <div class="field"><label for="pf-name">Name <span class="req">*</span></label><input id="pf-name" type="text" data-pf="name" autocomplete="name"></div>
+          <div class="field"><label for="pf-job_title">Job title <span class="req">*</span></label><input id="pf-job_title" type="text" data-pf="job_title" placeholder="e.g. 高级后端工程师 / Senior Backend Engineer"></div>
+          <div class="field"><label for="pf-focus">Speciality</label><input id="pf-focus" type="text" data-pf="focus" placeholder="e.g. 支付与清结算系统 (shown after the title)"></div>
+          <div class="field"><label for="pf-gender">Gender</label><select id="pf-gender" data-pf="gender"><option value="">— (leave off)</option><option value="male">男 Male</option><option value="female">女 Female</option></select></div>
+          <div class="field"><label for="pf-birth_date">Date of birth</label><input id="pf-birth_date" type="text" data-pf="birth_date" placeholder="e.g. 1995-03"></div>
+          <div class="field"><label for="pf-location">Location</label><input id="pf-location" type="text" data-pf="location" placeholder="e.g. 上海 / Kuala Lumpur"></div>
+          <div class="field"><label for="pf-phone">Phone</label><input id="pf-phone" type="tel" data-pf="phone" autocomplete="tel"></div>
+          <div class="field"><label for="pf-email">Email</label><input id="pf-email" type="email" data-pf="email" autocomplete="email"></div>
+        </div>
+        <span class="hint small muted">Gender and date of birth are common on Chinese résumés but optional; leave them empty to keep them off.</span>
+      </div>
+
+      <div class="card stack">
+        <h3>Education <span class="req">*</span></h3>
+        <div class="pf-rows" id="pf-education"></div>
+        <div><button class="btn small" type="button" data-pf-add="education">+ Add education</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Summary &amp; technical skills <span class="muted small">(optional)</span></h3>
+        <div class="field"><label for="pf-summary">About you (professional summary)</label><textarea id="pf-summary" data-pf="summary" rows="3" placeholder="A few facts you want in your introduction, e.g. 五年后端开发经验，专注支付系统。"></textarea>
+          <span class="hint">The AI writes the personal introduction from this and the rest of your profile. Without AI, this text is the introduction.</span></div>
+        <div class="field"><label for="pf-skills">Technical skills</label><textarea id="pf-skills" data-pf="skills" rows="4" placeholder="后端：Go, Python, gRPC&#10;数据库：PostgreSQL, Redis&#10;Docker, Kubernetes"></textarea>
+          <span class="hint">One group per line, kept exactly as you type it; "Label: …" shows the label in bold.</span></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Work experience <span class="muted small">(optional)</span></h3>
+        <div class="pf-rows" id="pf-experience"></div>
+        <div><button class="btn small" type="button" data-pf-add="experience">+ Add a job</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Notable projects <span class="muted small">(optional)</span></h3>
+        <div class="pf-rows" id="pf-projects"></div>
+        <div><button class="btn small" type="button" data-pf-add="projects">+ Add a project</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Languages <span class="muted small">(optional)</span></h3>
+        <div class="pf-rows" id="pf-languages"></div>
+        <div><button class="btn small" type="button" data-pf-add="languages">+ Add a language</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Preview</h3>
+        <div class="field"><label for="pf-posting">Job post to tailor to (optional)</label>
+          <textarea id="pf-posting" rows="4" placeholder="Paste a job post to see the résumé the AI would send for it. Leave empty for your general résumé."></textarea></div>
+        <div id="pf-preview-out"></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Fill in from an existing résumé <span class="muted small">(AI)</span></h3>
+        <p class="muted small">The AI copies the facts from a résumé into the fields above for you to check. Nothing is saved until you press Save.</p>
+        <div class="row">
+          <label class="btn small" for="pf-import-file">Choose a résumé PDF…</label><input type="file" id="pf-import-file" accept="application/pdf,.pdf" class="hidden">
+          <button class="btn small" type="button" id="pf-import-saved" data-admin>Use my uploaded résumé</button>
+        </div>
+      </div>
+
+      <div class="row pf-actions">
+        <button class="btn primary" type="button" id="pf-save">Save profile</button>
+        <button class="btn" type="button" id="pf-preview">Preview résumé</button>
+        <span class="muted small" id="pf-dirty"></span>
+      </div>
+    </section>
+
+    <!-- ============================================================ MY TELEGRAM -->
+    <section class="view hidden" data-view="mytg">
+      <div class="view-head"><h2>My Telegram</h2>
+        <p class="muted">Link your own Telegram account (applications are sent from it) and the chat where you get job alerts.</p></div>
+      <div class="card stack">
+        <h3>1. Your Telegram account</h3>
+        <div id="mtg-status"></div>
+        <div id="mtg-flow" class="stack">
+          <div class="field" id="mtg-phone-row"><label for="mtg-phone">Phone number</label><input id="mtg-phone" type="tel" placeholder="+60123456789" autocomplete="tel"></div>
+          <div class="field hidden" id="mtg-code-row"><label for="mtg-code">Code Telegram sent you</label><input id="mtg-code" type="text" inputmode="numeric" autocomplete="one-time-code"></div>
+          <div class="field hidden" id="mtg-pw-row"><label for="mtg-pw">Two-step verification password</label><input id="mtg-pw" type="password"></div>
+          <div class="row"><button class="btn primary" type="button" id="mtg-next">Send code</button></div>
+        </div>
+        <p class="muted small">Job Radar keeps this login on the computer that runs it, to send your applications and read recruiters' replies. Whoever runs that computer (the administrator) could use it too, so only link your account if you trust them. You can log out here at any time.</p>
+      </div>
+      <div class="card stack">
+        <h3>2. Your alerts chat</h3>
+        <div id="mbot-status"></div>
+      </div>
+      <div class="card stack">
+        <h3>3. Auto-apply</h3>
+        <div id="mapply-status"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ USERS (admin) -->
+    <section class="view hidden" data-view="users">
+      <div class="view-head"><h2>Users</h2><p class="muted">Everyone with an account. Anyone who can open this page can sign up; you can restrict or delete accounts here.</p></div>
+      <div id="users-admin-note"></div>
+      <div class="card"><div class="tablewrap"><table class="users-table">
+        <thead><tr><th>User</th><th>Status</th><th>Telegram</th><th>Alerts</th><th>Profile</th><th>Sent</th><th>Last login</th><th></th></tr></thead>
+        <tbody id="users-rows"></tbody></table></div></div>
+      <div class="card stack">
+        <h3>Create an account</h3>
+        <div class="grid2">
+          <div class="field"><label for="nu-name">Username</label><input id="nu-name" type="text" autocomplete="off"></div>
+          <div class="field"><label for="nu-pass">Password (tell them; they can change it)</label><input id="nu-pass" type="text" autocomplete="off"></div>
+        </div>
+        <div><button class="btn primary" type="button" id="nu-create">Create account</button></div>
       </div>
     </section>
 
@@ -395,9 +617,26 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
 
       <div class="card stack">
         <h3>Your résumé</h3>
+        <div class="field"><label for="resume-source">Résumé to send</label>
+          <select id="resume-source" data-k="resume_source" style="max-width:30rem">
+            <option value="generated">Made from my Profile, tailored to each job (recommended)</option>
+            <option value="uploaded">My own PDF, uploaded below</option>
+          </select></div>
+        <div class="grid2">
+          <div class="field"><label for="paper-size">Paper size</label>
+            <select id="paper-size" data-k="resume_page_size">
+              <option value="letter">US Letter (like the sample)</option>
+              <option value="a4">A4</option>
+              <option value="auto">Automatic: Letter for US/Canada jobs, A4 elsewhere</option>
+            </select></div>
+          <div class="field"><label for="max-pages">Page limit</label>
+            <input id="max-pages" type="number" min="0" max="10" data-k="resume_max_pages">
+            <span class="hint">You're warned when a résumé runs longer. 0 = no limit.</span></div>
+        </div>
+        <div id="profile-resume-status"></div>
         <div id="resume-status"></div>
         <label class="drop" id="drop"><input type="file" id="resume-file" accept="application/pdf,.pdf" class="hidden">
-          <span><b>Drop your résumé PDF here</b> or click to choose</span><span class="muted small">Sent with every application. Max 10 MB.</span></label>
+          <span><b>Drop your résumé PDF here</b> or click to choose</span><span class="muted small">Sent when "My own PDF" is chosen, or if a résumé can't be made from your profile. Max 10 MB.</span></label>
         <div class="field"><label for="applicant">Your name</label><input id="applicant" type="text" data-k="applicant_name"><span class="hint">Used to sign the messages.</span></div>
         <details><summary>Résumé as plain text (optional)</summary>
           <p class="muted small">If you paste it here, the AI reads this instead of the PDF (cheaper and a bit more reliable).</p>
@@ -408,6 +647,13 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
 
       <div class="card stack">
         <h3>Which jobs to apply to</h3>
+        <div class="field"><label for="msg-lang">Message language</label>
+          <select id="msg-lang" data-k="message_language" style="max-width:24rem">
+            <option value="zh">中文 Chinese (default)</option>
+            <option value="en">English</option>
+            <option value="auto">Same as the job post (跟随职位语言)</option>
+          </select>
+          <span class="hint">Applications (AI-written or the template) and Job Radar's notices in Telegram use this language.</span></div>
         <div class="field"><label for="minscore">Minimum fit score: <b id="minscore-v"></b> / 100</label>
           <input id="minscore" type="range" min="0" max="100" step="5" data-k="apply_min_score">
           <span class="hint">With AI on, each job is scored against your résumé. 70 is a sensible start; raise it if the dry run shows poor matches.</span></div>
@@ -475,12 +721,27 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
       </div>
 
       <details class="card">
-        <summary>Message used without AI</summary>
+        <summary>Messages used without AI (中文 / English)</summary>
         <div class="stack" style="margin-top:.7rem">
-          <div class="field"><label for="tpl">Message</label><textarea id="tpl" rows="6" data-k="apply_template"></textarea><span class="hint"><code>{title}</code> becomes the job title, <code>{name}</code> your name.</span></div>
-          <div class="field"><label for="tpl-subj">Email subject</label><input id="tpl-subj" type="text" data-k="apply_email_subject"></div>
+          <div class="field"><label for="tpl-zh">中文消息 (Chinese message)</label><textarea id="tpl-zh" rows="5" data-k="apply_template_zh"></textarea></div>
+          <div class="field"><label for="tpl-subj-zh">中文邮件主题 (Chinese email subject)</label><input id="tpl-subj-zh" type="text" data-k="apply_email_subject_zh"></div>
+          <div class="field"><label for="tpl">English message</label><textarea id="tpl" rows="5" data-k="apply_template"></textarea><span class="hint"><code>{title}</code> becomes the job title, <code>{name}</code> your name.</span></div>
+          <div class="field"><label for="tpl-subj">English email subject</label><input id="tpl-subj" type="text" data-k="apply_email_subject"></div>
         </div>
       </details>
+    </section>
+
+    <!-- ============================================================ MESSAGES -->
+    <section class="view hidden" data-view="messages">
+      <div class="view-head"><h2>Messages</h2>
+        <button class="btn small" id="msg-sync" type="button">Check for replies</button>
+        <span class="muted small" id="msg-sync-note"></span>
+        <p class="muted">Your conversations with recruiters and HR, one per person. They live in your Telegram account; Job Radar mirrors them here and checks for new replies every few minutes.</p></div>
+      <div id="msg-hint"></div>
+      <div class="msgs" id="msgs">
+        <div class="msg-list" id="msg-list"></div>
+        <div class="msg-thread" id="msg-thread"><div class="empty" style="padding:2rem">Choose a conversation.</div></div>
+      </div>
     </section>
 
     <!-- ============================================================ REVIEW -->
@@ -537,6 +798,7 @@ async function api(method, path, body, raw) {
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
   const res = await fetch(path, opts);
   let data; try { data = await res.json(); } catch { data = { ok: false, error: `HTTP ${res.status}` }; }
+  if (res.status === 401 && data.login && ME) { showAuth("login"); throw new Error("Please log in again."); }
   if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -577,6 +839,9 @@ function show(name) {
   try { sessionStorage.setItem("jr-tab", name); } catch {}
   if (name === "history") loadApps();
   if (name === "review") loadReview();
+  if (name === "messages") loadMessages();
+  if (name === "profile") loadProfile();
+  if (name === "users") loadUsers();
   if (name === "activity") pollLogs();
   window.scrollTo({ top: 0 });
 }
@@ -819,11 +1084,19 @@ function renderApply() {
   $$("#mode-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
   $("#mode-note").textContent = MODE_NOTES[mode] || "";
   $("#mode-note").className = `note ${mode === "auto" ? "warn" : ""}`;
+  $("#nav-messages").innerHTML = S.unread_messages ? '<span class="tag info">' + S.unread_messages + "</span>" : "";
   $("#nav-review").innerHTML = S.review.pending ? '<span class="tag warn">' + S.review.pending + "</span>" : "";
   $("#nav-apply").innerHTML = mode === "auto" ? `<span class="tag ok">on</span>` : mode === "dry_run" ? `<span class="tag info">dry run</span>` : "";
   const r = S.apply.resume_pdf;
+  const gen = S.apply.resume_source !== "uploaded";
+  $("#profile-resume-status").innerHTML = gen ? (S.apply.profile_complete
+    ? `<div class="note ok">✓ Each application gets a résumé made from your <a href="#" data-goto="profile">Profile</a>${cfg("use_ai") ? ", tailored by the AI to that job" : ""}.</div>`
+    : `<div class="note warn">Your <a href="#" data-goto="profile">Profile</a> isn't complete yet (name, job title, education)${r.exists ? ", so your uploaded PDF is used for now" : ""}.</div>`) : "";
+  $$("#profile-resume-status [data-goto]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); show(a.dataset.goto); }));
+  if (S.apply.profile_complete && $("#nav-profile")) $("#nav-profile").textContent = "";
+  if (!S.apply.profile_complete && $("#nav-profile")) $("#nav-profile").textContent = "!";
   $("#resume-status").innerHTML = r.exists ? `<div class="row"><span class="tag ok">✓ ${esc(r.name)}</span><span class="muted small">${Math.max(1, Math.round(r.size / 1024))} KB</span><button class="linkbtn" id="resume-del">Remove</button></div>`
-    : `<div class="note warn">No résumé yet. Upload a PDF before switching auto-apply on.</div>`;
+    : (gen ? "" : `<div class="note warn">No résumé yet. Upload a PDF before switching auto-apply on.</div>`);
   $("#resume-del")?.addEventListener("click", () => api("DELETE", "/api/resume").then((x) => { S = x; render(); toast("Résumé removed."); }).catch((e) => toast(e.message, "bad")));
   const rt = $("#resume-text"); if (rt !== document.activeElement && !rt.dataset.touched) rt.value = S.apply.resume_text;
   $("#apply-kw-hint").textContent = cfg("use_ai") ? "Optional, because the AI already checks fit against your résumé." : "Required while AI is off, otherwise nothing is applied to.";
@@ -905,6 +1178,83 @@ $("#preview-btn").addEventListener("click", (e) => busy(e.currentTarget, async (
     <div><div class="label">Email: ${esc(d.email_subject)}</div><div class="draft">${esc(d.email_body)}</div></div></div>`;
 }));
 
+// -------------------------------------------------------------- messages
+let convs = [], openConv = null, msgLoggedIn = false;
+const initial = (s) => esc(((s || "?").replace(/^@/, "")[0] || "?").toUpperCase());
+const convName = (c) => c.display_name || c.contact;
+function dayLabel(iso) { return new Date(iso).toLocaleDateString([], { weekday: "short", year: "numeric", month: "short", day: "numeric" }); }
+function timeLabel(iso) { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+
+async function loadMessages(data) {
+  try {
+    const d = data || await api("GET", "/api/messages");
+    convs = d.conversations; msgLoggedIn = d.telegram_logged_in;
+    $("#msg-hint").innerHTML = msgLoggedIn ? "" :
+      '<div class="note warn">Log in your Telegram account (Auto-apply tab) so Job Radar can read replies and you can answer from here.</div>';
+    $("#msg-list").innerHTML = convs.length ? convs.map((c) =>
+      '<button class="conv" type="button" data-conv="' + c.id + '" aria-current="' + (openConv === c.id) + '">' +
+        '<span class="avatar">' + initial(convName(c)) + "</span>" +
+        '<span class="meta"><span class="conv-top"><span class="name">' + esc(convName(c)) + "</span>" +
+          '<span class="when">' + esc(c.last_message_at ? rel(c.last_message_at) : "") + "</span>" +
+          (c.unread ? ' <span class="unread">' + c.unread + "</span>" : "") + "</span>" +
+          '<span class="last">' + (c.channel === "email" ? "✉️ " : "✈️ ") + esc((c.last_direction === "out" ? "You: " : "") + (c.last_text || (c.job_title || ""))) + "</span>" +
+        "</span></button>").join("")
+      : '<div class="empty" style="padding:1.2rem">No conversations yet. They appear when auto-apply sends an application.</div>';
+    $$("[data-conv]").forEach((b) => b.onclick = () => openConversation(Number(b.dataset.conv)));
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function openConversation(id) {
+  openConv = id;
+  try {
+    const r = await api("POST", "/api/messages/open", { id });
+    renderThread(r.conversation);
+    $("#msgs").classList.add("open");
+    loadMessages(); refresh();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function renderThread(c) {
+  const tg = c.channel === "telegram";
+  const link = tg && c.contact.startsWith("@") ? '<a class="btn small" href="https://t.me/' + esc(c.contact.slice(1)) + '" target="_blank" rel="noopener">Open in Telegram</a>' : "";
+  let lastDay = "", body = "";
+  for (const m of c.messages) {
+    const day = dayLabel(m.sent_at);
+    if (day !== lastDay) { body += '<div class="day">' + esc(day) + "</div>"; lastDay = day; }
+    body += '<div class="bubble ' + (m.direction === "out" ? "out" : "in") + '">' +
+      (m.job_title ? '<span class="job">' + esc(m.job_title) + "</span>" : "") +
+      (m.subject ? "<b>" + esc(m.subject) + "</b>\n" : "") + esc(m.text) +
+      (m.attachment ? '<span class="att">📎 ' + esc(m.attachment) + "</span>" : "") +
+      '<span class="t">' + esc(timeLabel(m.sent_at)) + "</span></div>";
+  }
+  const canReply = tg ? msgLoggedIn : true;
+  $("#msg-thread").innerHTML =
+    '<div class="thread-head"><button class="btn small back" type="button" id="msg-back">←</button>' +
+      '<span class="avatar">' + initial(convName(c)) + "</span>" +
+      "<div><b>" + esc(convName(c)) + '</b><div class="small muted">' + (tg ? "Telegram " : "Email ") + esc(c.contact) + "</div></div>" +
+      '<span style="flex:1"></span>' + link + "</div>" +
+    '<div class="thread-body" id="thread-body">' + (body || '<div class="empty">No messages yet.</div>') + "</div>" +
+    '<div class="composer"><textarea id="reply-text" placeholder="' + (canReply ? "Write a reply… (Ctrl+Enter to send)" : "Log in your Telegram account to reply") + '"' + (canReply ? "" : " disabled") + "></textarea>" +
+      '<button class="btn primary" type="button" id="reply-send"' + (canReply ? "" : " disabled") + ">Send</button></div>";
+  const tb = $("#thread-body"); tb.scrollTop = tb.scrollHeight;
+  $("#msg-back").onclick = () => { $("#msgs").classList.remove("open"); openConv = null; loadMessages(); };
+  const send = () => busy($("#reply-send"), async () => {
+    const text = $("#reply-text").value.trim(); if (!text) return;
+    const r = await api("POST", "/api/messages/send", { id: c.id, text });
+    renderThread(r.conversation); loadMessages(); toast("Sent.");
+  });
+  $("#reply-send").onclick = send;
+  $("#reply-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
+}
+
+$("#msg-sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const d = await api("POST", "/api/messages/sync", {});
+  const r = d.result || {};
+  $("#msg-sync-note").textContent = r.error ? r.error : (r.new_replies ? r.new_replies + " new repl" + (r.new_replies > 1 ? "ies" : "y") : "No new replies") + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  loadMessages(d);
+  if (openConv) openConversation(openConv);
+}));
+
 // ---------------------------------------------------------------- review
 async function loadReview(data) {
   try {
@@ -936,6 +1286,262 @@ async function loadReview(data) {
   } catch (e) { toast(e.message, "bad"); }
 }
 
+// --------------------------------------------------------------- profile
+const PF_LISTS = {
+  education: { label: "Education", fields: [["school", "School", "e.g. 复旦大学"], ["degree", "Degree", "e.g. 本科 / BSc"], ["major", "Major", "e.g. 计算机科学"], ["start", "From", "2015.09"], ["end", "To", "2019.06"], ["details", "Details (optional)", "Honours, GPA, relevant courses — one per line", true]] },
+  experience: { label: "Job", fields: [["role", "Role", "e.g. 高级 Go 后端工程师"], ["company", "Company", ""], ["area", "Team / area", "e.g. 支付核心链路 & 清结算"], ["location", "Location", ""], ["start", "From", "2021.07"], ["end", "To (empty = now)", ""], ["details", "What you did", "One point per line. Real facts and numbers only.", true]] },
+  projects: { label: "Project", fields: [["name", "Project", ""], ["stack", "Tech stack", "e.g. Go 1.22、gRPC、Kafka、Redis"], ["role", "Your role", ""], ["link", "Link", "github.com/…"], ["start", "From", ""], ["end", "To", ""], ["details", "Details", "What it is and what you did, one point per line", true]] },
+  languages: { label: "Language", fields: [["language", "Language", "e.g. 英语 / English"], ["level", "Level", "e.g. 流利（CET-6） / Fluent"]] },
+};
+let PF = null, pfDirty = false;
+function pfRow(section, row, i) {
+  const spec = PF_LISTS[section];
+  const cells = spec.fields.map(([f, label, ph, wide]) => {
+    const id = `pf-${section}-${i}-${f}`, v = esc(row[f] || "");
+    const input = wide ? `<textarea id="${id}" rows="3" data-row="${section}" data-i="${i}" data-f="${f}" placeholder="${esc(ph)}">${v}</textarea>`
+      : `<input id="${id}" type="text" data-row="${section}" data-i="${i}" data-f="${f}" value="${v}" placeholder="${esc(ph)}">`;
+    return `<div class="field"${wide ? ' style="grid-column:1/-1"' : ""}><label for="${id}">${esc(label)}</label>${input}</div>`;
+  }).join("");
+  return `<div class="pf-row"><div class="pf-row-head"><b>${esc(spec.label)} ${i + 1}</b><button class="linkbtn" type="button" data-pf-del="${section}" data-i="${i}">Remove</button></div><div class="pf-grid">${cells}</div></div>`;
+}
+function pfRenderLists() {
+  for (const section of Object.keys(PF_LISTS)) {
+    const rows = PF[section];
+    $(`#pf-${section}`).innerHTML = rows.length ? rows.map((r, i) => pfRow(section, r, i)).join("") : `<div class="muted small">${section === "education" ? "Add at least one school." : "Nothing yet."}</div>`;
+  }
+}
+function pfFill() {
+  for (const el of $$("[data-pf]")) el.value = PF[el.dataset.pf] || "";
+  pfRenderLists(); pfMarkDirty(false);
+}
+function pfMarkDirty(v) { pfDirty = v; $("#pf-dirty").textContent = v ? "Unsaved changes" : ""; }
+function pfStatus(complete) {
+  $("#pf-status").innerHTML = complete ? `<div class="note ok">✓ Your profile is complete. ${S && S.apply.resume_source === "uploaded" ? "Auto-apply is set to send your uploaded PDF instead; change that under Auto-apply → Your résumé." : "Applications get a résumé made from it."}</div>`
+    : `<div class="note warn">Fill in your name, job title and at least one school, then save, so Job Radar can make your résumé.</div>`;
+  $("#nav-profile").textContent = complete ? "" : "!";
+}
+async function loadProfile(force) {
+  if (pfDirty && !force) return;
+  try { const d = await api("GET", "/api/profile"); PF = d.profile; pfFill(); pfStatus(d.complete); } catch (e) { toast(e.message, "bad"); }
+}
+function pfCollect() {
+  const p = { ...PF };
+  for (const el of $$("[data-pf]")) p[el.dataset.pf] = el.value;
+  for (const section of Object.keys(PF_LISTS)) p[section] = PF[section].map((r) => ({ ...r }));
+  return p;
+}
+$("[data-view=profile]").addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.dataset.row) { PF[t.dataset.row][Number(t.dataset.i)][t.dataset.f] = t.value; pfMarkDirty(true); }
+  else if (t.dataset.pf) { PF[t.dataset.pf] = t.value; pfMarkDirty(true); }
+});
+$("[data-view=profile]").addEventListener("change", (e) => { if (e.target.dataset.pf) { PF[e.target.dataset.pf] = e.target.value; pfMarkDirty(true); } });
+$("[data-view=profile]").addEventListener("click", (e) => {
+  const add = e.target.closest("[data-pf-add]"), del = e.target.closest("[data-pf-del]");
+  if (add) { const s = add.dataset.pfAdd; PF[s].push({}); pfRenderLists(); pfMarkDirty(true); $(`#pf-${s} .pf-row:last-child input, #pf-${s} .pf-row:last-child textarea`)?.focus(); }
+  if (del) { PF[del.dataset.pfDel].splice(Number(del.dataset.i), 1); pfRenderLists(); pfMarkDirty(true); }
+});
+$("#pf-save").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = await api("POST", "/api/profile", { profile: pfCollect() });
+  PF = r.profile; S = r; pfFill(); pfStatus(true); render(); toast("Profile saved.");
+}));
+$("#pf-preview").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const posting = $("#pf-posting").value;
+  const r = await api("POST", "/api/profile/preview", { profile: pfCollect(), posting });
+  const url = `/api/file?path=${encodeURIComponent(r.file)}&v=${Date.now()}`;
+  const pages = `${r.pages} page${r.pages === 1 ? "" : "s"}, ${r.paper === "a4" ? "A4" : "Letter"}`;
+  let html = `<div class="note ${r.too_long ? "warn" : "ok"}">${r.tailored ? "Tailored to that job post" : posting.trim() ? "Your résumé (AI is off, so it isn't tailored)" : "Your general résumé"}: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="muted small">(${pages}, ${Math.max(1, Math.round(r.size / 1024))} KB)</span>${r.too_long ? `<div class="small">Longer than your ${r.max_pages}-page limit. Shorten some points, or raise the limit under Auto-apply.</div>` : ""}</div>`;
+  const k = r.skills;
+  if (k && k.skills.length) {
+    const tags = (list, cls) => list.map((x) => `<span class="tag ${cls}">${esc(x)}</span>`).join(" ");
+    html += `<div class="card stack" style="margin-top:.6rem"><div class="row"><b>Skills the post names</b><span class="tag ${k.percent >= 70 ? "ok" : k.percent >= 40 ? "warn" : "bad"}">${k.matched}/${k.skills.length} · ${k.percent}%</span></div>`
+      + (k.existing.length ? `<div class="small">In your skills: ${tags(k.existing, "ok")}</div>` : "")
+      + (k.supported.length ? `<div class="small">Shown in your experience: ${tags(k.supported, "info")}</div>` : "")
+      + (k.gap.length ? `<div class="small">Missing, so not on the résumé: ${tags(k.gap, "bad")}</div><div class="muted small">If you really have one of these, add it to your profile and it will be used.</div>` : "")
+      + `</div>`;
+  }
+  $("#pf-preview-out").innerHTML = html;
+  window.open(url, "_blank", "noopener");
+}));
+async function pfImport(promise) {
+  const r = await promise;
+  PF = { ...PF, ...Object.fromEntries(Object.entries(r.profile).filter(([, v]) => (Array.isArray(v) ? v.length : v))) };
+  pfFill(); pfMarkDirty(true); toast("Fields filled in from the résumé. Check them, then press Save.");
+}
+$("#pf-import-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const btn = $("label[for=pf-import-file]"); btn.classList.add("disabled"); const label = btn.innerHTML; btn.innerHTML = `<span class="spin"></span>Reading…`;
+  try { await pfImport(api("PUT", "/api/profile/import", undefined, await f.arrayBuffer())); } catch (err) { toast(err.message, "bad"); }
+  finally { btn.innerHTML = label; btn.classList.remove("disabled"); }
+});
+$("#pf-import-saved").addEventListener("click", (e) => busy(e.currentTarget, () => pfImport(api("POST", "/api/profile/import", {}))));
+
+// ------------------------------------------------------- other devices
+let netKey = "";
+function renderNetwork() {
+  const n = S.network; if (!n) return;
+  const key = JSON.stringify(n); if (key === netKey) return; netKey = key;   // don't redraw the QR codes on every poll
+  let html = "";
+  if (n.restart_needed) html += `<div class="note warn">${n.allow ? "Other devices will be able to connect" : "Other devices will be shut out"} after you restart Job Radar: close its window and open it again.</div>`;
+  if (n.forced) html += `<div class="note">Started with <span class="mono">--host</span>, which overrides this switch.</div>`;
+  if (n.listening && n.addresses.length) {
+    html += `<div class="note warn small">Each link below logs in whoever opens it, with full control of Job Radar and your Telegram account. Only open it on your own devices, and only on networks you trust.</div><div class="net-addrs">`
+      + n.addresses.map((a) => `<div class="net-addr"><b>${a.kind === "tailscale" ? "Through Tailscale (from anywhere)" : "On this network (same Wi-Fi)"}</b><div class="net-qr">${a.qr}</div><span class="mono small">${esc(a.url)}</span><button class="btn small" type="button" data-copy="${esc(a.url)}">Copy link</button></div>`).join("")
+      + `</div><p class="muted small">Scan the code with your phone's camera. A Tailscale address only appears when Tailscale is running on this computer.</p>`;
+  } else if (n.listening) {
+    html += `<div class="note warn">Listening for other devices, but this computer has no network address right now.</div>`;
+  } else if (!n.restart_needed) {
+    html += `<p class="muted small">Only this computer can open the dashboard now.</p>`;
+  }
+  $("#net-status").innerHTML = html;
+  $$("#net-status [data-copy]").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast("Link copied. Keep it private."); }
+    catch { toast("Couldn't copy; select the link and copy it yourself.", "bad"); }
+  }));
+}
+
+// --------------------------------------------------------------- accounts
+let ME = null;
+function setRole() {
+  document.body.classList.toggle("signed-out", !ME);
+  document.body.classList.toggle("role-admin", !!(ME && ME.is_admin));
+  document.body.classList.toggle("role-user", !!(ME && !ME.is_admin));
+  $("#me-name").textContent = ME ? ME.username : "";
+  $("#me-role").textContent = ME && ME.is_admin ? "admin" : "";
+  $("#me-role").classList.toggle("hidden", !(ME && ME.is_admin));
+}
+let authMode = "login";
+function showAuth(mode) {
+  ME = null; S = null; setRole();
+  if (mode) authMode = mode;
+  $$("[data-auth]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.auth === authMode ? "true" : "false"));
+  const signup = authMode === "signup";
+  $("#auth-pass2-row").classList.toggle("hidden", !signup);
+  $("#auth-hint").classList.toggle("hidden", !signup);
+  $("#auth-pass").autocomplete = signup ? "new-password" : "current-password";
+  $("#auth-submit").textContent = signup ? "Create account" : "Log in";
+  $("#auth-error").classList.add("hidden");
+  setTimeout(() => $("#auth-user").focus(), 0);
+}
+$$("[data-auth]").forEach((b) => b.addEventListener("click", () => showAuth(b.dataset.auth)));
+$("#auth-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#auth-error"); err.classList.add("hidden");
+  const body = { username: $("#auth-user").value.trim(), password: $("#auth-pass").value };
+  if (authMode === "signup" && body.password !== $("#auth-pass2").value) { err.textContent = "The two passwords don't match."; err.classList.remove("hidden"); return; }
+  const btn = $("#auth-submit"); btn.disabled = true;
+  try {
+    const r = await api("POST", authMode === "signup" ? "/api/auth/signup" : "/api/auth/login", body);
+    $("#auth-pass").value = ""; $("#auth-pass2").value = "";
+    ME = r.user; await start();
+  } catch (x) { err.textContent = x.message; err.classList.remove("hidden"); }
+  finally { btn.disabled = false; }
+});
+$("#logout-btn").addEventListener("click", async () => { try { await api("POST", "/api/auth/logout", {}); } catch {} showAuth("login"); });
+$("#account-btn").addEventListener("click", () => {
+  $("#account-who").textContent = `Logged in as ${ME.username}${ME.is_admin ? " (administrator)" : ""}.` + (ME.has_password ? "" : " This account has no password yet: set one to log in from other devices.");
+  $("#account-current-row").classList.toggle("hidden", !ME.has_password);
+  $("#account-dlg").showModal();
+});
+$("#account-close").addEventListener("click", () => $("#account-dlg").close());
+$("#account-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if ($("#account-new").value !== $("#account-new2").value) { toast("The two new passwords don't match.", "bad"); return; }
+  try {
+    const r = await api("POST", "/api/auth/password", { current: $("#account-current").value, password: $("#account-new").value });
+    ME = r.user; ["#account-current", "#account-new", "#account-new2"].forEach((id) => { $(id).value = ""; });
+    $("#account-dlg").close(); toast("Password changed. Other devices were logged out."); renderAdminNote();
+  } catch (x) { toast(x.message, "bad"); }
+});
+function renderAdminNote() {
+  const box = $("#users-admin-note"); if (!box) return;
+  box.innerHTML = ME && ME.is_admin && !ME.has_password ? `<div class="note warn">Your administrator account (${esc(ME.username)}) has no password yet, so it can only be used on this computer. <button class="linkbtn" type="button" id="set-admin-pw">Set a password</button></div>` : "";
+  $("#set-admin-pw")?.addEventListener("click", () => $("#account-btn").click());
+}
+
+// ---------------------------------------------------- the user's own pages
+function renderUser() {
+  const pill = $("#status-pill"), text = $("#status-text");
+  const mode = S.apply.mode || "off";
+  pill.className = "pill " + (mode === "auto" ? "ok" : "");
+  text.textContent = mode === "auto" ? "Auto-apply on" : mode === "dry_run" ? "Auto-apply: dry run" : "Auto-apply off";
+  $("#nav-messages").textContent = S.unread_messages || "";
+  $("#nav-profile").textContent = S.profile_complete ? "" : "!";
+  const t = S.telegram;
+  $("#mtg-status").innerHTML = !t.api_ready ? `<div class="note warn">The administrator hasn't set up Telegram access yet, so accounts can't be linked for now.</div>`
+    : t.linked ? `<div class="row"><span class="tag ok">✓ Linked</span><button class="btn small" type="button" id="mtg-logout">Log out of Telegram</button></div>`
+    : `<div class="note">Not linked. Enter your phone number; Telegram sends you a code.</div>`;
+  $("#mtg-flow").classList.toggle("hidden", !t.api_ready || t.linked);
+  $("#mtg-logout")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    if (!await confirmBox("Log out of Telegram?", "Job Radar stops sending applications from your account and reading replies.")) return;
+    S = await api("POST", "/api/tg/logout", {}); mtgStage("phone"); renderUser(); toast("Logged out of Telegram.");
+  }));
+  const b = S.bot;
+  $("#mbot-status").innerHTML = !b.ready ? `<div class="note warn">The administrator hasn't connected the Job Radar bot yet.</div>`
+    : b.linked ? `<div class="row"><span class="tag ok">✓ Linked</span><span class="muted small">Job alerts and notices come to your chat with the bot.</span><button class="btn small" type="button" id="mbot-unlink">Unlink</button></div>`
+    : `<p class="muted small">Get job alerts and "applied" notices in your own chat with the Job Radar bot.</p><div id="mbot-code"></div><div><button class="btn primary" type="button" id="mbot-link">Link my bot chat</button></div>`;
+  $("#mbot-link")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    const r = await api("POST", "/api/bot/link", {});
+    $("#mbot-code").innerHTML = `<div class="note">${r.url ? `<a class="btn small" href="${esc(r.url)}" target="_blank" rel="noopener">Open the bot in Telegram</a> and press <b>Start</b>.` : `Open the Job Radar bot in Telegram and send <span class="mono">/start ${esc(r.code)}</span>.`} Code: <b class="mono">${esc(r.code)}</b>. This page updates once it's linked.</div>`;
+  }));
+  $("#mbot-unlink")?.addEventListener("click", (e) => busy(e.currentTarget, async () => { S = await api("POST", "/api/bot/unlink", {}); renderUser(); }));
+  const c = S.apply.counts || {};
+  const ready = [[S.profile_complete, "Profile filled in (name, job title, education)", "profile"], [t.linked, "Telegram account linked", "mytg"], [b.linked, "Alerts chat linked (optional)", "mytg"]];
+  $("#mapply-status").innerHTML = `<p class="small">${mode === "off" ? "Auto-apply is switched off by the administrator." : mode === "dry_run" ? "Auto-apply is in <b>dry run</b>: drafts are made and shown to you, nothing is sent." : `Auto-apply is <b>on</b>: up to ${S.apply.daily_cap} applications a day are sent from your Telegram account.`}</p>`
+    + `<ul class="small" style="margin:0;padding-left:1.2rem">${ready.map(([ok, label]) => `<li>${ok ? "✓" : "✗"} ${esc(label)}</li>`).join("")}</ul>`
+    + `<p class="muted small">Sent ${c.sent || 0} · previewed ${c.dry_run || 0} · skipped ${(c.skipped_fit || 0) + (c.skipped_cooldown || 0)} · waiting ${S.apply.queue || 0}</p>`;
+}
+let mtgAt = "phone";
+function mtgStage(st) {
+  mtgAt = st;
+  $("#mtg-phone-row").classList.toggle("hidden", st !== "phone");
+  $("#mtg-code-row").classList.toggle("hidden", st !== "code");
+  $("#mtg-pw-row").classList.toggle("hidden", st !== "password");
+  $("#mtg-next").textContent = st === "phone" ? "Send code" : st === "code" ? "Confirm code" : "Confirm password";
+}
+$("#mtg-next").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = mtgAt === "phone" ? await api("POST", "/api/tg/start", { phone: $("#mtg-phone").value.trim() })
+    : mtgAt === "code" ? await api("POST", "/api/tg/code", { code: $("#mtg-code").value.trim() })
+    : await api("POST", "/api/tg/password", { password: $("#mtg-pw").value });
+  if (r.stage === "done") { mtgStage("phone"); toast("Telegram account linked."); await refresh(); }
+  else mtgStage(r.stage);
+}));
+
+// ----------------------------------------------------------- users (admin)
+async function loadUsers() {
+  try { renderUsers((await api("GET", "/api/users")).users); } catch (e) { toast(e.message, "bad"); }
+  renderAdminNote();
+}
+function renderUsers(list) {
+  const yes = (v) => v ? `<span class="tag ok">✓</span>` : `<span class="muted">—</span>`;
+  $("#users-rows").innerHTML = list.map((u) => `<tr>
+    <td title="Account since ${esc(when(u.created_at))}"><b>${esc(u.username)}</b>${u.is_admin ? ` <span class="tag info">admin</span>` : ""}</td>
+    <td>${u.status === "active" ? `<span class="tag ok">active</span>` : `<span class="tag bad">restricted</span>`}</td>
+    <td>${yes(u.telegram)}</td><td>${yes(u.bot_linked)}</td><td>${yes(u.profile_complete)}</td><td class="num">${u.sent}</td>
+    <td class="small" title="${esc(u.last_login_at ? when(u.last_login_at) : "")}">${esc(u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : "never")}</td>
+    <td>${u.is_admin ? "" : `<div class="acts">
+      <button class="btn small" type="button" data-ustatus="${u.id}" data-to="${u.status === "active" ? "disabled" : "active"}">${u.status === "active" ? "Restrict" : "Allow"}</button>
+      <button class="btn small" type="button" data-upw="${u.id}" data-name="${esc(u.username)}">New password</button>
+      <button class="btn small" type="button" data-udel="${u.id}" data-name="${esc(u.username)}">Delete</button></div>`}</td></tr>`).join("");
+  $$("[data-ustatus]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+    renderUsers((await api("POST", "/api/users/status", { id: Number(b.dataset.ustatus), status: b.dataset.to })).users);
+    toast(b.dataset.to === "disabled" ? "Restricted: logged out and can't log in; auto-apply stops." : "Allowed again.");
+  })));
+  $$("[data-upw]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+    const pw = prompt(`New password for ${b.dataset.name} (at least 8 characters):`); if (!pw) return;
+    renderUsers((await api("POST", "/api/users/password", { id: Number(b.dataset.upw), password: pw })).users);
+    toast("Password reset. Tell them the new one.");
+  })));
+  $$("[data-udel]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+    if (!await confirmBox(`Delete ${b.dataset.name}?`, "Their account, profile, applications, conversations and Telegram login are removed for good.")) return;
+    renderUsers((await api("POST", "/api/users/delete", { id: Number(b.dataset.udel) })).users); toast("Deleted.");
+  })));
+}
+$("#nu-create").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  renderUsers((await api("POST", "/api/users/create", { username: $("#nu-name").value.trim(), password: $("#nu-pass").value })).users);
+  $("#nu-name").value = ""; $("#nu-pass").value = ""; toast("Account created.");
+}));
+
 // --------------------------------------------------------------- history
 const STATUS = { sent: ["Sent", "ok"], dry_run: ["Previewed", "info"], skipped_fit: ["Low fit", ""], skipped_cooldown: ["Already contacted", ""], failed: ["Failed", "bad"] };
 async function loadApps() {
@@ -945,10 +1551,12 @@ async function loadApps() {
       const [label, cls] = STATUS[a.status] || [a.status, ""];
       const to = a.contact ? `${a.channel === "email" ? "✉️" : "✈️"} ${esc(a.contact)}` : "—";
       const note = a.error || a.reason;
-      return `<tr><td class="small">${esc(when(a.at))}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}</td></tr>`;
+      const msg = (a.message ? '<details class="small"><summary>Message</summary><div class="draft">' + esc(a.message) + "</div></details>" : "")
+        + (a.resume_file ? `<div class="small">📎 <a href="/api/file?path=${encodeURIComponent(a.resume_file)}" target="_blank" rel="noopener">Résumé ${a.status === "dry_run" ? "it would send" : "sent"}</a></div>` : "");
+      return `<tr><td class="small">${esc(when(a.at))}${d.all_users ? `<div class="muted">👤 ${esc(a.username)}</div>` : ""}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}${msg}</td></tr>`;
     }).join("") : `<tr><td colspan="5" class="empty">No applications yet.</td></tr>`;
     $("#queue").innerHTML = d.queue.length ? d.queue.map((q) => `<li><a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer">${esc(q.title)}</a><div class="small muted">${esc([q.telegram, q.email].filter(Boolean).join(" · "))}</div></li>`).join("") : `<li class="empty">The queue is empty.</li>`;
-    const p = Object.entries(S.apply.paused);
+    const p = Object.entries((S.apply && S.apply.paused) || {});
     $("#paused").innerHTML = p.map(([ch, until]) => `<div class="note warn">${ch === "telegram" ? "Telegram" : "Email"} applications are paused until ${esc(when(until))} after a rate-limit warning.${ch === "telegram" ? " Check @SpamBot in Telegram." : ""}</div>`).join("");
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -992,6 +1600,7 @@ $("#restore-file").addEventListener("change", async (e) => {
 // ---------------------------------------------------------------- render
 function render(force) {
   if (!S) return;
+  if (!ME || !ME.is_admin) { renderUser(); return; }
   const pill = $("#status-pill"), text = $("#status-text");
   pill.className = "pill " + (S.running ? "run" : !S.configured ? "warn" : S.config.auto_run ? "ok" : "");
   text.textContent = S.running ? "Checking for jobs…" : !S.configured ? "Setup needed"
@@ -1000,6 +1609,7 @@ function render(force) {
   $("#cfg-path").textContent = S.config_file;
   $("#data-folder").textContent = S.data_folder;
   fillInputs(force); renderSites(force); renderSourceStatus(); renderOverview(); renderTelegram(); renderAI(); renderApply();
+  renderNetwork();
 }
 let wasRunning = false;
 async function refresh() {
@@ -1014,12 +1624,22 @@ async function refresh() {
 }
 window.addEventListener("beforeunload", (e) => { if (Object.keys(dirty).length) { e.preventDefault(); e.returnValue = ""; } });
 
+async function start() {
+  setRole();
+  await refresh();
+  if (!S) return;
+  const visible = (t) => { const b = $(`nav button[data-tab="${t}"]`); return b && getComputedStyle(b).display !== "none"; };
+  let first = ME.is_admin ? (S.configured ? "overview" : "telegram") : (S.profile_complete ? "mytg" : "profile");
+  try { const saved = sessionStorage.getItem("jr-tab"); if (saved && visible(saved)) first = saved; } catch {}
+  show(first);
+  renderAdminNote();
+}
 (async function init() {
   bindInputs();
-  await refresh();
-  let start = "overview"; try { start = sessionStorage.getItem("jr-tab") || (S && !S.configured ? "telegram" : "overview"); } catch {}
-  show(start);
-  setInterval(() => { if (!document.hidden) refresh(); }, 4000);
+  setInterval(() => { if (!document.hidden && ME) refresh(); }, 4000);
+  try { ME = (await api("GET", "/api/auth/me")).user; } catch { ME = null; }
+  if (!ME) { showAuth("login"); return; }
+  await start();
 })();
 </script>
 </body>

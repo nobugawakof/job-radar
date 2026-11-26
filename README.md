@@ -33,7 +33,9 @@ database server to install or run. The file holds:
 | `jobs` | Each delivered job: title, link, source, salary, location and the full original text |
 | `signatures` | Similarity signatures of sent jobs, to recognise reworded reposts |
 | `sources` | Each source's last successful check, failure count, and whether it's switched off |
-| `applications`, `apply_queue`, `contacts`, `apply_paused` | Auto-apply history, waiting jobs, who was contacted, and paused channels |
+| `applications`, `apply_queue`, `contacts`, `apply_paused` | Auto-apply history, waiting jobs, who was contacted, and paused channels (per account) |
+| `conversations`, `messages`, `profile` | Each account's conversations with recruiters and résumé profile |
+| `users`, `sessions` | Accounts (passwords stored hashed) and logged-in browsers |
 | `meta` | The last run time, plus the schema version in SQLite's `user_version` |
 
 Every change is committed as it happens, in a transaction, with SQLite's
@@ -77,18 +79,119 @@ Optional tabs: **AI** (paste a free Gemini key, then click **Test**) and
 code, set up email, and preview drafts). **Applications** and **Activity** show
 what happened and why.
 
-Keep the window open: closing it stops Job Radar. The dashboard only accepts
-connections from your own computer. Opening it needs the link the program
-prints, which logs your browser in with a private cookie, and secrets are never
-shown back in full.
+Keep the window open: closing it stops Job Radar. By default the dashboard only
+accepts connections from your own computer (to open it on your phone or another
+computer, see below). Opening it needs the link the program prints, which logs
+your browser in with a private cookie, and secrets are never shown back in full.
+
+### Open the dashboard on your phone or another computer
+
+Job Radar keeps running on your computer; other devices just open its page.
+
+**On the same Wi-Fi (home network)**
+
+1. On the **Overview** page, turn on **Allow other devices to open this
+   dashboard**, save, then restart Job Radar (close its window, open it again).
+2. If Windows asks whether to allow Job Radar on the network, allow it for
+   **Private networks** only (not Public).
+3. The **Use on other devices** card now shows the address with a QR code.
+   Scan it with your phone's camera, or type the address on the other computer,
+   then log in (see **Accounts** below). The window also prints the address.
+
+**From anywhere, safely: Tailscale**
+
+[Tailscale](https://tailscale.com) is a free, encrypted private network
+between your own devices. Nothing is opened to the internet, and you don't
+change any router settings.
+
+1. Install Tailscale on the computer that runs Job Radar and on your phone or
+   laptop, and sign in to the **same account** on both.
+2. Turn on **Allow other devices** in Job Radar and restart it, as above.
+3. The **Use on other devices** card now also shows a **Through Tailscale**
+   link (an address starting with `100.`). Open it from your phone, wherever
+   you are, as long as Tailscale is connected on both devices.
+4. Optional: in the Tailscale admin console you can restrict which of your
+   devices may reach this computer.
+
+**Keep it safe**
+
+- Other devices must log in. The secret link Job Radar prints logs in the
+  administrator only on the computer that runs it.
+- Anyone who can open the page can create an account (see **Accounts**), so
+  only allow other devices on networks where you know who's there.
+- On the home network, the page travels unencrypted (plain HTTP), so allow it
+  only on a network you trust. Leave the switch off on public Wi-Fi. Tailscale
+  encrypts everything.
+- **Don't forward a port on your router** to expose Job Radar to the internet;
+  use Tailscale instead.
+- Command line: `python3 -m jobradar.cli web --host 0.0.0.0` does the same for
+  one run; `--host 127.0.0.1` keeps it local whatever the switch says.
+
+### Accounts: administrator and users
+
+Job Radar can be shared: each person has an account with their own profile,
+Telegram account, job alerts, applications and conversations.
+
+**The administrator is `kof311`.** Nobody else can register that name.
+- On the computer that runs Job Radar, the link it prints logs you in as kof311
+  (as before).
+- To use kof311 from another device, set a password first: **Account** (top
+  right) → new password, or run `python3 -m jobradar.cli admin-password`.
+- The administrator sees and manages everything: the bot, job search, AI keys,
+  auto-apply settings, review queue, activity, everyone's applications, and
+  the **Users** page.
+
+**Users sign up themselves** (**Create account** on the login page) and are
+logged in at once. A user only sees:
+- **Profile**: the facts their résumé is made from;
+- **My Telegram**:
+  1. link their own Telegram account (phone → code; the administrator must
+     have entered the Telegram API ID/hash);
+  2. link their alerts chat: **Link my bot chat** opens the Job Radar bot and
+     sends `/start CODE`;
+  3. see whether auto-apply is on for them;
+- **Applications** and **Messages**: their own only.
+
+Everything else (sites, keywords, AI keys, limits, the bot) is the
+administrator's.
+
+**What each user gets**
+- Every job the shared search finds goes to their alerts chat too.
+- With auto-apply on (the administrator's switch), each user with a linked
+  Telegram account and a complete profile gets their own applications: a
+  résumé made from *their* profile, sent from *their* Telegram account, with
+  their own daily cap, cooldowns and "applied" notices.
+- Users apply by Telegram only; email goes out from the administrator's
+  mailbox, so it's used for the administrator's applications only.
+- Replies from recruiters show up in each user's own **Messages**.
+
+**Managing accounts (Users page)**
+- **Create** an account with a first password.
+- **Restrict**: the user is logged out at once, can't log in, gets no alerts,
+  and nothing is applied for them. **Allow** undoes it.
+- **New password**: set a new password and log them out everywhere.
+- **Delete**: removes the account, its profile, applications, conversations,
+  résumés and Telegram login. The administrator can't be restricted or
+  deleted.
+
+**Security**
+- Passwords are stored salted and hashed (PBKDF2), never as text.
+- Sessions last 30 days, in a private cookie. Repeated wrong passwords are
+  slowed down, and so are many sign-ups from one device.
+- A user's Telegram login is stored on the computer that runs Job Radar, so
+  whoever runs it could use it. The My Telegram page says so before anyone
+  links an account.
 
 **Your files** all live in one folder, `jobradar-data`, beside the program:
 
 | File | What it is |
 |---|---|
 | `config.toml` | Settings and keys. Kept out of the database on purpose (spec DR-6), so sharing the database never leaks a key |
-| `jobradar.db` | History: sent jobs, applications, check history |
+| `jobradar.db` | History: sent jobs, applications (with the message sent), your conversations with representatives, your profile, check history |
+| `resumes/` | The résumé PDF made for each application (and the latest preview) |
+| `fonts/` | Optional: a font for the résumé PDF, if your computer has no Chinese TrueType font |
 | `jobradar-user.session` | Your Telegram login, if you logged in. Full access to your account: keep it private |
+| `sessions/user-<n>.session` | Each user's Telegram login (same warning) |
 | `resume.pdf` / `resume.txt` | Your résumé, if uploaded |
 | `jobradar-web.token` | The dashboard's private session-cookie secret |
 
@@ -155,6 +258,8 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 | `test-telegram` | Send a test message to the configured chat |
 | `telegram-login` | Log **your own** Telegram account in, once (for auto-apply) |
 | `test-apply [--posting FILE] [--send]` | Draft an application for a sample (or real) posting; `--send` delivers it to yourself |
+| `resume [--posting FILE] [-o FILE]` | Make your résumé PDF from your profile (tailored to a posting, with AI) |
+| `admin-password` | Set or reset the administrator (kof311) password |
 | `applications` | List recent auto-apply results, the queue, and any paused channel |
 
 ## Sources
@@ -283,21 +388,23 @@ own Telegram account**. Postings that only give an **email** get an email.
 
 ```
 delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI fit score ≥ threshold?
-   ─▶ draft (in the post's language) ─▶ dry_run: show it to you   |   auto: send + résumé
+   ─▶ draft (Chinese by default) ─▶ dry_run: show it to you   |   auto: send + résumé
    ─▶ record (never the same posting twice, never the same person twice in 30 days)
+   ─▶ a conversation with that person opens in the dashboard's Messages tab
 ```
 
 ### Set it up
 
-1. **Résumé.** Upload it in the dashboard, or put `resume.pdf` in `jobradar-data`. Optionally also a
-   plain-text copy (`resume_text_path`). The AI reads the text if you give
-   one, otherwise it reads the PDF directly.
+1. **Your profile → your résumé.** On the dashboard's **Profile** page, enter
+   your details; Job Radar makes the résumé PDF from them (see
+   [Résumés made from your profile](#résumés-made-from-your-profile)). Or set
+   **Résumé to send → My own PDF** and upload one (`resume_source = "uploaded"`).
 2. **AI (recommended).** Set `use_ai = true` and a Gemini or Claude key (see
    above). For each posting the AI scores how well your résumé fits (0–100) and
    writes a short, specific message. It uses only facts from your résumé, in
-   the posting's language. Postings below `apply_min_score` are skipped.
+   your message language (below). Postings below `apply_min_score` are skipped.
    Without AI, `apply_keywords` is required and every application uses your
-   fixed `apply_template`.
+   fixed template (`apply_template_zh` in Chinese, `apply_template` in English).
 3. **Telegram account** (for Telegram contacts). A bot can't message people who
    never started it, so this logs in as *you*:
    ```bash
@@ -323,6 +430,92 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
    so you see exactly what a hiring manager would get. Use `--posting job.txt`
    to draft against a real posting.
 
+### Résumés made from your profile
+
+You don't need a résumé file. On the **Profile** page you enter:
+
+| Required | Optional |
+|---|---|
+| Name, job title, education (at least one school) | Speciality (shown after the title), gender, date of birth, location, phone, email, professional summary, technical skills, work experience (role, company, team/area, dates, points), key projects (name, tech stack, points), languages |
+
+Each application then gets a **PDF résumé made for that job**, in this order:
+name → job title · speciality → 职业概述 (professional summary) → 技术技能
+(technical skills) → 工作经历 (work experience) → 重点项目 (key projects) →
+教育背景 (education) → 语言能力 (languages). Sections you leave empty are left out.
+
+The layout follows a classic Chinese tech résumé: US Letter, navy headings with a
+rule under each, "Role — Company" with the dates on the right and the team or
+area in italics below, bullet points, ◆ before each project with its tech stack
+in grey, education on one line, languages on one line ("中文：母语 ｜ 英语：专业工作级").
+Skills lines are kept exactly as you type them; "Label: …" makes the label bold.
+A real bold font is used when your computer has one (e.g. Microsoft YaHei Bold).
+
+- **With AI on**, the AI writes the introduction and, for each job post, picks
+  and orders what's most relevant and polishes the wording, in your message
+  language (Chinese by default).
+- **It never invents anything.** For every skill and bullet point the AI must
+  quote the text on your Profile page it came from. Job Radar checks the quote,
+  and checks that any number (300万 → 3M is fine; a new "12" is not) is in it.
+  Anything that fails the check is replaced by your own wording. Employers,
+  schools and dates always come straight from your profile, and the AI never
+  sees your phone, email, birth date or gender.
+- **No promotions, no bigger roles.** Job titles and names stay exactly as you
+  wrote them; they're only translated when the résumé is in another language,
+  and a translation can't add seniority (工程师 never becomes "Senior Engineer").
+  A rewritten point can't claim more responsibility than yours does: "参与开发"
+  may become "helped build", never "led"; "used Kafka" never becomes "designed
+  the Kafka layer". Same for the summary.
+- **Skill check (no AI).** Job Radar lists the skills a post names and sorts
+  them into: in your skills / shown in your experience / missing. Dry-run and
+  "applied" notices show the match (🔎 技能匹配 5/7（71%）) and the dry run lists
+  what's missing; the Preview shows all three groups. Missing skills are never
+  put on the résumé, and the AI is told so. If you do have one, add it to your
+  profile.
+- **Newest job first.** Work experience is sorted by start date (2021.07,
+  2021年7月, Jul 2021 and 2021 all work). If a job has no start date, your order
+  is kept.
+- **Paper and length.** US Letter by default, as in the sample; or A4, or
+  automatic (Letter for US/Canada jobs, A4 elsewhere). You're warned when a
+  résumé runs past the page limit (2 by default). Both are under **Auto-apply →
+  Your résumé**.
+- **Without AI**, the résumé is your profile as you typed it, nicely laid out.
+- **Preview** on the Profile page makes it now (paste a job post to see the
+  tailored version). In dry run, every draft also comes with the résumé it
+  would send, and **Applications** links to the résumé each application sent.
+- **Fill in from an existing résumé:** the AI copies the facts from a PDF into
+  the fields for you to check. Nothing is saved until you press Save.
+- **Files:** `jobradar-data/resumes/<job>/陈美_简历.pdf` (`Mei_Chen_Resume.pdf`
+  in English). Your profile itself is stored in `jobradar.db` (`profile` table),
+  so it's in your backups. The generated PDFs aren't; they can be made again.
+- **Fonts:** Chinese text needs a Chinese font *embedded* in the PDF, so it
+  looks right on any phone. Job Radar finds one on your computer (Windows:
+  Microsoft YaHei / SimHei / SimSun; macOS: STHeiti; Linux: WenQuanYi) and
+  embeds only the characters used (a résumé is ~50–100 KB). If none is found,
+  put a `.ttf`/`.ttc` file in `jobradar-data/fonts`, or set `resume_font_path`.
+  Only TrueType fonts work (not CFF-based `.otf` such as Noto Sans CJK).
+- If a résumé can't be made (for example, no font), your uploaded PDF is sent
+  instead; with neither, nothing is sent.
+
+```bash
+python3 -m jobradar.cli resume                       # your general résumé
+python3 -m jobradar.cli resume --posting job.txt -o tailored.pdf
+```
+
+### Message language: Chinese by default
+
+Applications, replies the AI writes, and the notices in your bot chat are in
+**Chinese (简体中文)** unless you change it (dashboard: **Auto-apply → Message
+language**):
+
+```toml
+message_language = "zh"     # "zh" (default) | "en" | "auto" = the job post's language
+```
+
+With `zh` the AI writes in Chinese even for English postings, keeping technical
+terms (Go, Kubernetes…) as they are. Without AI, `apply_template_zh` /
+`apply_email_subject_zh` are used for Chinese and `apply_template` /
+`apply_email_subject` for English. Both are editable in the dashboard.
+
 ### Dry run first, then go live
 
 ```toml
@@ -331,7 +524,7 @@ apply_mode = "dry_run"
 
 In dry run, everything happens (gates, AI scoring, drafting, the daily cap)
 except contacting anyone. Each draft shows up in your bot chat as
-**📝 DRY RUN — would apply (fit 82/100)** with the recipient, the reason, and the
+**📝 演练 — 将会投递（匹配度 82/100）** (English: *📝 DRY RUN — would apply*) with the recipient, the reason, and the
 full text. Run it for a few days and tune `apply_min_score`, `apply_keywords`
 and `apply_exclude_keywords` until you'd be happy to send every draft. Then:
 
@@ -339,7 +532,7 @@ and `apply_exclude_keywords` until you'd be happy to send every draft. Then:
 apply_mode = "auto"
 ```
 
-Each real application is followed by **✅ Applied via Telegram @…** in your bot
+Each real application is followed by **✅ 已投递，通过 Telegram @…** (*Applied via Telegram*) in your bot
 chat. `applications` lists everything that was sent, skipped (low fit /
 cooldown) or failed, and why. Postings you saw in dry run aren't re-sent when
 you switch, but going live doesn't reuse dry-run cooldowns, so new postings
@@ -371,6 +564,30 @@ from the same contacts are fair game.
 > and new accounts are flagged fastest. Keep the cap low, use an account with
 > some history, and don't lower the cooldown. Applications are sent in your
 > name, so read your dry-run drafts before switching to `auto`.
+
+### Conversations with representatives (Messages tab)
+
+Every application that's actually sent opens a **conversation**, one per
+representative (Telegram account or email address), so everything you've said
+to one recruiter is in one thread, even across several jobs.
+
+- **It's your real Telegram chat.** Applications are sent from your own account,
+  so the whole history lives in Telegram, and you can carry on from your phone
+  as usual. Job Radar *mirrors* each chat: every check (and every 5 minutes
+  while the dashboard is open, or **Check for replies**) it reads the new
+  messages in those chats, both their replies and anything you sent from your
+  phone. It only reads chats with people it applied to, never your other chats.
+- **New replies** show a badge on **Messages** and a 💬 notice in your bot chat
+  (*“Anna Li 回复了你（后端工程师）…”*).
+- **Reply from the dashboard.** Type in the box under a thread (Ctrl+Enter
+  sends). Telegram replies go from your account, so they also appear in
+  Telegram. Email replies go by SMTP with `Re: <subject>`.
+- **Stored** in `jobradar.db`: the `conversations` table (one row per
+  representative) and `messages` (each message, in or out, with the job it was
+  about). The text of every application is also kept in `applications.message`,
+  including dry-run drafts, and is shown under **Applications**.
+- **Email replies aren't read yet.** That would need IMAP; read them in your
+  mailbox. Your sent email (and dashboard replies) do appear in the thread.
 
 Coverage: most HN, WeWorkRemotely and Reddit posts ask you to apply through a
 web form, and those aren't automated. Auto-apply only covers posts that give a
@@ -490,7 +707,8 @@ make it.
 ```
 jobradar/
   config.py          keywords, remote_only, telegram, sources, interval
-  state.py           the SQLite database (jobradar.db): sent jobs, sources, history
+  state.py           the SQLite database (jobradar.db): sent jobs, sources, history,
+                     applications, conversations and messages
   classifier.py      recall-first "is this a job posting?"
   extraction.py      title / remote / salary / contact / apply-url
   filters.py         keyword + remote
@@ -500,7 +718,10 @@ jobradar/
   cli.py             entry point
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
-  apply/             auto-apply: contacts, engine (gates/caps/queue), senders
+  resume/            résumés from your profile: profile rules, content (AI checks),
+                     fonts (find + subset TrueType), pdf (writer), render (layout), builder
+  apply/             auto-apply: contacts, engine (gates/caps/queue), senders,
+                     conversations (mirror + reply), language (zh/en)
   web/               the dashboard: app.py (server + API), index.html, configfile.py
 tests/               python -m unittest discover -s tests
 ```

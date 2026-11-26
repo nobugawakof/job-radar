@@ -38,8 +38,10 @@ def _account_messages(cfg: dict[str, Any], channel: str, since: datetime | None,
         return None
     if not Path(session if session.endswith(".session") else session + ".session").exists():
         return None
-    from ..tgclient import LoopThread, TelethonMissing, make_client
+    from ..tgclient import ACCOUNT_LOCK, LoopThread, TelethonMissing, make_client
 
+    if not ACCOUNT_LOCK.acquire(timeout=120):
+        raise CollectorError("your Telegram account is busy; this channel will be read next check")
     runner = LoopThread("tg-channel")
     client = None
     try:
@@ -80,6 +82,7 @@ def _account_messages(cfg: dict[str, Any], channel: str, since: datetime | None,
             except Exception:  # noqa: BLE001
                 pass
         runner.stop()
+        ACCOUNT_LOCK.release()
 
 
 @register("telegram")

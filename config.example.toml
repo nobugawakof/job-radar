@@ -80,7 +80,18 @@ ai_provider = "gemini"              # "gemini" (free tier) or "claude" (paid)
 apply_mode     = "off"                   # "off" | "dry_run" | "auto"
 apply_channels = ["telegram", "email"]   # tried in this order
 applicant_name = ""                      # signs the message
-resume_pdf_path  = "resume.pdf"          # attached to every application (next to config.toml)
+# Let other devices (phone on your Wi-Fi, or via Tailscale) open the dashboard.
+# People log in there; anyone who can reach it can create an account.
+# Applies when Job Radar restarts. See README → "Open the dashboard on your phone".
+web_allow_network = false
+
+# Your résumé is made from your Profile (dashboard → Profile), tailored to each
+# job when AI is on. "uploaded" sends your own resume.pdf instead.
+resume_source    = "generated"           # "generated" | "uploaded"
+resume_font_path = ""                    # font for the generated PDF; empty = find one on this computer
+resume_page_size = "letter"              # "letter" | "a4" | "auto" (Letter for US/Canada jobs, else A4)
+resume_max_pages = 2                     # warn when a résumé runs longer (0 = no limit)
+resume_pdf_path  = "resume.pdf"          # your own PDF ("uploaded", or a fallback)
 resume_text_path = ""                    # optional plain-text résumé for the AI; else it reads the PDF
 
 # Which postings to apply to. With use_ai = true, the AI scores each posting
@@ -97,7 +108,13 @@ apply_delay_seconds         = [45, 120]  # random gap between sends
 apply_contact_cooldown_days = 30         # never message the same person twice within this
 apply_max_age_days          = 7          # don't apply to postings older than this
 
+# Language of applications, replies and bot notices:
+# "zh" = Chinese (default), "en" = English, "auto" = the job post's language.
+message_language = "zh"
+
 # Used when AI is off (or fails while apply_keywords is set). {title} {name}
+# apply_template_zh = "您好！我在贵司发布的「{title}」职位信息中看到了招聘需求，希望应聘该职位。..."
+# apply_email_subject_zh = "应聘：{title}"
 # apply_template = "Hi! I saw your post for {title} and would like to apply. ..."
 # apply_email_subject = "Application: {title}"
 

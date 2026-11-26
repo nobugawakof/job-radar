@@ -80,9 +80,22 @@ class Config:
     apply_contact_cooldown_days: int = 30       # never message the same person twice within this
     apply_max_age_days: int = 7                 # don't apply to postings older than this
     applicant_name: str = ""
-    resume_pdf_path: str = "resume.pdf"         # attached to every application
+    web_allow_network: bool = False             # dashboard reachable from other devices (applies on restart)
+    resume_source: str = "generated"            # "generated" (from your profile, tailored per job) | "uploaded"
+    resume_font_path: str = ""                  # font for the generated PDF; empty = find one on this computer
+    resume_page_size: str = "letter"            # "letter" | "a4" | "auto" (Letter for US/Canada jobs, else A4)
+    resume_max_pages: int = 2                   # warn when a résumé runs longer (0 = no limit)
+    resume_pdf_path: str = "resume.pdf"         # your own PDF (resume_source = "uploaded", or as a fallback)
     resume_text_path: str = ""                  # optional plain-text résumé for the AI (else the PDF is sent to it)
+    # Language of application messages: "zh" (Chinese, default), "en", or
+    # "auto" (the job post's own language). Also used for Job Radar's notices.
+    message_language: str = "zh"
     # Used when AI is off or unavailable. Placeholders: {title} {name}.
+    apply_template_zh: str = (
+        "您好！我在贵司发布的「{title}」职位信息中看到了招聘需求，希望应聘该职位。"
+        "附件是我的简历，期待与您进一步沟通，也很乐意随时安排面谈。\n\n谢谢！\n{name}"
+    )
+    apply_email_subject_zh: str = "应聘：{title}"
     apply_template: str = (
         "Hi! I saw your post for {title} and would like to apply. "
         "My résumé is attached — happy to share more details or jump on a call.\n\nThanks,\n{name}"

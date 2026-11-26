@@ -129,6 +129,10 @@ class TelegramLogin:
     @staticmethod
     def check(*, api_id: str, api_hash: str, session_path: str) -> dict:
         """Connect with the saved session and report who is logged in."""
+        from ..tgclient import ACCOUNT_LOCK
+
+        if not ACCOUNT_LOCK.acquire(timeout=15):
+            raise LoginError("Your Telegram account is busy (a check is using it). Try again in a minute.")
         runner = LoopThread("telegram-check")
         client = None
         try:
@@ -151,11 +155,23 @@ class TelegramLogin:
                 except Exception:  # noqa: BLE001
                     pass
             runner.stop()
+            ACCOUNT_LOCK.release()
 
     @staticmethod
     def logout(*, api_id: str, api_hash: str, session_path: str) -> None:
         """Log the session out at Telegram (best effort) and delete the file."""
+        from ..tgclient import ACCOUNT_LOCK
+
         path = session_path if session_path.endswith(".session") else session_path + ".session"
+        if not ACCOUNT_LOCK.acquire(timeout=30):
+            raise LoginError("Your Telegram account is busy (a check is using it). Try again in a minute.")
+        try:
+            TelegramLogin._logout_locked(api_id=api_id, api_hash=api_hash, session_path=session_path, path=path)
+        finally:
+            ACCOUNT_LOCK.release()
+
+    @staticmethod
+    def _logout_locked(*, api_id: str, api_hash: str, session_path: str, path: str) -> None:
         if os.path.exists(path) and api_id and api_hash:
             runner = LoopThread("telegram-logout")
             try:

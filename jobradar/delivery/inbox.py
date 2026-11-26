@@ -73,6 +73,11 @@ class BotInbox:
             raise InboxError(redact(f"Telegram {method}: {payload.get('description')}"))
         return payload.get("result")
 
+    def on_start(self, handler: Callable[[dict[str, Any], str], "str | None"]) -> None:
+        """Handle "/start CODE" in a private chat (linking a user's chat); the
+        returned text is sent back to that chat."""
+        self._start_handler = handler
+
     def on_button(self, prefix: str, handler: Handler) -> None:
         """Handle presses of inline buttons whose callback data starts with ``prefix``."""
         self._handlers[prefix] = handler
@@ -102,6 +107,17 @@ class BotInbox:
             chat = (upd.get(kind) or {}).get("chat")
             if chat:
                 self.state.remember_chat(chat)
+        msg = upd.get("message") or {}
+        text = (msg.get("text") or "").strip()
+        handler = getattr(self, "_start_handler", None)
+        if handler and text.startswith("/start") and (msg.get("chat") or {}).get("type") == "private":
+            code = text.split(maxsplit=1)[1].strip() if " " in text else ""
+            reply = handler(msg["chat"], code)
+            if reply:
+                try:
+                    self.call("sendMessage", {"chat_id": msg["chat"]["id"], "text": reply}, timeout=10)
+                except InboxError:
+                    pass
         post = upd.get("channel_post")
         if post:
             chat = post.get("chat") or {}
@@ -170,6 +186,7 @@ def inbox_for(token: str, state) -> BotInbox:
             box = BotInbox(token, state)
             if key in _INBOXES:
                 box._handlers = _INBOXES[key]._handlers
+                box._start_handler = getattr(_INBOXES[key], "_start_handler", None)
                 _INBOXES[key].stop()
             _INBOXES[key] = box
         return box

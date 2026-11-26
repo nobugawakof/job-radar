@@ -118,8 +118,9 @@ class ServerTests(unittest.TestCase):
 
     # ------------------------------------------------------------ security
     def test_locked_without_session(self):
-        self.assertEqual(self.call("GET", "/", cookie=False)[0], 403)
-        self.assertEqual(self.call("GET", "/api/state", cookie=False)[0], 403)
+        self.assertEqual(self.call("GET", "/", cookie=False)[0], 200)            # the login screen
+        status, body = self.j("GET", "/api/state", cookie=False)
+        self.assertEqual((status, body["login"]), (401, True))
 
     def test_token_link_sets_cookie_and_redirects(self):
         status, headers, _ = self.call("GET", f"/?t={self.server.token}", cookie=False)
@@ -127,7 +128,9 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(headers["Location"], "/")
         self.assertIn("HttpOnly", headers["Set-Cookie"])
         self.assertIn("SameSite=Strict", headers["Set-Cookie"])
-        self.assertEqual(self.call("GET", "/?t=wrong", cookie=False)[0], 403)
+        status, headers, _ = self.call("GET", "/?t=wrong", cookie=False)
+        self.assertEqual(status, 303)
+        self.assertNotIn("Set-Cookie", headers)                                   # a wrong link logs nobody in
 
     def test_page_is_served_with_csp(self):
         status, headers, body = self.call("GET", "/")
@@ -213,7 +216,11 @@ class ServerTests(unittest.TestCase):
             ctrl.service.state.mark_run(utcnow())
             return fake
 
-        with mock.patch.object(ctrl.service, "_safe_run", side_effect=fake_run):
+        from jobradar.delivery import inbox as inbox_mod
+
+        # the runner also starts the bot inbox; keep it off the network
+        with mock.patch.object(ctrl.service, "_safe_run", side_effect=fake_run), \
+                mock.patch.object(inbox_mod.BotInbox, "poll", return_value=0):
             ctrl.start()
             self.addCleanup(ctrl.stop)
             self.assertEqual(self.j("POST", "/api/run", {})[0], 200)
