@@ -106,6 +106,7 @@ class Pipeline:
         transport: Any | None = None,
         applier: Any | None = None,
         inbox: Any | None = None,
+        fanout: Any | None = None,
     ):
         self.config = config
         self.state = state
@@ -113,6 +114,7 @@ class Pipeline:
         self.transport = transport  # send-only Telegram transport, or None
         self.applier = applier      # jobradar.apply.engine.Applier, or None (off)
         self.inbox = inbox          # jobradar.delivery.inbox.BotInbox, or None (no bot)
+        self.fanout = fanout        # () -> other users' bot chats that also get each job, or None
         self._sigs: dict[str, tuple[str | None, Any]] = {}  # posting.id -> (minhash, roles)
 
     # ------------------------------------------------------------------ run
@@ -379,6 +381,25 @@ class Pipeline:
             return True
         return False
 
+    def _copy_to_users(self, posting: Posting) -> None:
+        """The same job to every other user's linked bot chat. Best effort: one
+        blocked chat never stops delivery (the job already counts as sent)."""
+        if self.fanout is None or self.transport is None:
+            return
+        try:
+            chats = [c for c in self.fanout() if c and str(c) != str(self.config.telegram_chat_id)]
+        except Exception:  # noqa: BLE001
+            log.exception("couldn't list users' chats")
+            return
+        if not chats:
+            return
+        text = self._message(posting)
+        for chat in chats:
+            try:
+                self.transport.send_message(chat, text)
+            except Exception as e:  # noqa: BLE001
+                log.warning("couldn't send a job to a user's chat: %s", e)
+
     def deliver_one(self, posting: Posting) -> None:
         """Send one job now (e.g. approved from the review queue) and record it
         exactly like a normal delivery. Raises if Telegram fails."""
@@ -386,6 +407,7 @@ class Pipeline:
             raise RuntimeError("no Telegram bot/chat set up")
         self.transport.send_message(self.config.telegram_chat_id, self._message(posting))
         self._remember_sent(posting)
+        self._copy_to_users(posting)
         self.state.record_job({
             "fingerprint": posting.content_hash, "at": iso(utcnow()), "title": posting.title[:300],
             "url": posting.source_url, "source": ", ".join(posting.origins or [posting.source]),
@@ -456,6 +478,7 @@ class Pipeline:
             try:
                 self.transport.send_message(chat, self._message(posting))
                 self._remember_sent(posting)  # mark per message
+                self._copy_to_users(posting)
                 summary.delivered += 1
                 summary.delivered_postings.append(posting)
                 self.state.record_job({

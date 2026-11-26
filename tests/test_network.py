@@ -79,7 +79,7 @@ class DashboardNetworkTests(unittest.TestCase):
             n = self.state(server)
         self.assertTrue(n["listening"] and not n["restart_needed"])
         a = n["addresses"][0]
-        self.assertEqual(a["url"], f"http://192.168.1.20:{server.server_address[1]}/?t={server.token}")
+        self.assertEqual(a["url"], f"http://192.168.1.20:{server.server_address[1]}/")   # no secret: people log in
         self.assertTrue(a["qr"].startswith("<svg"))
 
     def test_changing_the_switch_needs_a_restart(self):

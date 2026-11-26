@@ -24,6 +24,52 @@ class AlreadyRunning(RuntimeError):
     """Another program sharing the database is in the middle of a check."""
 
 
+class EveryoneApplier:
+    """Auto-apply for every account: the administrator as before, then each
+    active user who has linked a Telegram account and completed a profile,
+    with their own résumé, cooldowns, daily cap and notices. Built fresh at
+    every run, so new users join without a restart."""
+
+    def __init__(self, service: "Service"):
+        self.service = service
+
+    def _appliers(self):
+        from .accounts import has_telegram, resume_owner, user_config
+        from .apply.engine import build_applier
+        from .resume.profile import is_complete
+
+        svc = self.service
+        admin = svc.state.user_get(1) or {"id": 1, "role": "admin"}
+        yield admin, build_applier(svc.config, svc.state, base_dir=svc.base_dir, notify=svc.notify_owner)
+        for u in svc.members():
+            st = svc.state.for_user(u["id"])
+            if not has_telegram(svc.config, svc.base_dir, u) or not is_complete(st.get_profile()):
+                continue   # nothing to send with yet
+            yield u, build_applier(user_config(svc.config, svc.base_dir, u), st, base_dir=svc.base_dir,
+                                   notify=lambda text, u=u: svc.notify_user(u, text), owner=resume_owner(u))
+
+    def run(self, postings, now):
+        from .apply.engine import ApplyReport
+
+        total: ApplyReport | None = None
+        for user, applier in self._appliers():
+            try:
+                r = applier.run(postings, now)
+            except Exception as e:  # noqa: BLE001 - one account's trouble never stops the others
+                log.exception("auto-apply failed for one account")
+                r = ApplyReport(mode=applier.mode, alerts=[f"auto-apply failed for {user.get('username')}: {e}"])
+            if total is None:
+                total = r
+                continue
+            for f in ("queued", "sent", "previewed", "skipped_fit", "skipped_cooldown", "failed", "expired", "waiting"):
+                setattr(total, f, getattr(total, f) + getattr(r, f))
+            total.alerts += [f"{user.get('username')}: {a}" for a in r.alerts]
+        return total
+
+    def enqueue(self, postings, now) -> int:
+        return sum(applier.enqueue(postings, now) for _, applier in self._appliers())
+
+
 class Service:
     def __init__(self, config: Config, config_path: str | None = None, *,
                  state: State | None = None):
@@ -63,21 +109,70 @@ class Service:
         self.inbox = inbox_for(token, self.state) if has_bot else None
         self.applier = self._build_applier()
         self.pipeline = Pipeline(config, self.state, self.source_defs, transport=self.transport,
-                                 applier=self.applier, inbox=self.inbox)
+                                 applier=self.applier, inbox=self.inbox, fanout=self.user_chats)
         if self.inbox is not None:
             self.inbox.on_button("rv:", self._review_button)
+            self.inbox.on_start(self._link_chat)
+
+    # ------------------------------------------------------------ accounts
+    def members(self) -> list[dict]:
+        """Active accounts other than the administrator."""
+        from .state import ADMIN_ID
+
+        return [u for u in self.state.active_users() if int(u["id"]) != ADMIN_ID]
+
+    def user_chats(self) -> list[str]:
+        return [u["bot_chat_id"] for u in self.members() if u.get("bot_chat_id")]
+
+    def notify_user(self, user: dict, text: str) -> None:
+        """A message to one account's own bot chat (the admin's is telegram_chat_id)."""
+        from .accounts import bot_chat
+
+        chat = bot_chat(self.config, user)
+        if self.transport and chat:
+            self.transport.send_message(chat, text)
+
+    def _link_chat(self, chat: dict, code: str) -> str | None:
+        """"/start CODE" from the dashboard's "Link my bot chat" button."""
+        from .apply import language
+
+        lang = language.ui(self.config.message_language)
+        if not code:
+            return language.t("link_hello", lang)
+        user = self.state.user_by_link_code(code.upper())
+        if user is None or user.get("status") != "active":
+            return language.t("link_bad", lang)
+        self.state.user_update(user["id"], bot_chat_id=str(chat.get("id")), link_code=None)
+        log.info("a user linked their bot chat")
+        return language.t("link_ok", lang, name=user["username"])
 
     # ------------------------------------------------------- conversations
-    def sync_conversations(self, *, lock_timeout: float = 15.0) -> dict:
-        """Read new messages in every conversation with a representative from
-        your Telegram account, and notify you about new replies."""
+    def sync_conversations(self, *, lock_timeout: float = 15.0, user: dict | None = None) -> dict:
+        """Read new messages in conversations with representatives, from each
+        account's own Telegram, and tell that account about new replies.
+        ``user`` limits it to one account; otherwise everyone who has any."""
+        from .accounts import has_telegram, user_config
         from .apply.conversations import sync_telegram
 
-        try:
-            return sync_telegram(self.config, self.state, notify=self.notify_owner, lock_timeout=lock_timeout)
-        except Exception as e:  # noqa: BLE001 - never break a check over this
-            log.warning("couldn't read your Telegram conversations: %s", e)
-            return {"synced": 0, "new_replies": 0, "error": str(e)}
+        people = [user] if user else [self.state.user_get(1)] + self.members()
+        total = {"synced": 0, "new_replies": 0}
+        for u in people:
+            if u is None:
+                continue
+            st = self.state.for_user(u["id"])
+            if not st.conversations("telegram") or not has_telegram(self.config, self.base_dir, u):
+                continue
+            try:
+                r = sync_telegram(user_config(self.config, self.base_dir, u), st,
+                                  notify=lambda text, u=u: self.notify_user(u, text), lock_timeout=lock_timeout)
+            except Exception as e:  # noqa: BLE001 - never break a check over this
+                log.warning("couldn't read a Telegram account's conversations: %s", e)
+                r = {"synced": 0, "new_replies": 0, "error": str(e)}
+            total["synced"] += r.get("synced", 0)
+            total["new_replies"] += r.get("new_replies", 0)
+            if r.get("error"):
+                total["error"] = r["error"]
+        return total
 
     # ------------------------------------------------------------ review
     def review_decide(self, item_id: int, approve: bool, via: str) -> str:
@@ -136,10 +231,7 @@ class Service:
         if mode not in ("dry_run", "auto"):
             log.warning("unknown apply_mode %r (use off / dry_run / auto); auto-apply is off", mode)
             return None
-        from .apply.engine import build_applier
-
-        return build_applier(self.config, self.state, base_dir=self.base_dir,
-                             notify=self.notify_owner)
+        return EveryoneApplier(self)
 
     def run(self, trigger: str = "manual") -> RunSummary:
         """One check. Only one check runs at a time across programs sharing
@@ -152,8 +244,7 @@ class Service:
                                  f"right now, started {holder.get('at', '?')[:16]}Z")
         try:
             summary = self.pipeline.run(trigger=trigger)
-            if self.state.conversations("telegram"):
-                self.sync_conversations(lock_timeout=60)  # replies from representatives
+            self.sync_conversations(lock_timeout=60)  # replies from representatives, every account
             try:
                 self.state.record_run(summary.to_dict())
             except Exception:  # noqa: BLE001 - history is a nice-to-have

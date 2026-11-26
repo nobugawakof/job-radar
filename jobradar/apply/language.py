@@ -53,6 +53,12 @@ PHRASES = {
     "resume_long": {"zh": "⚠️ 简历共 {pages} 页，超过 {limit} 页上限，可精简资料",
                     "en": "⚠️ The résumé is {pages} pages, over the {limit}-page limit; consider trimming your profile"},
     # The résumé itself (sent to recruiters)
+    "link_ok": {"zh": "✅ 已连接到 Job Radar 账号 {name}。职位提醒和投递通知会发到这里。",
+                "en": "✅ Linked to the Job Radar account {name}. Job alerts and notices will come here."},
+    "link_bad": {"zh": "这个链接码无效或已过期。请在 Job Radar 网页上重新点“连接我的机器人聊天”。",
+                 "en": "That link code is wrong or expired. Press \"Link my bot chat\" on the Job Radar page again."},
+    "link_hello": {"zh": "你好！要接收职位提醒，请在 Job Radar 网页上点“连接我的机器人聊天”。",
+                   "en": "Hi! To get job alerts, press \"Link my bot chat\" on the Job Radar page."},
     "cv_intro": {"zh": "职业概述", "en": "Professional Summary"},
     "cv_skills": {"zh": "技术技能", "en": "Technical Skills"},
     "cv_experience": {"zh": "工作经历", "en": "Work Experience"},

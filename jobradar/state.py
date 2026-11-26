@@ -22,6 +22,7 @@ imported once and renamed to ``*.json.migrated``.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import sqlite3
@@ -33,7 +34,9 @@ from typing import Any, Iterator
 
 log = logging.getLogger("jobradar.state")
 
-SCHEMA_VERSION = 6   # 2: runs; 3: bot inbox; 4: review queue; 5: conversations + messages; 6: profile + résumé files
+SCHEMA_VERSION = 7   # 2: runs; 3: bot inbox; 4: review queue; 5: conversations + messages; 6: profile + résumé files;
+                     # 7: user accounts (users, sessions; per-user applications, queue, contacts, pauses,
+                     #    conversations, profile)
 
 
 def utcnow() -> datetime:
@@ -92,39 +95,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     description TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_by_time ON jobs (sent_at);
-CREATE TABLE IF NOT EXISTS applications (
-    fingerprint TEXT PRIMARY KEY,
-    at          TEXT NOT NULL,
-    mode        TEXT NOT NULL,
-    status      TEXT NOT NULL,
-    channel     TEXT,
-    contact     TEXT,
-    title       TEXT NOT NULL DEFAULT '',
-    source_url  TEXT,
-    score       INTEGER,
-    reason      TEXT NOT NULL DEFAULT '',
-    error       TEXT NOT NULL DEFAULT '',
-    message     TEXT NOT NULL DEFAULT '',
-    resume_file TEXT NOT NULL DEFAULT ''        -- the résumé sent/drafted, relative to the data folder
-);
-CREATE INDEX IF NOT EXISTS applications_by_time ON applications (at);
-CREATE INDEX IF NOT EXISTS applications_by_mode ON applications (mode, status, at);
-CREATE TABLE IF NOT EXISTS apply_queue (
-    fingerprint TEXT PRIMARY KEY,
-    posted_at   TEXT,
-    queued_at   TEXT NOT NULL,
-    data        TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS contacts (
-    contact TEXT NOT NULL,
-    mode    TEXT NOT NULL,
-    at      TEXT NOT NULL,
-    PRIMARY KEY (contact, mode)
-);
-CREATE TABLE IF NOT EXISTS apply_paused (
-    channel TEXT PRIMARY KEY,
-    until   TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     trigger     TEXT NOT NULL,
@@ -165,17 +135,6 @@ CREATE TABLE IF NOT EXISTS review_queue (
     resolved_via TEXT
 );
 CREATE INDEX IF NOT EXISTS review_by_status ON review_queue (status, added_at);
-CREATE TABLE IF NOT EXISTS conversations (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel         TEXT NOT NULL,              -- telegram / email
-    contact         TEXT NOT NULL,              -- "@handle" or "name@company.com" (lower-case)
-    display_name    TEXT NOT NULL DEFAULT '',
-    peer_id         TEXT,                       -- Telegram user id, once known
-    created_at      TEXT NOT NULL,
-    last_message_at TEXT,
-    unread          INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (channel, contact)
-);
 CREATE TABLE IF NOT EXISTS messages (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id),
@@ -190,12 +149,92 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (conversation_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages (conversation_id, sent_at);
-CREATE TABLE IF NOT EXISTS profile (
-    id         INTEGER PRIMARY KEY CHECK (id = 1),   -- one profile
+"""
+# Tables that hold one person's data. Every row carries user_id (1 = the
+# administrator, kof311, who owns everything that existed before accounts).
+_USER_TABLES = {
+    "applications": """CREATE TABLE IF NOT EXISTS applications (
+    user_id     INTEGER NOT NULL DEFAULT 1,
+    fingerprint TEXT NOT NULL,
+    at          TEXT NOT NULL,
+    mode        TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    channel     TEXT,
+    contact     TEXT,
+    title       TEXT NOT NULL DEFAULT '',
+    source_url  TEXT,
+    score       INTEGER,
+    reason      TEXT NOT NULL DEFAULT '',
+    error       TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL DEFAULT '',
+    resume_file TEXT NOT NULL DEFAULT '',       -- the résumé sent/drafted, relative to the data folder
+    PRIMARY KEY (user_id, fingerprint)
+);""",
+    "apply_queue": """CREATE TABLE IF NOT EXISTS apply_queue (
+    user_id     INTEGER NOT NULL DEFAULT 1,
+    fingerprint TEXT NOT NULL,
+    posted_at   TEXT,
+    queued_at   TEXT NOT NULL,
+    data        TEXT NOT NULL,
+    PRIMARY KEY (user_id, fingerprint)
+);""",
+    "contacts": """CREATE TABLE IF NOT EXISTS contacts (
+    user_id INTEGER NOT NULL DEFAULT 1,
+    contact TEXT NOT NULL,
+    mode    TEXT NOT NULL,
+    at      TEXT NOT NULL,
+    PRIMARY KEY (user_id, contact, mode)
+);""",
+    "apply_paused": """CREATE TABLE IF NOT EXISTS apply_paused (
+    user_id INTEGER NOT NULL DEFAULT 1,
+    channel TEXT NOT NULL,
+    until   TEXT NOT NULL,
+    PRIMARY KEY (user_id, channel)
+);""",
+    "conversations": """CREATE TABLE IF NOT EXISTS conversations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL DEFAULT 1,
+    channel         TEXT NOT NULL,              -- telegram / email
+    contact         TEXT NOT NULL,              -- "@handle" or "name@company.com" (lower-case)
+    display_name    TEXT NOT NULL DEFAULT '',
+    peer_id         TEXT,                       -- Telegram user id, once known
+    created_at      TEXT NOT NULL,
+    last_message_at TEXT,
+    unread          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (user_id, channel, contact)
+);""",
+    "profile": """CREATE TABLE IF NOT EXISTS profile (
+    user_id    INTEGER PRIMARY KEY,
     data       TEXT NOT NULL,                       -- JSON, see jobradar/resume/profile.py
     updated_at TEXT NOT NULL
+);""",
+}
+
+_ACCOUNT_SCHEMA = """
+CREATE INDEX IF NOT EXISTS applications_by_time ON applications (user_id, at);
+CREATE INDEX IF NOT EXISTS applications_by_mode ON applications (user_id, mode, status, at);
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL DEFAULT '',     -- '' = can't log in with a password (yet)
+    role          TEXT NOT NULL DEFAULT 'user', -- admin / user
+    status        TEXT NOT NULL DEFAULT 'active', -- active / disabled (restricted by the admin)
+    created_at    TEXT NOT NULL,
+    last_login_at TEXT,
+    bot_chat_id   TEXT,                         -- this user's chat with the Job Radar bot
+    link_code     TEXT                          -- one-time code that links it ("/start CODE")
 );
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash   TEXT PRIMARY KEY,              -- sha256 of the cookie value; the cookie itself isn't stored
+    user_id      INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions (user_id);
 """
+ADMIN_ID = 1
+ADMIN_USERNAME = "kof311"
 RUNS_KEPT = 500
 
 _APP_FIELDS = ("at", "mode", "status", "channel", "contact", "title", "source_url", "message",
@@ -232,6 +271,37 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _add_user_columns(db: sqlite3.Connection) -> None:
+    """Schema 7: give each personal table a user_id, keeping every existing row
+    as the administrator's (user 1). SQLite can't change a primary key in
+    place, so each table is copied into the new shape."""
+    old = {name for name, _ in _USER_TABLES.items()
+           if (cols := [r[1] for r in db.execute(f"PRAGMA table_info({name})")]) and "user_id" not in cols}
+    if not old:
+        return
+    db.execute("PRAGMA legacy_alter_table=ON")   # don't rewrite messages' reference to conversations
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        for name in old:
+            cols = [r[1] for r in db.execute(f"PRAGMA table_info({name})")]
+            db.execute(_USER_TABLES[name].replace(f"CREATE TABLE IF NOT EXISTS {name} (",
+                                                  f"CREATE TABLE {name}__v7 ("))
+            if name == "profile":
+                db.execute("INSERT INTO profile__v7 (user_id, data, updated_at) SELECT 1, data, updated_at "
+                           "FROM profile")
+            else:
+                keep = ", ".join(cols)
+                db.execute(f"INSERT INTO {name}__v7 ({keep}, user_id) SELECT {keep}, 1 FROM {name}")
+            db.execute(f"DROP TABLE {name}")
+            db.execute(f"ALTER TABLE {name}__v7 RENAME TO {name}")
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    finally:
+        db.execute("PRAGMA legacy_alter_table=OFF")
+
+
 class State:
     def __init__(self, path: str | Path, *, max_sent: int = 5000, repost_window_days: int = 60,
                  legacy_json: str | Path | None = None):
@@ -240,6 +310,8 @@ class State:
         self.repost_window_days = repost_window_days
         self._lock = threading.RLock()
         self._repost_index = None
+        self.user_id = ADMIN_ID     # whose personal data the per-user methods read and write
+        self._owner = True
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._db = self._open()
         if legacy_json:
@@ -258,12 +330,10 @@ class State:
             if version > SCHEMA_VERSION:
                 raise sqlite3.DatabaseError(
                     f"{self.path.name} was written by a newer Job Radar (schema {version}); update Job Radar")
-            db.executescript(_SCHEMA)
-            app_cols = {r[1] for r in db.execute("PRAGMA table_info(applications)")}
-            if "message" not in app_cols:  # schema 5: the exact text sent/drafted
-                db.execute("ALTER TABLE applications ADD COLUMN message TEXT NOT NULL DEFAULT ''")
-            if "resume_file" not in app_cols:  # schema 6: the generated résumé that went with it
-                db.execute("ALTER TABLE applications ADD COLUMN resume_file TEXT NOT NULL DEFAULT ''")
+            _add_user_columns(db)
+            db.executescript(_SCHEMA + "\n".join(_USER_TABLES.values()) + _ACCOUNT_SCHEMA)
+            db.execute("INSERT OR IGNORE INTO users (id, username, role, created_at) VALUES (?, ?, 'admin', ?)",
+                       (ADMIN_ID, ADMIN_USERNAME, iso(utcnow())))
             if version < SCHEMA_VERSION:
                 db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         except BaseException:
@@ -305,11 +375,24 @@ class State:
         with self._lock:
             return self._db.execute(sql, args).fetchone()
 
+    def for_user(self, user_id: int) -> "State":
+        """The same database, seen as one user: applications, queue, contacts,
+        pauses, conversations and profile are that user's. Shares the
+        connection; closing a view does nothing."""
+        view = copy.copy(self)
+        view.user_id = int(user_id)
+        view._owner = False
+        return view
+
     def close(self) -> None:
+        if not self._owner:
+            return
         with self._lock:
             self._db.close()
 
     def __del__(self) -> None:  # tests and short-lived CLI commands just drop it
+        if not getattr(self, "_owner", False):
+            return
         try:
             self._db.close()
         except Exception:  # noqa: BLE001
@@ -468,16 +551,17 @@ class State:
         """The conversation with one representative (created if new)."""
         key = contact.strip().lower()
         with self._tx() as db:
-            db.execute("INSERT OR IGNORE INTO conversations (channel, contact, created_at) VALUES (?, ?, ?)",
-                       (channel, key, iso(utcnow())))
+            u = self.user_id
+            db.execute("INSERT OR IGNORE INTO conversations (user_id, channel, contact, created_at) VALUES (?, ?, ?, ?)",
+                       (u, channel, key, iso(utcnow())))
             if display_name:
-                db.execute("UPDATE conversations SET display_name = ? WHERE channel = ? AND contact = ?",
-                           (display_name, channel, key))
+                db.execute("UPDATE conversations SET display_name = ? WHERE user_id = ? AND channel = ? AND contact = ?",
+                           (display_name, u, channel, key))
             if peer_id:
-                db.execute("UPDATE conversations SET peer_id = ? WHERE channel = ? AND contact = ?",
-                           (str(peer_id), channel, key))
-            return db.execute("SELECT id FROM conversations WHERE channel = ? AND contact = ?",
-                              (channel, key)).fetchone()["id"]
+                db.execute("UPDATE conversations SET peer_id = ? WHERE user_id = ? AND channel = ? AND contact = ?",
+                           (str(peer_id), u, channel, key))
+            return db.execute("SELECT id FROM conversations WHERE user_id = ? AND channel = ? AND contact = ?",
+                              (u, channel, key)).fetchone()["id"]
 
     def add_message(self, conversation_id: int, direction: str, text: str, *, sent_at: datetime | None = None,
                     external_id: str | None = None, attachment: str = "", subject: str = "",
@@ -504,12 +588,12 @@ class State:
             "ORDER BY sent_at DESC, id DESC LIMIT 1) AS last_direction, (SELECT job_title FROM messages m "
             "WHERE m.conversation_id = c.id AND job_title != '' ORDER BY sent_at DESC LIMIT 1) AS job_title, "
             "(SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count "
-            "FROM conversations c WHERE (? IS NULL OR c.channel = ?) "
-            "ORDER BY COALESCE(c.last_message_at, c.created_at) DESC", (channel, channel))
+            "FROM conversations c WHERE c.user_id = ? AND (? IS NULL OR c.channel = ?) "
+            "ORDER BY COALESCE(c.last_message_at, c.created_at) DESC", (self.user_id, channel, channel))
         return [dict(r) for r in rows]
 
     def conversation(self, conversation_id: int) -> dict[str, Any] | None:
-        row = self._one("SELECT * FROM conversations WHERE id = ?", (conversation_id,))
+        row = self._one("SELECT * FROM conversations WHERE id = ? AND user_id = ?", (conversation_id, self.user_id))
         if not row:
             return None
         d = dict(row)
@@ -519,12 +603,13 @@ class State:
 
     def mark_read(self, conversation_id: int) -> None:
         with self._tx() as db:
-            db.execute("UPDATE conversations SET unread = 0 WHERE id = ?", (conversation_id,))
+            db.execute("UPDATE conversations SET unread = 0 WHERE id = ? AND user_id = ?",
+                       (conversation_id, self.user_id))
 
     # ------------------------------------------------------------- profile
     def get_profile(self) -> dict[str, Any]:
         """Your profile (the facts the résumé is built from); empty if not set."""
-        row = self._one("SELECT data FROM profile WHERE id = 1")
+        row = self._one("SELECT data FROM profile WHERE user_id = ?", (self.user_id,))
         try:
             return json.loads(row["data"]) if row else {}
         except (TypeError, ValueError):
@@ -532,12 +617,13 @@ class State:
 
     def set_profile(self, data: dict[str, Any]) -> None:
         with self._tx() as db:
-            db.execute("INSERT INTO profile (id, data, updated_at) VALUES (1, ?, ?) "
-                       "ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
-                       (json.dumps(data, ensure_ascii=False), iso(utcnow())))
+            db.execute("INSERT INTO profile (user_id, data, updated_at) VALUES (?, ?, ?) "
+                       "ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+                       (self.user_id, json.dumps(data, ensure_ascii=False), iso(utcnow())))
 
     def unread_total(self) -> int:
-        return self._one("SELECT COALESCE(SUM(unread), 0) AS n FROM conversations")["n"]
+        return self._one("SELECT COALESCE(SUM(unread), 0) AS n FROM conversations WHERE user_id = ?",
+                         (self.user_id,))["n"]
 
     def last_telegram_message_id(self, conversation_id: int) -> int:
         row = self._one("SELECT MAX(CAST(external_id AS INTEGER)) AS n FROM messages "
@@ -685,79 +771,174 @@ class State:
 
     # ------------------------------------------------- auto-apply records
     def has_application(self, fingerprint: str) -> bool:
-        return self._one("SELECT 1 FROM applications WHERE fingerprint = ?", (fingerprint,)) is not None
+        return self._one("SELECT 1 FROM applications WHERE user_id = ? AND fingerprint = ?",
+                         (self.user_id, fingerprint)) is not None
 
     def get_application(self, fingerprint: str) -> dict[str, Any] | None:
-        row = self._one("SELECT * FROM applications WHERE fingerprint = ?", (fingerprint,))
+        row = self._one("SELECT * FROM applications WHERE user_id = ? AND fingerprint = ?",
+                        (self.user_id, fingerprint))
         return dict(row) if row else None
 
     def finish_application(self, fingerprint: str, record: dict[str, Any]) -> None:
         """Record an application's outcome and take it off the queue, atomically."""
         values = [(record.get(f) or "") if f in _APP_TEXT_FIELDS else record.get(f) for f in _APP_FIELDS]
         with self._tx() as db:
-            db.execute(f"INSERT OR REPLACE INTO applications (fingerprint, {', '.join(_APP_FIELDS)}) "
-                       f"VALUES (?{', ?' * len(_APP_FIELDS)})", (fingerprint, *values))
-            db.execute("DELETE FROM apply_queue WHERE fingerprint = ?", (fingerprint,))
+            db.execute(f"INSERT OR REPLACE INTO applications (user_id, fingerprint, {', '.join(_APP_FIELDS)}) "
+                       f"VALUES (?, ?{', ?' * len(_APP_FIELDS)})", (self.user_id, fingerprint, *values))
+            db.execute("DELETE FROM apply_queue WHERE user_id = ? AND fingerprint = ?", (self.user_id, fingerprint))
 
     def list_applications(self, limit: int = 300) -> list[dict[str, Any]]:
-        return [dict(r) for r in self._q("SELECT * FROM applications ORDER BY at DESC LIMIT ?", (limit,))]
+        return [dict(r) for r in self._q("SELECT * FROM applications WHERE user_id = ? ORDER BY at DESC LIMIT ?",
+                                         (self.user_id, limit))]
+
+    def list_applications_all(self, limit: int = 500) -> list[dict[str, Any]]:
+        """Everyone's applications, newest first, with the username (for the admin)."""
+        return [dict(r) for r in self._q(
+            "SELECT a.*, COALESCE(u.username, '?') AS username FROM applications a "
+            "LEFT JOIN users u ON u.id = a.user_id ORDER BY a.at DESC LIMIT ?", (limit,))]
 
     def count_applications(self, *, mode: str, statuses: tuple[str, ...], since: datetime) -> int:
         marks = ", ".join("?" * len(statuses))
-        row = self._one(f"SELECT COUNT(*) AS n FROM applications WHERE mode = ? AND status IN ({marks}) "
-                        f"AND at > ?", (mode, *statuses, iso(since)))
+        row = self._one(f"SELECT COUNT(*) AS n FROM applications WHERE user_id = ? AND mode = ? "
+                        f"AND status IN ({marks}) AND at > ?", (self.user_id, mode, *statuses, iso(since)))
         return row["n"]
 
     def application_counts(self) -> dict[str, int]:
-        return {r["status"]: r["n"] for r in self._q("SELECT status, COUNT(*) AS n FROM applications GROUP BY status")}
+        return {r["status"]: r["n"] for r in self._q(
+            "SELECT status, COUNT(*) AS n FROM applications WHERE user_id = ? GROUP BY status", (self.user_id,))}
 
     # ------------------------------------------------------- apply queue
     def queue_has(self, fingerprint: str) -> bool:
-        return self._one("SELECT 1 FROM apply_queue WHERE fingerprint = ?", (fingerprint,)) is not None
+        return self._one("SELECT 1 FROM apply_queue WHERE user_id = ? AND fingerprint = ?",
+                         (self.user_id, fingerprint)) is not None
 
     def queue_put(self, fingerprint: str, entry: dict[str, Any]) -> None:
         with self._tx() as db:
-            db.execute("INSERT OR REPLACE INTO apply_queue (fingerprint, posted_at, queued_at, data) "
-                       "VALUES (?, ?, ?, ?)",
-                       (fingerprint, entry.get("posted_at"), entry.get("queued_at") or iso(utcnow()),
+            db.execute("INSERT OR REPLACE INTO apply_queue (user_id, fingerprint, posted_at, queued_at, data) "
+                       "VALUES (?, ?, ?, ?, ?)",
+                       (self.user_id, fingerprint, entry.get("posted_at"), entry.get("queued_at") or iso(utcnow()),
                         json.dumps(entry, ensure_ascii=False)))
 
     def queue_items(self) -> list[tuple[str, dict[str, Any]]]:
         """Queued entries, newest posting first."""
-        rows = self._q("SELECT fingerprint, data FROM apply_queue ORDER BY posted_at DESC")
+        rows = self._q("SELECT fingerprint, data FROM apply_queue WHERE user_id = ? ORDER BY posted_at DESC",
+                       (self.user_id,))
         return [(r["fingerprint"], json.loads(r["data"])) for r in rows]
 
     def queue_remove(self, fingerprint: str) -> None:
         with self._tx() as db:
-            db.execute("DELETE FROM apply_queue WHERE fingerprint = ?", (fingerprint,))
+            db.execute("DELETE FROM apply_queue WHERE user_id = ? AND fingerprint = ?", (self.user_id, fingerprint))
 
     def queue_len(self) -> int:
-        return self._one("SELECT COUNT(*) AS n FROM apply_queue")["n"]
+        return self._one("SELECT COUNT(*) AS n FROM apply_queue WHERE user_id = ?", (self.user_id,))["n"]
 
     # ------------------------------------------------ contacts / pauses
     def contact_last(self, contact: str, mode: str) -> str | None:
-        row = self._one("SELECT at FROM contacts WHERE contact = ? AND mode = ?", (contact, mode))
+        row = self._one("SELECT at FROM contacts WHERE user_id = ? AND contact = ? AND mode = ?",
+                        (self.user_id, contact, mode))
         return row["at"] if row else None
 
     def mark_contact(self, contact: str, mode: str, when: datetime | None = None) -> None:
         with self._tx() as db:
-            db.execute("INSERT OR REPLACE INTO contacts (contact, mode, at) VALUES (?, ?, ?)",
-                       (contact, mode, iso(when or utcnow())))
+            db.execute("INSERT OR REPLACE INTO contacts (user_id, contact, mode, at) VALUES (?, ?, ?, ?)",
+                       (self.user_id, contact, mode, iso(when or utcnow())))
 
     def paused_until(self, channel: str) -> str | None:
-        row = self._one("SELECT until FROM apply_paused WHERE channel = ?", (channel,))
+        row = self._one("SELECT until FROM apply_paused WHERE user_id = ? AND channel = ?", (self.user_id, channel))
         return row["until"] if row else None
 
     def set_paused(self, channel: str, until: str) -> None:
         with self._tx() as db:
-            db.execute("INSERT OR REPLACE INTO apply_paused (channel, until) VALUES (?, ?)", (channel, until))
+            db.execute("INSERT OR REPLACE INTO apply_paused (user_id, channel, until) VALUES (?, ?, ?)",
+                       (self.user_id, channel, until))
 
     def clear_paused(self, channel: str) -> None:
         with self._tx() as db:
-            db.execute("DELETE FROM apply_paused WHERE channel = ?", (channel,))
+            db.execute("DELETE FROM apply_paused WHERE user_id = ? AND channel = ?", (self.user_id, channel))
 
     def paused_channels(self) -> dict[str, str]:
-        return {r["channel"]: r["until"] for r in self._q("SELECT channel, until FROM apply_paused")}
+        return {r["channel"]: r["until"] for r in self._q(
+            "SELECT channel, until FROM apply_paused WHERE user_id = ?", (self.user_id,))}
+
+    # ------------------------------------------------------------ accounts
+    def user_create(self, username: str, password_hash: str, *, role: str = "user") -> int:
+        """A new account; raises ValueError if the name is taken (any letter case)."""
+        try:
+            with self._tx() as db:
+                cur = db.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                                 (username, password_hash, role, iso(utcnow())))
+                return int(cur.lastrowid)
+        except sqlite3.IntegrityError as e:
+            raise ValueError("That username is taken.") from e
+
+    def user_get(self, user_id: int) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM users WHERE id = ?", (user_id,))
+        return dict(row) if row else None
+
+    def user_by_name(self, username: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM users WHERE username = ?", (username.strip(),))
+        return dict(row) if row else None
+
+    def user_by_link_code(self, code: str) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM users WHERE link_code = ?", (code,)) if code else None
+        return dict(row) if row else None
+
+    def users(self) -> list[dict[str, Any]]:
+        """Every account with a few counts, administrator first."""
+        rows = self._q(
+            "SELECT u.id, u.username, u.role, u.status, u.created_at, u.last_login_at, u.bot_chat_id, "
+            "(SELECT COUNT(*) FROM applications a WHERE a.user_id = u.id AND a.status = 'sent') AS sent, "
+            "(SELECT COUNT(*) FROM profile p WHERE p.user_id = u.id) AS has_profile "
+            "FROM users u ORDER BY (u.role = 'admin') DESC, u.created_at")
+        return [dict(r) for r in rows]
+
+    def active_users(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._q("SELECT * FROM users WHERE status = 'active' ORDER BY id")]
+
+    def user_update(self, user_id: int, **fields: Any) -> None:
+        allowed = {"password_hash", "status", "last_login_at", "bot_chat_id", "link_code"}
+        bad = set(fields) - allowed
+        if bad:
+            raise ValueError(f"can't update {sorted(bad)}")
+        if not fields:
+            return
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self._tx() as db:
+            db.execute(f"UPDATE users SET {sets} WHERE id = ?", (*fields.values(), user_id))
+
+    def user_delete(self, user_id: int) -> None:
+        """Remove an account and all of its personal data (not the administrator)."""
+        if int(user_id) == ADMIN_ID:
+            raise ValueError("The administrator account can't be deleted.")
+        with self._tx() as db:
+            db.execute("DELETE FROM messages WHERE conversation_id IN "
+                       "(SELECT id FROM conversations WHERE user_id = ?)", (user_id,))
+            for table in (*_USER_TABLES, "sessions"):
+                db.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+            db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    # ------------------------------------------------------------ sessions
+    def session_create(self, user_id: int, token_hash: str, expires_at: datetime) -> None:
+        now = iso(utcnow())
+        with self._tx() as db:
+            db.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+            db.execute("INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen_at) "
+                       "VALUES (?, ?, ?, ?, ?)", (token_hash, user_id, now, iso(expires_at), now))
+
+    def session_user(self, token_hash: str) -> dict[str, Any] | None:
+        """The active account a session belongs to, or None (expired, unknown or restricted)."""
+        row = self._one("SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
+                        "WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'active'",
+                        (token_hash, iso(utcnow())))
+        return dict(row) if row else None
+
+    def session_delete(self, token_hash: str) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+    def sessions_delete_for(self, user_id: int) -> None:
+        with self._tx() as db:
+            db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
     # ---------------------------------------------- one-time JSON import
     def _migrate_json(self, legacy: Path) -> None:
@@ -797,15 +978,15 @@ class State:
                                       for f in _APP_FIELDS]))
             for fp, e in (data.get("apply_queue") or {}).items():
                 if isinstance(e, dict):
-                    db.execute("INSERT OR IGNORE INTO apply_queue VALUES (?, ?, ?, ?)",
+                    db.execute("INSERT OR IGNORE INTO apply_queue (fingerprint, posted_at, queued_at, data) VALUES (?, ?, ?, ?)",
                                (fp, e.get("posted_at"), e.get("queued_at") or iso(utcnow()),
                                 json.dumps(e, ensure_ascii=False)))
             for contact, modes in (data.get("contacts") or {}).items():
                 for mode, at in (modes or {}).items():
-                    db.execute("INSERT OR IGNORE INTO contacts VALUES (?, ?, ?)", (contact, mode, at))
+                    db.execute("INSERT OR IGNORE INTO contacts (contact, mode, at) VALUES (?, ?, ?)", (contact, mode, at))
             for ch, until in (data.get("apply_paused") or {}).items():
                 if until:
-                    db.execute("INSERT OR REPLACE INTO apply_paused VALUES (?, ?)", (ch, until))
+                    db.execute("INSERT OR REPLACE INTO apply_paused (channel, until) VALUES (?, ?)", (ch, until))
             db.execute("INSERT OR REPLACE INTO meta VALUES ('migrated_from_json', ?)", (iso(utcnow()),))
         done = legacy.with_name(legacy.name + ".migrated")
         try:

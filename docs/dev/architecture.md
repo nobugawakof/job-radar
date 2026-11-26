@@ -49,6 +49,8 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `resume/render.py` | Letter layout copied from the owner's sample résumé; `ResumeError` when no usable font |
 | `resume/skillgap.py` | Skills a post names (fixed vocabulary, zh + en) → existing / supported / gap, coverage %, the AI hint |
 | `resume/builder.py` | `ResumeBuilder.build(posting, key)` → `resumes/<key>/<Name>_简历.pdf`; `make_builder` |
+| `auth.py` | Password hashing, session tokens, name rules (kof311 reserved), login throttling |
+| `accounts.py` | Per-account runtime: session file, bot chat, résumé folder, the settings a user's applications see |
 | `apply/language.py` | `resolve(setting, text)` → zh/en; `PHRASES` + `t()` for notices; `ui()` |
 | `ai.py` | Gemini and Claude over raw HTTPS (stdlib). `draft_application(..., language=)` for fit score + message |
 | `web/app.py` | `http.server` dashboard: JSON API under `/api/*`, runner thread, `build_state()` |
@@ -58,7 +60,7 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `web/tglogin.py` | Phone → code → 2FA login for the user's Telegram account, plus check and logout |
 | `web/index.html` | The whole UI (vanilla JS). Tabs: overview, telegram, search, ai, apply, messages, review, history, activity |
 
-## Database (`jobradar.db`, schema v6)
+## Database (`jobradar.db`, schema v7)
 
 | Table | Holds |
 |---|---|
@@ -75,7 +77,13 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `bot_chats`, `bot_posts` | Bot inbox: chats seen, channel posts buffered |
 | `review_queue` | Jobs with an unclear region waiting for ✅/❌ |
 | `conversations` | One per representative: `(channel, contact)` unique, display_name, peer_id, last_message_at, unread |
-| `profile` | One row (id = 1): the profile JSON the résumé is built from |
+| `profile` | One row per user: the profile JSON the résumé is built from |
+| `users` | Accounts: username (unique, any case), password hash, role (admin = kof311, id 1), status (active / disabled), bot_chat_id, link_code |
+| `sessions` | Logged-in browsers: sha256 of the cookie token, user, expiry |
+
+Per-user tables carry `user_id` (1 = the administrator): applications,
+apply_queue, contacts, apply_paused, conversations (and their messages),
+profile. `State.for_user(uid)` reads and writes one user's rows.
 | `messages` | Each message: direction `out` or `in`, text, subject, attachment, external_id (Telegram message id or email Message-ID, unique per conversation), job_fingerprint, job_title |
 
 Some files are deliberately **not** in the database:

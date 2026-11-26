@@ -488,7 +488,9 @@ def build_senders(config: Config, base: Path) -> dict[str, Sender]:
 
 
 def build_applier(config: Config, state: State, *, base_dir: Path,
-                  notify: Notifier | None = None) -> Applier:
+                  notify: Notifier | None = None, owner: str = "") -> Applier:
+    """``state`` may be one user's view (State.for_user); ``owner`` is that
+    user's résumé sub-folder (see jobradar.accounts)."""
     from .. import ai
 
     from ..resume import builder as resume_builder
@@ -500,7 +502,7 @@ def build_applier(config: Config, state: State, *, base_dir: Path,
     builder = None
     if (config.resume_source or "generated") == "generated":
         profile = state.get_profile()
-        builder = resume_builder.make_builder(config, base_dir, profile)
+        builder = resume_builder.make_builder(config, base_dir, profile, owner=owner)
         if builder is not None:
             resume_text = prof.facts_text(builder.profile)   # the AI judges fit from your profile
         elif resume_pdf and resume_pdf.exists():

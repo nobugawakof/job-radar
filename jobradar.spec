@@ -33,6 +33,8 @@ a = Analysis(
         "jobradar.web.configfile",
         "jobradar.web.tglogin",
         "jobradar.web.netinfo",
+        "jobradar.auth",
+        "jobradar.accounts",
         "jobradar.web.qr",
         "jobradar.apply.conversations",
         "jobradar.apply.language",

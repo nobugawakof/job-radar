@@ -8,6 +8,7 @@
     jobradar telegram-login # log your own Telegram account in (for auto-apply)
     jobradar test-apply     # draft an application for a sample posting
     jobradar resume         # make your résumé PDF from your profile
+    jobradar admin-password # set the administrator (kof311) password
     jobradar applications   # list recent auto-apply results
 """
 
@@ -209,6 +210,28 @@ Requirements: 5+ years backend, Python, PostgreSQL, Docker/Kubernetes, AWS.
 Salary: $90k-$130k. Apply: Telegram @acme_hiring or jobs@acme.example"""
 
 
+def cmd_admin_password(args: argparse.Namespace) -> int:
+    """Set (or reset) the administrator's password, from this computer."""
+    import getpass
+
+    from . import auth
+
+    svc = _service(args)
+    pw = getpass.getpass(f"New password for the administrator ({auth.ADMIN_USERNAME}): ")
+    if pw != getpass.getpass("Type it again: "):
+        print("The two passwords don't match; nothing changed.")
+        return 1
+    try:
+        auth.check_password(pw)
+    except auth.AuthError as e:
+        print(e)
+        return 1
+    svc.state.user_update(1, password_hash=auth.hash_password(pw))
+    svc.state.sessions_delete_for(1)
+    print(f"Done. Log in as {auth.ADMIN_USERNAME} with that password on any device.")
+    return 0
+
+
 def cmd_resume(args: argparse.Namespace) -> int:
     """Make your résumé PDF from your profile, optionally tailored to a posting."""
     from .resume.builder import make_builder
@@ -388,6 +411,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("test-telegram", help="send a test message").set_defaults(func=cmd_test_telegram)
     sub.add_parser("telegram-login", help="log your own Telegram account in (auto-apply)"
                    ).set_defaults(func=cmd_telegram_login)
+    sub.add_parser("admin-password", help="set the administrator (kof311) password").set_defaults(
+        func=cmd_admin_password)
     rs = sub.add_parser("resume", help="make your résumé PDF from your profile")
     rs.add_argument("--posting", help="a text file with a job post to tailor it to")
     rs.add_argument("-o", "--output", help="where to save the PDF")

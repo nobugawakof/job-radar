@@ -33,7 +33,9 @@ database server to install or run. The file holds:
 | `jobs` | Each delivered job: title, link, source, salary, location and the full original text |
 | `signatures` | Similarity signatures of sent jobs, to recognise reworded reposts |
 | `sources` | Each source's last successful check, failure count, and whether it's switched off |
-| `applications`, `apply_queue`, `contacts`, `apply_paused` | Auto-apply history, waiting jobs, who was contacted, and paused channels |
+| `applications`, `apply_queue`, `contacts`, `apply_paused` | Auto-apply history, waiting jobs, who was contacted, and paused channels (per account) |
+| `conversations`, `messages`, `profile` | Each account's conversations with recruiters and résumé profile |
+| `users`, `sessions` | Accounts (passwords stored hashed) and logged-in browsers |
 | `meta` | The last run time, plus the schema version in SQLite's `user_version` |
 
 Every change is committed as it happens, in a transaction, with SQLite's
@@ -92,9 +94,9 @@ Job Radar keeps running on your computer; other devices just open its page.
    dashboard**, save, then restart Job Radar (close its window, open it again).
 2. If Windows asks whether to allow Job Radar on the network, allow it for
    **Private networks** only (not Public).
-3. The **Use on other devices** card now shows a link with a QR code. Scan it
-   with your phone's camera, or copy the link to the other computer. The
-   window also prints the link at startup.
+3. The **Use on other devices** card now shows the address with a QR code.
+   Scan it with your phone's camera, or type the address on the other computer,
+   then log in (see **Accounts** below). The window also prints the address.
 
 **From anywhere, safely: Tailscale**
 
@@ -113,10 +115,10 @@ change any router settings.
 
 **Keep it safe**
 
-- The link logs in whoever opens it, with full control of Job Radar and of your
-  Telegram account. Only open it on your own devices; don't post or forward it.
-  To shut out every device that has it, delete `jobradar-web.token` in
-  `jobradar-data` and restart; a new link is made.
+- Other devices must log in. The secret link Job Radar prints logs in the
+  administrator only on the computer that runs it.
+- Anyone who can open the page can create an account (see **Accounts**), so
+  only allow other devices on networks where you know who's there.
 - On the home network, the page travels unencrypted (plain HTTP), so allow it
   only on a network you trust. Leave the switch off on public Wi-Fi. Tailscale
   encrypts everything.
@@ -124,6 +126,61 @@ change any router settings.
   use Tailscale instead.
 - Command line: `python3 -m jobradar.cli web --host 0.0.0.0` does the same for
   one run; `--host 127.0.0.1` keeps it local whatever the switch says.
+
+### Accounts: administrator and users
+
+Job Radar can be shared: each person has an account with their own profile,
+Telegram account, job alerts, applications and conversations.
+
+**The administrator is `kof311`.** Nobody else can register that name.
+- On the computer that runs Job Radar, the link it prints logs you in as kof311
+  (as before).
+- To use kof311 from another device, set a password first: **Account** (top
+  right) → new password, or run `python3 -m jobradar.cli admin-password`.
+- The administrator sees and manages everything: the bot, job search, AI keys,
+  auto-apply settings, review queue, activity, everyone's applications, and
+  the **Users** page.
+
+**Users sign up themselves** (**Create account** on the login page) and are
+logged in at once. A user only sees:
+- **Profile**: the facts their résumé is made from;
+- **My Telegram**:
+  1. link their own Telegram account (phone → code; the administrator must
+     have entered the Telegram API ID/hash);
+  2. link their alerts chat: **Link my bot chat** opens the Job Radar bot and
+     sends `/start CODE`;
+  3. see whether auto-apply is on for them;
+- **Applications** and **Messages**: their own only.
+
+Everything else (sites, keywords, AI keys, limits, the bot) is the
+administrator's.
+
+**What each user gets**
+- Every job the shared search finds goes to their alerts chat too.
+- With auto-apply on (the administrator's switch), each user with a linked
+  Telegram account and a complete profile gets their own applications: a
+  résumé made from *their* profile, sent from *their* Telegram account, with
+  their own daily cap, cooldowns and "applied" notices.
+- Users apply by Telegram only; email goes out from the administrator's
+  mailbox, so it's used for the administrator's applications only.
+- Replies from recruiters show up in each user's own **Messages**.
+
+**Managing accounts (Users page)**
+- **Create** an account with a first password.
+- **Restrict**: the user is logged out at once, can't log in, gets no alerts,
+  and nothing is applied for them. **Allow** undoes it.
+- **New password**: set a new password and log them out everywhere.
+- **Delete**: removes the account, its profile, applications, conversations,
+  résumés and Telegram login. The administrator can't be restricted or
+  deleted.
+
+**Security**
+- Passwords are stored salted and hashed (PBKDF2), never as text.
+- Sessions last 30 days, in a private cookie. Repeated wrong passwords are
+  slowed down, and so are many sign-ups from one device.
+- A user's Telegram login is stored on the computer that runs Job Radar, so
+  whoever runs it could use it. The My Telegram page says so before anyone
+  links an account.
 
 **Your files** all live in one folder, `jobradar-data`, beside the program:
 
@@ -134,6 +191,7 @@ change any router settings.
 | `resumes/` | The résumé PDF made for each application (and the latest preview) |
 | `fonts/` | Optional: a font for the résumé PDF, if your computer has no Chinese TrueType font |
 | `jobradar-user.session` | Your Telegram login, if you logged in. Full access to your account: keep it private |
+| `sessions/user-<n>.session` | Each user's Telegram login (same warning) |
 | `resume.pdf` / `resume.txt` | Your résumé, if uploaded |
 | `jobradar-web.token` | The dashboard's private session-cookie secret |
 
@@ -201,6 +259,7 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 | `telegram-login` | Log **your own** Telegram account in, once (for auto-apply) |
 | `test-apply [--posting FILE] [--send]` | Draft an application for a sample (or real) posting; `--send` delivers it to yourself |
 | `resume [--posting FILE] [-o FILE]` | Make your résumé PDF from your profile (tailored to a posting, with AI) |
+| `admin-password` | Set or reset the administrator (kof311) password |
 | `applications` | List recent auto-apply results, the queue, and any paused channel |
 
 ## Sources

@@ -81,6 +81,7 @@ apply_mode     = "off"                   # "off" | "dry_run" | "auto"
 apply_channels = ["telegram", "email"]   # tried in this order
 applicant_name = ""                      # signs the message
 # Let other devices (phone on your Wi-Fi, or via Tailscale) open the dashboard.
+# People log in there; anyone who can reach it can create an account.
 # Applies when Job Radar restarts. See README → "Open the dashboard on your phone".
 web_allow_network = false
 

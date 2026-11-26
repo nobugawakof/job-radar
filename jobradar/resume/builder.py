@@ -58,9 +58,10 @@ def paper_for(config: Config, posting_text: str) -> str:
 
 class ResumeBuilder:
     def __init__(self, config: Config, base_dir: Path, profile: dict[str, Any], *,
-                 tailor: Tailor | None = None):
+                 tailor: Tailor | None = None, owner: str = ""):
         self.config = config
         self.base_dir = Path(base_dir)
+        self.owner = owner      # sub-folder of resumes/ for this account ('' = the administrator's)
         self.profile = prof.newest_first(prof.validate(profile))   # raises ProfileError if incomplete
         self.tailor = tailor
         self.last: BuildInfo | None = None
@@ -95,7 +96,8 @@ class ResumeBuilder:
             raise
         except Exception as e:  # noqa: BLE001 - a font or layout bug
             raise ResumeError(f"{type(e).__name__}: {e}") from e
-        folder = self.base_dir / "resumes" / (_safe(key)[:24] if key else "preview")
+        root = self.base_dir / "resumes" / (_safe(self.owner) if self.owner else "")
+        folder = root / (_safe(key)[:24] if key else "preview")
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{cv.file_stem(self.profile, c.lang)}.pdf"
         fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
@@ -123,7 +125,7 @@ def _safe(key: str) -> str:
     return "".join(c for c in key if c.isalnum() or c in "-_") or "job"
 
 
-def make_builder(config: Config, base_dir: Path, profile: dict[str, Any]) -> ResumeBuilder | None:
+def make_builder(config: Config, base_dir: Path, profile: dict[str, Any], *, owner: str = "") -> ResumeBuilder | None:
     """A builder when your profile is complete (with AI tailoring when AI is
     set up), else None."""
     if not prof.is_complete(profile):
@@ -138,4 +140,4 @@ def make_builder(config: Config, base_dir: Path, profile: dict[str, Any]) -> Res
             return ai.tailor_resume(p, posting, language=lang, provider=config.ai_provider, api_key=key or "",
                                     model=config.ai_model, max_chars=config.ai_max_chars, hint=hint)
         tailor = ai_tailor
-    return ResumeBuilder(config, base_dir, profile, tailor=tailor)
+    return ResumeBuilder(config, base_dir, profile, tailor=tailor, owner=owner)

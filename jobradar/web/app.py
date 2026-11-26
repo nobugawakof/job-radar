@@ -37,6 +37,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import __version__
+from .. import accounts as acc
+from .. import auth
 from ..config import Config, load
 from ..redact import redact
 from ..service import Service
@@ -107,7 +109,10 @@ class Controller:
         self.config_path = config_path.resolve()
         self.base_dir = self.config_path.parent
         self.logs = logs or LogBuffer()
-        self.login = TelegramLogin()
+        self.logins: dict[int, TelegramLogin] = {}     # half-finished Telegram logins, per account
+        self.login = self.login_for(1)                  # the administrator's
+        self.throttle = auth.Throttle()                 # failed logins, per address and per name
+        self.signups = auth.Throttle(free=5, window=3600, base=600, cap=3600)   # new accounts per address
         self._svc_lock = threading.RLock()
         self.service: Service = self._build(None)
         self.running = False
@@ -118,6 +123,11 @@ class Controller:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    def login_for(self, user_id: int) -> TelegramLogin:
+        if user_id not in self.logins:
+            self.logins[user_id] = TelegramLogin()
+        return self.logins[user_id]
 
     # ------------------------------------------------------------ service
     def _build(self, old: Service | None) -> Service:
@@ -236,6 +246,27 @@ def summarize(s) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ state
+def build_user_state(ctrl: Controller, user: dict[str, Any]) -> dict[str, Any]:
+    """What a regular account sees: its own profile, Telegram links,
+    applications and messages; none of the shared settings or keys."""
+    from ..resume.profile import is_complete
+
+    c, st = ctrl.config, ctrl.service.state
+    me = st.user_get(user["id"]) or user
+    mine = st.for_user(me["id"])
+    return {
+        "version": __version__, "me": _public_user(me), "running": ctrl.running,
+        "profile_complete": is_complete(mine.get_profile()),
+        "telegram": {"api_ready": bool(c.telegram_api_id and c.telegram_api_hash), "telethon": _has_telethon(),
+                     "linked": acc.has_telegram(c, ctrl.base_dir, me), "login_stage": ctrl.login_for(me["id"]).stage},
+        "bot": {"ready": ctrl.service.inbox is not None, "linked": bool(me.get("bot_chat_id")),
+                "waiting_code": me.get("link_code") or ""},
+        "apply": {"mode": c.apply_mode, "counts": mine.application_counts(), "queue": mine.queue_len(),
+                  "daily_cap": c.apply_daily_cap},
+        "unread_messages": mine.unread_total(),
+    }
+
+
 _QR_CACHE: dict[str, str] = {}
 
 
@@ -251,7 +282,7 @@ def _network(ctrl: Controller) -> dict[str, Any]:
         from . import netinfo, qr
 
         for a in netinfo.addresses():
-            url = f"http://{a['ip']}:{net['port']}/?t={net['token']}"
+            url = f"http://{a['ip']}:{net['port']}/"
             if url not in _QR_CACHE:
                 _QR_CACHE[url] = qr.svg(url, scale=4)
             out["addresses"].append({**a, "url": url, "qr": _QR_CACHE[url]})
@@ -403,14 +434,75 @@ def _require(cond: Any, message: str, status: int = 400) -> None:
         raise ApiError(message, status)
 
 
+# Who may call what. Anything not listed is for the administrator only.
+PUBLIC = "public"
+USER = "user"          # any logged-in account (the administrator included), on its own data
+ROLES: dict[tuple[str, str], str] = {
+    ("GET", "/api/auth/me"): PUBLIC, ("POST", "/api/auth/login"): PUBLIC, ("POST", "/api/auth/signup"): PUBLIC,
+    ("POST", "/api/auth/logout"): USER, ("POST", "/api/auth/password"): USER,
+    ("GET", "/api/state"): USER, ("GET", "/api/profile"): USER, ("POST", "/api/profile"): USER,
+    ("PUT", "/api/profile/import"): USER, ("POST", "/api/profile/preview"): USER,
+    ("GET", "/api/applications"): USER, ("GET", "/api/messages"): USER, ("POST", "/api/messages/open"): USER,
+    ("POST", "/api/messages/sync"): USER, ("POST", "/api/messages/send"): USER,
+    ("POST", "/api/tg/start"): USER, ("POST", "/api/tg/code"): USER, ("POST", "/api/tg/password"): USER,
+    ("POST", "/api/tg/check"): USER, ("POST", "/api/tg/logout"): USER,
+    ("POST", "/api/bot/link"): USER, ("POST", "/api/bot/unlink"): USER,
+    ("GET", "/api/file"): USER,
+}
+SESSION_SECONDS = auth.SESSION_DAYS * 86400
+
+
+def _public_user(u: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not u:
+        return None
+    return {"id": u["id"], "username": u["username"], "role": u["role"], "status": u["status"],
+            "has_password": bool(u.get("password_hash")), "is_admin": acc.is_admin(u)}
+
+
 class Api:
-    def __init__(self, ctrl: Controller):
+    """One request's API, acting as one account (``user``)."""
+
+    def __init__(self, ctrl: Controller, user: dict[str, Any] | None = None, *, client_ip: str = "",
+                 token: str = "", local: bool = False):
         self.ctrl = ctrl
+        self.user = user
+        self.client_ip = client_ip
+        self.token = token          # this browser's session token (for log out)
+        self.local = local          # the request comes from this computer
+        self.uid = int(user["id"]) if user else 1
+        self.admin = acc.is_admin(user)
+
+    @property
+    def st(self):
+        """This account's view of the database."""
+        return self.ctrl.service.state.for_user(self.uid)
+
+    @property
+    def ucfg(self) -> Config:
+        """The settings as this account's applications see them."""
+        return acc.user_config(self.ctrl.config, self.ctrl.base_dir, self.user) if self.user else self.ctrl.config
+
+    def _state(self) -> dict[str, Any]:
+        if self.admin:
+            return {**build_state(self.ctrl), "me": _public_user(self.user)}
+        return build_user_state(self.ctrl, self.user)
 
     # Each handler gets the parsed JSON body (or raw bytes for uploads).
     def routes(self) -> dict[tuple[str, str], Callable[[Any], Any]]:
         return {
-            ("GET", "/api/state"): lambda _: build_state(self.ctrl),
+            ("GET", "/api/state"): lambda _: self._state(),
+            ("GET", "/api/auth/me"): self.auth_me,
+            ("POST", "/api/auth/login"): self.auth_login,
+            ("POST", "/api/auth/signup"): self.auth_signup,
+            ("POST", "/api/auth/logout"): self.auth_logout,
+            ("POST", "/api/auth/password"): self.auth_password,
+            ("GET", "/api/users"): self.users_list,
+            ("POST", "/api/users/create"): self.users_create,
+            ("POST", "/api/users/status"): self.users_status,
+            ("POST", "/api/users/delete"): self.users_delete,
+            ("POST", "/api/users/password"): self.users_password,
+            ("POST", "/api/bot/link"): self.bot_link,
+            ("POST", "/api/bot/unlink"): self.bot_unlink,
             ("GET", "/api/applications"): self.applications,
             ("GET", "/api/review"): self.review_list,
             ("GET", "/api/messages"): self.messages_list,
@@ -463,12 +555,12 @@ class Api:
         return build_state(self.ctrl)
 
     def messages_list(self, _: Any) -> dict[str, Any]:
-        st = self.ctrl.service.state
+        st = self.st
         return {"conversations": st.conversations(), "unread": st.unread_total(),
-                "telegram_logged_in": build_state(self.ctrl)["apply"]["telegram_session"]}
+                "telegram_logged_in": acc.has_telegram(self.ctrl.config, self.ctrl.base_dir, self.user or {"id": 1})}
 
     def messages_open(self, body: dict[str, Any]) -> dict[str, Any]:
-        st = self.ctrl.service.state
+        st = self.st
         try:
             conv_id = int(body.get("id"))
         except (TypeError, ValueError) as e:
@@ -481,7 +573,7 @@ class Api:
 
     def messages_sync(self, body: dict[str, Any]) -> dict[str, Any]:
         _require(not self.ctrl.running, "A check is running; it reads new replies itself when done.", 409)
-        result = self.ctrl.service.sync_conversations()
+        result = self.ctrl.service.sync_conversations(user=self.user)
         self.ctrl._last_sync = time.time()
         return {"result": result, **self.messages_list(None)}
 
@@ -493,8 +585,7 @@ class Api:
         except (TypeError, ValueError) as e:
             raise ApiError("missing conversation id") from e
         try:
-            conv = send_reply(self.ctrl.config, self.ctrl.service.state, self.ctrl.base_dir, conv_id,
-                              str(body.get("text") or ""))
+            conv = send_reply(self.ucfg, self.st, self.ctrl.base_dir, conv_id, str(body.get("text") or ""))
         except ReplyError as e:
             raise ApiError(str(e)) from e
         log.info("reply sent in a conversation")
@@ -519,11 +610,13 @@ class Api:
         return {"message": msg, **self.review_list(None)}
 
     def applications(self, _: Any) -> dict[str, Any]:
-        st = self.ctrl.service.state
+        """Yours; the administrator sees everyone's (with the username)."""
+        st = self.st
         queue = [{"title": e.get("title"), "telegram": e.get("telegram"), "email": e.get("email"),
                   "posted_at": e.get("posted_at"), "url": e.get("source_url")}
                  for _, e in st.queue_items()]
-        return {"applications": st.list_applications(300), "queue": queue}
+        apps = st.list_applications_all(500) if self.admin else st.list_applications(300)
+        return {"applications": apps, "queue": queue, "all_users": self.admin}
 
     def run(self, _: Any) -> dict[str, Any]:
         _require(self.ctrl.configured(), "Connect your Telegram bot first (Telegram tab).")
@@ -613,7 +706,7 @@ class Api:
     def profile_get(self, _: Any) -> dict[str, Any]:
         from ..resume import profile as prof
 
-        p = prof.normalize(self.ctrl.service.state.get_profile())
+        p = prof.normalize(self.st.get_profile())
         return {"profile": p, "complete": prof.is_complete(p)}
 
     def profile_save(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -623,16 +716,17 @@ class Api:
             p = prof.validate(body.get("profile") if isinstance(body.get("profile"), dict) else {})
         except prof.ProfileError as e:
             raise ApiError(str(e)) from e
-        self.ctrl.service.state.set_profile(p)
+        self.st.set_profile(p)
         log.info("profile saved")
-        return {"profile": p, "complete": True, **build_state(self.ctrl)}
+        return {**self._state(), "profile": p, "complete": True}
 
     def _ai(self) -> tuple[str, str]:
         from ..apply.engine import ai_key
 
         c = self.ctrl.config
         key = ai_key(c)
-        _require(key, "Add an AI key on the AI page first: reading a résumé needs AI.")
+        _require(key, "Add an AI key on the AI page first: reading a résumé needs AI." if self.admin else
+                 "Reading a résumé needs AI, which the administrator hasn't set up. Fill in the fields yourself.")
         return c.ai_provider, key or ""
 
     def _import(self, *, text: str | None, pdf: bytes | None) -> dict[str, Any]:
@@ -668,14 +762,14 @@ class Api:
         from ..resume import profile as prof
         from ..resume.render import ResumeError
 
-        st = self.ctrl.service.state
+        st = self.st
         p = body.get("profile") if isinstance(body.get("profile"), dict) else st.get_profile()
         try:
             prof.validate(p)
         except prof.ProfileError as e:
             raise ApiError(str(e)) from e
         posting = str(body.get("posting") or "")[:20000]
-        b = rb.make_builder(self.ctrl.config, self.ctrl.base_dir, p)
+        b = rb.make_builder(self.ucfg, self.ctrl.base_dir, p, owner=acc.resume_owner(self.user or {"id": 1}))
         if not posting.strip():
             b.tailor = None    # a general résumé is just your profile, laid out; no AI call
         try:
@@ -726,9 +820,11 @@ class Api:
     def _account(self) -> dict[str, str]:
         c = self.ctrl.config
         _require(c.telegram_api_id and c.telegram_api_hash,
-                 "Save your API ID and API hash from my.telegram.org first.")
-        return {"api_id": str(c.telegram_api_id), "api_hash": str(c.telegram_api_hash),
-                "session_path": str(self.ctrl.resolve(c.telegram_session_path))}
+                 "Save your API ID and API hash from my.telegram.org first." if self.admin else
+                 "The administrator hasn't set up Telegram access yet. Ask them to add the Telegram API ID and hash.")
+        path = acc.session_path(c, self.ctrl.base_dir, self.user or {"id": 1})
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return {"api_id": str(c.telegram_api_id), "api_hash": str(c.telegram_api_hash), "session_path": str(path)}
 
     def _login(self, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         try:
@@ -741,24 +837,27 @@ class Api:
 
     def tg_start(self, body: dict[str, Any]) -> dict[str, Any]:
         acct = self._account()
-        phone = str(body.get("phone") or self.ctrl.config.telegram_phone or "").replace(" ", "")
+        phone = str(body.get("phone") or (self.ctrl.config.telegram_phone if self.admin else "") or "").replace(" ", "")
         _require(phone.startswith("+") and phone[1:].isdigit(),
                  "Enter your phone number with the country code, e.g. +60123456789.")
-        if phone != (self.ctrl.config.telegram_phone or ""):
+        if self.admin and phone != (self.ctrl.config.telegram_phone or ""):
             self._save({"telegram_phone": phone})
-        return self._login(lambda: self.ctrl.login.start(phone=phone, **acct))
+        login = self.ctrl.login_for(self.uid)
+        return self._login(lambda: login.start(phone=phone, **acct))
 
     def tg_code(self, body: dict[str, Any]) -> dict[str, Any]:
         acct = self._account()
         code = str(body.get("code") or "").strip()
         _require(code, "Enter the code Telegram sent you.")
-        return self._login(lambda: self.ctrl.login.code(code, acct["session_path"]))
+        login = self.ctrl.login_for(self.uid)
+        return self._login(lambda: login.code(code, acct["session_path"]))
 
     def tg_password(self, body: dict[str, Any]) -> dict[str, Any]:
         acct = self._account()
         pw = str(body.get("password") or "")
         _require(pw, "Enter your two-step verification password.")
-        return self._login(lambda: self.ctrl.login.password(pw, acct["session_path"]))
+        login = self.ctrl.login_for(self.uid)
+        return self._login(lambda: login.password(pw, acct["session_path"]))
 
     def tg_check(self, _: Any) -> dict[str, Any]:
         acct = self._account()
@@ -774,7 +873,180 @@ class Api:
         except LoginError as e:
             raise ApiError(str(e), 409) from e
         log.info("Telegram account logged out; session file deleted")
-        return build_state(self.ctrl)
+        return self._state()
+
+    # ------------------------------------------------------------ accounts
+    def auth_me(self, _: Any) -> dict[str, Any]:
+        return {"user": _public_user(self.user), "signup": True, "version": __version__}
+
+    def _session(self, user: dict[str, Any]) -> dict[str, Any]:
+        token = auth.new_token()
+        st = self.ctrl.service.state
+        st.session_create(user["id"], auth.token_hash(token), utcnow() + timedelta(seconds=SESSION_SECONDS))
+        st.user_update(user["id"], last_login_at=iso(utcnow()))
+        return {"user": _public_user(st.user_get(user["id"])), "_cookie": token}
+
+    def auth_login(self, body: dict[str, Any]) -> dict[str, Any]:
+        name = str(body.get("username") or "").strip()
+        password = str(body.get("password") or "")
+        keys = (f"ip:{self.client_ip}", f"name:{name.lower()}")
+        wait = max(self.ctrl.throttle.wait(k) for k in keys)
+        _require(not wait, f"Too many attempts. Try again in {int(wait) + 1} seconds.", 429)
+        u = self.ctrl.service.state.user_by_name(name) if name else None
+        if not u or not auth.verify_password(password, u.get("password_hash") or ""):
+            for k in keys:
+                self.ctrl.throttle.failed(k)
+            raise ApiError("Wrong username or password.", 401)
+        _require(u["status"] == "active", "This account has been restricted by the administrator.", 403)
+        for k in keys:
+            self.ctrl.throttle.clear(k)
+        log.info("a user logged in")
+        return self._session(u)
+
+    def auth_signup(self, body: dict[str, Any]) -> dict[str, Any]:
+        key = f"ip:{self.client_ip}"
+        wait = self.ctrl.signups.wait(key)
+        _require(not wait, "Too many new accounts from this device. Try again later.", 429)
+        try:
+            name = auth.check_username(str(body.get("username") or ""))
+            password = auth.check_password(str(body.get("password") or ""))
+        except auth.AuthError as e:
+            raise ApiError(str(e)) from e
+        try:
+            uid = self.ctrl.service.state.user_create(name, auth.hash_password(password))
+        except ValueError as e:
+            raise ApiError(str(e), 409) from e
+        self.ctrl.signups.failed(key)   # counts sign-ups per address
+        log.info("a new account signed up")
+        return self._session(self.ctrl.service.state.user_get(uid))
+
+    def auth_logout(self, _: Any) -> dict[str, Any]:
+        if self.token:
+            self.ctrl.service.state.session_delete(auth.token_hash(self.token))
+        return {"user": None, "_cookie": ""}
+
+    def auth_password(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Change your own password. The administrator's first password can be
+        set without one only from this computer (the printed link)."""
+        u = self.ctrl.service.state.user_get(self.uid)
+        current = str(body.get("current") or "")
+        if u.get("password_hash"):
+            _require(auth.verify_password(current, u["password_hash"]), "Your current password is wrong.", 403)
+        else:
+            _require(self.local, "Set the administrator password on the computer that runs Job Radar.", 403)
+        try:
+            new = auth.check_password(str(body.get("password") or ""))
+        except auth.AuthError as e:
+            raise ApiError(str(e)) from e
+        st = self.ctrl.service.state
+        st.user_update(self.uid, password_hash=auth.hash_password(new))
+        st.sessions_delete_for(self.uid)          # log out everywhere else
+        log.info("a password was changed")
+        return self._session(st.user_get(self.uid))
+
+    # --------------------------------------------------- the bot chat (own)
+    def _bot_username(self) -> str:
+        st = self.ctrl.service.state
+        cached = st.meta_get("bot_username") or ""
+        if cached:
+            return cached
+        inbox = self.ctrl.service.inbox
+        try:
+            me = inbox.call("getMe", timeout=10) if inbox is not None else None
+        except Exception:  # noqa: BLE001 - the code still works typed by hand
+            me = None
+        name = (me or {}).get("username") or ""
+        if name:
+            st.meta_set("bot_username", name)
+        return name
+
+    def bot_link(self, _: Any) -> dict[str, Any]:
+        _require(self.ctrl.service.inbox is not None, "The administrator hasn't connected the Job Radar bot yet.")
+        code = acc.new_link_code()
+        self.ctrl.service.state.user_update(self.uid, link_code=code)
+        bot = self._bot_username()
+        return {"code": code, "bot": bot, "url": f"https://t.me/{bot}?start={code}" if bot else ""}
+
+    def bot_unlink(self, _: Any) -> dict[str, Any]:
+        self.ctrl.service.state.user_update(self.uid, bot_chat_id=None, link_code=None)
+        return self._state()
+
+    # ----------------------------------------------------- users (admin)
+    def users_list(self, _: Any) -> dict[str, Any]:
+        from ..resume.profile import is_complete
+
+        st, c = self.ctrl.service.state, self.ctrl.config
+        out = []
+        for u in st.users():
+            out.append({**u, "telegram": acc.has_telegram(c, self.ctrl.base_dir, u),
+                        "bot_linked": bool(acc.bot_chat(c, u)),
+                        "profile_complete": is_complete(st.for_user(u["id"]).get_profile()),
+                        "is_admin": acc.is_admin(u)})
+        return {"users": out}
+
+    def _target(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            uid = int(body.get("id"))
+        except (TypeError, ValueError) as e:
+            raise ApiError("missing user id") from e
+        u = self.ctrl.service.state.user_get(uid)
+        _require(u, "That account doesn't exist.", 404)
+        return u
+
+    def users_create(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            name = auth.check_username(str(body.get("username") or ""))
+            password = auth.check_password(str(body.get("password") or ""))
+        except auth.AuthError as e:
+            raise ApiError(str(e)) from e
+        try:
+            self.ctrl.service.state.user_create(name, auth.hash_password(password))
+        except ValueError as e:
+            raise ApiError(str(e), 409) from e
+        log.info("the administrator created an account")
+        return self.users_list(None)
+
+    def users_status(self, body: dict[str, Any]) -> dict[str, Any]:
+        u = self._target(body)
+        status = str(body.get("status") or "")
+        _require(status in ("active", "disabled"), "status must be active or disabled")
+        _require(not acc.is_admin(u), "The administrator account can't be restricted.")
+        st = self.ctrl.service.state
+        st.user_update(u["id"], status=status)
+        if status == "disabled":
+            st.sessions_delete_for(u["id"])     # logged out at once
+        log.info("an account was %s", "restricted" if status == "disabled" else "re-enabled")
+        return self.users_list(None)
+
+    def users_password(self, body: dict[str, Any]) -> dict[str, Any]:
+        u = self._target(body)
+        try:
+            password = auth.check_password(str(body.get("password") or ""))
+        except auth.AuthError as e:
+            raise ApiError(str(e)) from e
+        st = self.ctrl.service.state
+        st.user_update(u["id"], password_hash=auth.hash_password(password))
+        st.sessions_delete_for(u["id"])
+        return self.users_list(None)
+
+    def users_delete(self, body: dict[str, Any]) -> dict[str, Any]:
+        import shutil
+
+        u = self._target(body)
+        _require(not acc.is_admin(u), "The administrator account can't be deleted.")
+        c = self.ctrl.config
+        path = acc.session_path(c, self.ctrl.base_dir, u)
+        if acc.session_file(path).exists():
+            try:      # end the Telegram login too, not just forget it
+                TelegramLogin.logout(api_id=str(c.telegram_api_id or ""), api_hash=str(c.telegram_api_hash or ""),
+                                     session_path=str(path))
+            except LoginError:
+                acc.session_file(path).unlink(missing_ok=True)
+        shutil.rmtree(self.ctrl.base_dir / "resumes" / acc.resume_owner(u), ignore_errors=True)
+        self.ctrl.service.state.user_delete(u["id"])
+        self.ctrl.logins.pop(int(u["id"]), None)
+        log.info("the administrator deleted an account and its data")
+        return self.users_list(None)
 
 
 # ------------------------------------------------------------- the server
@@ -783,8 +1055,7 @@ class DashboardServer(http.server.ThreadingHTTPServer):
 
     def __init__(self, addr, ctrl: Controller, token: str, *, local_only: bool):
         self.ctrl = ctrl
-        self.api = Api(ctrl)
-        self.routes = self.api.routes()
+        self.routes = Api(ctrl).routes()     # the set of known calls; each request gets its own Api
         self.token = token
         self.local_only = local_only
         super().__init__(addr, Handler)
@@ -807,10 +1078,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return True
         return (self.headers.get("Host") or "") in self.server.allowed_hosts()
 
+    def _local(self) -> bool:
+        return (self.client_address[0] or "").startswith("127.") or self.client_address[0] == "::1"
+
+    def _cookie(self) -> str:
+        got = SimpleCookie(self.headers.get("Cookie") or "").get(COOKIE)
+        return got.value if got else ""
+
+    def _user(self) -> dict[str, Any] | None:
+        """The logged-in account, from the session cookie. On this computer the
+        printed link's secret also counts as the administrator (it's the owner's
+        key, stored in jobradar-web.token)."""
+        token = self._cookie()
+        if not token:
+            return None
+        st = self.server.ctrl.service.state
+        if self._local() and secrets.compare_digest(token, self.server.token):
+            return st.user_get(1)
+        return st.session_user(auth.token_hash(token))
+
     def _authed(self) -> bool:
-        cookie = SimpleCookie(self.headers.get("Cookie") or "")
-        got = cookie.get(COOKIE)
-        return bool(got and secrets.compare_digest(got.value, self.server.token))
+        return self._user() is not None
 
     def _same_origin(self) -> bool:
         if self.headers.get("X-Requested-With") != "jobradar":
@@ -836,9 +1124,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _json(self, status: int, obj: Any) -> None:
+    def _json(self, status: int, obj: Any, extra: dict[str, str] | None = None) -> None:
         self._send(status, json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"),
-                   "application/json; charset=utf-8")
+                   "application/json; charset=utf-8", extra)
 
     def _error(self, status: int, message: str) -> None:
         self._json(status, {"ok": False, "error": message})
@@ -872,8 +1160,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, _FAVICON, "image/svg+xml")
         if not url.path.startswith("/api/"):
             return self._error(404, "not found")
-        if not self._authed():
-            return self._error(403, "Session expired — reopen the link Job Radar printed.")
+        user = self._user()
+        role = ROLES.get((method, url.path), "admin")
+        if role != PUBLIC and user is None:
+            return self._json(401, {"ok": False, "error": "Please log in.", "login": True})
+        if role == "admin" and not acc.is_admin(user):
+            return self._error(403, "Only the administrator can do that.")
         if method != "GET" and not self._same_origin():
             return self._error(403, "cross-site request refused")
         if method == "GET" and url.path == "/api/backup":
@@ -887,14 +1179,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, data, "application/zip",
                               {"Content-Disposition": f'attachment; filename="{name}"'})
         if method == "GET" and url.path == "/api/file":
-            return self._resume_file(urllib.parse.parse_qs(url.query).get("path", [""])[0])
+            return self._resume_file(urllib.parse.parse_qs(url.query).get("path", [""])[0], user)
         if method == "GET" and url.path == "/api/logs":
             q = urllib.parse.parse_qs(url.query)
             after = int((q.get("after") or ["0"])[0] or 0)
             return self._json(200, {"ok": True, "lines": self.server.ctrl.logs.since(after)})
-        handler = self.server.routes.get((method, url.path))
-        if handler is None:
+        if (method, url.path) not in self.server.routes:
             return self._error(404, "unknown API call")
+        api = Api(self.server.ctrl, user, client_ip=self.client_address[0], token=self._cookie(), local=self._local())
+        handler = api.routes()[(method, url.path)]
         try:
             if method == "PUT":
                 from ..backup import MAX_TOTAL
@@ -907,8 +1200,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 arg = json.loads(raw) if raw else {}
                 if not isinstance(arg, dict):
                     raise ApiError("expected a JSON object")
-            result = handler(arg)
-            self._json(200, {"ok": True, **(result or {})})
+            result = dict(handler(arg) or {})
+            extra = None
+            if "_cookie" in result:     # log in / log out: set or clear the session cookie
+                value = result.pop("_cookie")
+                extra = {"Set-Cookie": f"{COOKIE}={value}; Path=/; HttpOnly; SameSite=Strict; "
+                                       f"Max-Age={SESSION_SECONDS if value else 0}"}
+            self._json(200, {"ok": True, **result}, extra)
         except ApiError as e:
             self._error(e.status, str(e))
         except json.JSONDecodeError:
@@ -917,9 +1215,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             log.exception("dashboard API %s %s failed", method, url.path)
             self._error(500, redact(f"{type(e).__name__}: {e}"))
 
-    def _resume_file(self, rel: str) -> None:
-        """A generated résumé, for viewing (only files under jobradar-data/resumes)."""
+    def _resume_file(self, rel: str, user: dict[str, Any] | None) -> None:
+        """A generated résumé, for viewing: the administrator may open any under
+        jobradar-data/resumes, everyone else only their own."""
         root = (self.server.ctrl.base_dir / "resumes").resolve()
+        if not acc.is_admin(user):
+            root = root / acc.resume_owner(user)
         try:
             path = (self.server.ctrl.base_dir / rel).resolve()
             path.relative_to(root)
@@ -934,13 +1235,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _index(self, url) -> None:
         q = urllib.parse.parse_qs(url.query)
         given = (q.get("t") or [""])[0]
-        if given and secrets.compare_digest(given, self.server.token):
-            cookie = (f"{COOKIE}={self.server.token}; Path=/; HttpOnly; SameSite=Strict; "
-                      f"Max-Age={60 * 60 * 24 * 365}")
-            # Redirect so the token doesn't linger in the address bar/history.
-            return self._send(303, b"", "text/plain", {"Location": "/", "Set-Cookie": cookie})
-        if not self._authed():
-            return self._send(403, _LOCKED_PAGE, "text/html; charset=utf-8")
+        if given:
+            # The printed link logs the administrator in, but only on this
+            # computer; anywhere else it's ignored and you log in normally.
+            headers = {"Location": "/"}
+            if self._local() and secrets.compare_digest(given, self.server.token):
+                token = auth.new_token()
+                st = self.server.ctrl.service.state
+                st.session_create(1, auth.token_hash(token), utcnow() + timedelta(seconds=SESSION_SECONDS))
+                headers["Set-Cookie"] = (f"{COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; "
+                                         f"Max-Age={SESSION_SECONDS}")
+            return self._send(303, b"", "text/plain", headers)    # keeps the secret out of the address bar
         csp = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
                "img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; "
                "frame-ancestors 'none'")
@@ -1018,9 +1323,9 @@ def main(config_path: str, *, host: str | None = None, port: int = 8765,
 
         for a in addresses():
             where = "through Tailscale (from anywhere)" if a["kind"] == "tailscale" else "on your network"
-            print(f"  From another device {where}:  http://{a['ip']}:{port_}/?t={server.token}", flush=True)
-        print("\n  Other devices can reach the dashboard. The link above logs in whoever opens it:\n"
-              "  keep it private, and only allow this on networks you trust (home Wi-Fi, Tailscale).\n")
+            print(f"  From another device {where}:  http://{a['ip']}:{port_}/  (log in there)", flush=True)
+        print("\n  Other devices can reach the dashboard; people log in with their account.\n"
+              "  Only allow this on networks you trust (home Wi-Fi, Tailscale).\n")
     if not path.exists():
         log.info("no config file yet at %s — it will be created when you save settings", path)
     ctrl.start()

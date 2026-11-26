@@ -30,6 +30,9 @@ match to the owner's Telegram bot chat. Optional extras:
 - **Conversations:** one thread per recruiter, mirrored from that Telegram account.
 - **Dashboard:** a local web page for all setup; optionally reachable from
   the owner's other devices (home network or Tailscale), with a QR code.
+- **Accounts:** open sign-up; the administrator is `kof311` (user id 1, owns
+  all pre-account data). Users get their own profile, Telegram login, alerts
+  chat, applications and messages; settings stay admin-only.
 
 ## Hard rules
 
@@ -47,7 +50,15 @@ match to the owner's Telegram bot chat. Optional extras:
   - on timeout, report "busy" instead of waiting;
   - never open the session file from two threads.
 - **Database access goes through `jobradar/state.py`** (`State` methods), with
-  one short transaction per operation. Schema changes follow
+  one short transaction per operation. Personal data is per user:
+  `state.for_user(uid)` gives that user's view (applications, queue, contacts,
+  pauses, conversations, profile); the plain `State` is the administrator's
+  (user 1). Never read another user's rows from a user-facing endpoint.
+- **Every dashboard route has a role** in `web/app.py` `ROLES` (public / user
+  / admin, default admin). User routes act only on `self.st` / `self.ucfg`
+  (the caller's own data and settings). `kof311` can't be registered,
+  restricted or deleted; the printed `?t=` link logs in the admin only from
+  loopback. Schema changes follow
   `.claude/skills/schema-migration`.
 - **Never send twice.**
   - Applications are committed the moment they're sent.

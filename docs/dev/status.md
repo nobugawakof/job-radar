@@ -19,6 +19,8 @@ come from the audit the owner works through one item at a time; keep them.
 - Résumé layout copied from the owner's sample; title/verb guards, skill-gap
   report, page limit and paper size, newest-first order (ideas from career-ops).
 - Dashboard on other devices: switch, addresses + QR codes, Tailscale guide.
+- Accounts: sign-up/login, kof311 administrator, Users page (create, restrict,
+  delete, new password), per-user profile/Telegram/alerts/auto-apply/messages.
 
 ## Open
 
@@ -31,6 +33,7 @@ come from the audit the owner works through one item at a time; keep them.
 | V4 | SMTP email |
 | V5 | Live sites (HN, WeWorkRemotely, Reddit, V2EX, Ruby China, Bluesky; Bluesky search may need a login) |
 | V6 | The Windows .exe on real Windows, **including finding Microsoft YaHei/SimHei for the résumé PDF** |
+| V10 | Several real users at once: each Telegram login, /start chat linking, alerts fan-out, and auto-apply per user |
 | V9 | Opening the dashboard from a real phone on home Wi-Fi and through Tailscale (and the Windows firewall prompt) |
 | V8 | Résumé PDFs opened in real viewers (Telegram preview, WeChat, Acrobat, phones); checked here only with poppler |
 | V7 | AC-10: a week of real use |
@@ -39,6 +42,8 @@ come from the audit the owner works through one item at a time; keep them.
 | # | Item |
 |---|---|
 | M1 | Reading email replies (IMAP) into conversations |
+| A1 | Per-user email sending (own SMTP) and per-user search keywords/filters |
+| A2 | Backups include other users' Telegram logins (only the admin's is in the backup today) |
 | R1 | CFF-based fonts (.otf, e.g. Noto Sans CJK) for the résumé PDF |
 | R2 | Résumé photo, and more than one layout |
 | S2 | Several users |

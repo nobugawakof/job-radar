@@ -240,14 +240,58 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
   .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  .top { padding: .6rem 1rem; }
+  .top { padding: .6rem 1rem; flex-wrap: wrap; row-gap: .45rem; }
+  .me-box #me-role { display: none; }
   .top .pill { display: none; }
   .grid2, .sites, .choice { grid-template-columns: 1fr; }
   .card { padding: 1rem; }
 }
+
+/* accounts */
+.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem 1rem; }
+.auth-card { width: min(26rem, 100%); }
+.auth-card .brand { justify-content: center; margin-bottom: .4rem; }
+.auth-tabs { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.auth-tabs button { flex: 1; border: 0; background: var(--panel-2); padding: .55rem; cursor: pointer; font-weight: 560; color: var(--muted); }
+.auth-tabs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.me-box { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+.me-box .me-name { font-weight: 600; }
+body.signed-out .top, body.signed-out .shell { display: none; }
+body:not(.signed-out) .auth-wrap { display: none; }
+body.role-user [data-admin] { display: none !important; }
+body.role-admin [data-user-only] { display: none !important; }
+.users-table td, .users-table th { white-space: nowrap; }
+.users-table .acts { display: flex; gap: .35rem; flex-wrap: nowrap; }
+input[type=password] { width: 100%; }
 </style>
 </head>
-<body>
+<body class="signed-out">
+<div class="auth-wrap">
+  <div class="card stack auth-card">
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true" width="26" height="26"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg> Job Radar</div>
+    <div class="auth-tabs" role="group" aria-label="Log in or create an account">
+      <button type="button" data-auth="login" aria-pressed="true">Log in</button><button type="button" data-auth="signup" aria-pressed="false">Create account</button>
+    </div>
+    <form id="auth-form" class="stack" autocomplete="on">
+      <div class="field"><label for="auth-user">Username</label><input id="auth-user" type="text" autocomplete="username" required></div>
+      <div class="field"><label for="auth-pass">Password</label><input id="auth-pass" type="password" autocomplete="current-password" required></div>
+      <div class="field hidden" id="auth-pass2-row"><label for="auth-pass2">Password again</label><input id="auth-pass2" type="password" autocomplete="new-password"></div>
+      <div class="hint small muted hidden" id="auth-hint">3-32 letters, digits, dot, dash or underscore. Password: at least 8 characters.</div>
+      <div class="note bad hidden" id="auth-error"></div>
+      <button class="btn primary" type="submit" id="auth-submit">Log in</button>
+    </form>
+  </div>
+</div>
+<dialog id="account-dlg"><h3>Your account</h3>
+  <p class="muted small" id="account-who"></p>
+  <form id="account-form" class="stack">
+    <div class="field" id="account-current-row"><label for="account-current">Current password</label><input id="account-current" type="password" autocomplete="current-password"></div>
+    <div class="field"><label for="account-new">New password</label><input id="account-new" type="password" autocomplete="new-password"></div>
+    <div class="field"><label for="account-new2">New password again</label><input id="account-new2" type="password" autocomplete="new-password"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn" type="button" id="account-close">Close</button><button class="btn primary" type="submit">Change password</button></div>
+  </form>
+</dialog>
+
 <header class="top">
   <div class="brand">
     <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><circle cx="16" cy="16" r="9" fill="none" stroke="#fff" stroke-width="2.5"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg>
@@ -255,21 +299,25 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
   </div>
   <span id="status-pill" class="pill"><span class="dot"></span><span id="status-text">Loading…</span></span>
   <span class="spacer"></span>
-  <button id="run-btn" class="btn primary" type="button">Check now</button>
+  <span class="me-box"><span class="me-name" id="me-name"></span><span class="tag info hidden" id="me-role"></span>
+    <button class="btn small" type="button" id="account-btn">Account</button><button class="btn small" type="button" id="logout-btn">Log out</button></span>
+  <button id="run-btn" class="btn primary" type="button" data-admin>Check now</button>
 </header>
 
 <div class="shell">
   <nav aria-label="Sections">
-    <button data-tab="overview">Overview</button>
+    <button data-tab="overview" data-admin>Overview</button>
     <button data-tab="profile">Profile <span class="badge" id="nav-profile"></span></button>
-    <button data-tab="telegram">Telegram bot <span class="badge" id="nav-tg"></span></button>
-    <button data-tab="search">Job search</button>
-    <button data-tab="ai">AI</button>
-    <button data-tab="apply">Auto-apply <span class="badge" id="nav-apply"></span></button>
+    <button data-tab="mytg" data-user-only>My Telegram</button>
+    <button data-tab="telegram" data-admin>Telegram bot <span class="badge" id="nav-tg"></span></button>
+    <button data-tab="search" data-admin>Job search</button>
+    <button data-tab="ai" data-admin>AI</button>
+    <button data-tab="apply" data-admin>Auto-apply <span class="badge" id="nav-apply"></span></button>
     <button data-tab="messages">Messages <span class="badge" id="nav-messages"></span></button>
-    <button data-tab="review">Review <span class="badge" id="nav-review"></span></button>
+    <button data-tab="review" data-admin>Review <span class="badge" id="nav-review"></span></button>
     <button data-tab="history">Applications</button>
-    <button data-tab="activity">Activity</button>
+    <button data-tab="users" data-admin>Users</button>
+    <button data-tab="activity" data-admin>Activity</button>
   </nav>
 
   <main>
@@ -401,7 +449,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <p class="muted small">The AI copies the facts from a résumé into the fields above for you to check. Nothing is saved until you press Save.</p>
         <div class="row">
           <label class="btn small" for="pf-import-file">Choose a résumé PDF…</label><input type="file" id="pf-import-file" accept="application/pdf,.pdf" class="hidden">
-          <button class="btn small" type="button" id="pf-import-saved">Use my uploaded résumé</button>
+          <button class="btn small" type="button" id="pf-import-saved" data-admin>Use my uploaded résumé</button>
         </div>
       </div>
 
@@ -409,6 +457,48 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <button class="btn primary" type="button" id="pf-save">Save profile</button>
         <button class="btn" type="button" id="pf-preview">Preview résumé</button>
         <span class="muted small" id="pf-dirty"></span>
+      </div>
+    </section>
+
+    <!-- ============================================================ MY TELEGRAM -->
+    <section class="view hidden" data-view="mytg">
+      <div class="view-head"><h2>My Telegram</h2>
+        <p class="muted">Link your own Telegram account (applications are sent from it) and the chat where you get job alerts.</p></div>
+      <div class="card stack">
+        <h3>1. Your Telegram account</h3>
+        <div id="mtg-status"></div>
+        <div id="mtg-flow" class="stack">
+          <div class="field" id="mtg-phone-row"><label for="mtg-phone">Phone number</label><input id="mtg-phone" type="tel" placeholder="+60123456789" autocomplete="tel"></div>
+          <div class="field hidden" id="mtg-code-row"><label for="mtg-code">Code Telegram sent you</label><input id="mtg-code" type="text" inputmode="numeric" autocomplete="one-time-code"></div>
+          <div class="field hidden" id="mtg-pw-row"><label for="mtg-pw">Two-step verification password</label><input id="mtg-pw" type="password"></div>
+          <div class="row"><button class="btn primary" type="button" id="mtg-next">Send code</button></div>
+        </div>
+        <p class="muted small">Job Radar keeps this login on the computer that runs it, to send your applications and read recruiters' replies. Whoever runs that computer (the administrator) could use it too, so only link your account if you trust them. You can log out here at any time.</p>
+      </div>
+      <div class="card stack">
+        <h3>2. Your alerts chat</h3>
+        <div id="mbot-status"></div>
+      </div>
+      <div class="card stack">
+        <h3>3. Auto-apply</h3>
+        <div id="mapply-status"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================ USERS (admin) -->
+    <section class="view hidden" data-view="users">
+      <div class="view-head"><h2>Users</h2><p class="muted">Everyone with an account. Anyone who can open this page can sign up; you can restrict or delete accounts here.</p></div>
+      <div id="users-admin-note"></div>
+      <div class="card"><div class="tablewrap"><table class="users-table">
+        <thead><tr><th>User</th><th>Status</th><th>Telegram</th><th>Alerts</th><th>Profile</th><th>Sent</th><th>Last login</th><th></th></tr></thead>
+        <tbody id="users-rows"></tbody></table></div></div>
+      <div class="card stack">
+        <h3>Create an account</h3>
+        <div class="grid2">
+          <div class="field"><label for="nu-name">Username</label><input id="nu-name" type="text" autocomplete="off"></div>
+          <div class="field"><label for="nu-pass">Password (tell them; they can change it)</label><input id="nu-pass" type="text" autocomplete="off"></div>
+        </div>
+        <div><button class="btn primary" type="button" id="nu-create">Create account</button></div>
       </div>
     </section>
 
@@ -708,6 +798,7 @@ async function api(method, path, body, raw) {
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
   const res = await fetch(path, opts);
   let data; try { data = await res.json(); } catch { data = { ok: false, error: `HTTP ${res.status}` }; }
+  if (res.status === 401 && data.login && ME) { showAuth("login"); throw new Error("Please log in again."); }
   if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
@@ -750,6 +841,7 @@ function show(name) {
   if (name === "review") loadReview();
   if (name === "messages") loadMessages();
   if (name === "profile") loadProfile();
+  if (name === "users") loadUsers();
   if (name === "activity") pollLogs();
   window.scrollTo({ top: 0 });
 }
@@ -1308,6 +1400,148 @@ function renderNetwork() {
   }));
 }
 
+// --------------------------------------------------------------- accounts
+let ME = null;
+function setRole() {
+  document.body.classList.toggle("signed-out", !ME);
+  document.body.classList.toggle("role-admin", !!(ME && ME.is_admin));
+  document.body.classList.toggle("role-user", !!(ME && !ME.is_admin));
+  $("#me-name").textContent = ME ? ME.username : "";
+  $("#me-role").textContent = ME && ME.is_admin ? "admin" : "";
+  $("#me-role").classList.toggle("hidden", !(ME && ME.is_admin));
+}
+let authMode = "login";
+function showAuth(mode) {
+  ME = null; S = null; setRole();
+  if (mode) authMode = mode;
+  $$("[data-auth]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.auth === authMode ? "true" : "false"));
+  const signup = authMode === "signup";
+  $("#auth-pass2-row").classList.toggle("hidden", !signup);
+  $("#auth-hint").classList.toggle("hidden", !signup);
+  $("#auth-pass").autocomplete = signup ? "new-password" : "current-password";
+  $("#auth-submit").textContent = signup ? "Create account" : "Log in";
+  $("#auth-error").classList.add("hidden");
+  setTimeout(() => $("#auth-user").focus(), 0);
+}
+$$("[data-auth]").forEach((b) => b.addEventListener("click", () => showAuth(b.dataset.auth)));
+$("#auth-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("#auth-error"); err.classList.add("hidden");
+  const body = { username: $("#auth-user").value.trim(), password: $("#auth-pass").value };
+  if (authMode === "signup" && body.password !== $("#auth-pass2").value) { err.textContent = "The two passwords don't match."; err.classList.remove("hidden"); return; }
+  const btn = $("#auth-submit"); btn.disabled = true;
+  try {
+    const r = await api("POST", authMode === "signup" ? "/api/auth/signup" : "/api/auth/login", body);
+    $("#auth-pass").value = ""; $("#auth-pass2").value = "";
+    ME = r.user; await start();
+  } catch (x) { err.textContent = x.message; err.classList.remove("hidden"); }
+  finally { btn.disabled = false; }
+});
+$("#logout-btn").addEventListener("click", async () => { try { await api("POST", "/api/auth/logout", {}); } catch {} showAuth("login"); });
+$("#account-btn").addEventListener("click", () => {
+  $("#account-who").textContent = `Logged in as ${ME.username}${ME.is_admin ? " (administrator)" : ""}.` + (ME.has_password ? "" : " This account has no password yet: set one to log in from other devices.");
+  $("#account-current-row").classList.toggle("hidden", !ME.has_password);
+  $("#account-dlg").showModal();
+});
+$("#account-close").addEventListener("click", () => $("#account-dlg").close());
+$("#account-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if ($("#account-new").value !== $("#account-new2").value) { toast("The two new passwords don't match.", "bad"); return; }
+  try {
+    const r = await api("POST", "/api/auth/password", { current: $("#account-current").value, password: $("#account-new").value });
+    ME = r.user; ["#account-current", "#account-new", "#account-new2"].forEach((id) => { $(id).value = ""; });
+    $("#account-dlg").close(); toast("Password changed. Other devices were logged out."); renderAdminNote();
+  } catch (x) { toast(x.message, "bad"); }
+});
+function renderAdminNote() {
+  const box = $("#users-admin-note"); if (!box) return;
+  box.innerHTML = ME && ME.is_admin && !ME.has_password ? `<div class="note warn">Your administrator account (${esc(ME.username)}) has no password yet, so it can only be used on this computer. <button class="linkbtn" type="button" id="set-admin-pw">Set a password</button></div>` : "";
+  $("#set-admin-pw")?.addEventListener("click", () => $("#account-btn").click());
+}
+
+// ---------------------------------------------------- the user's own pages
+function renderUser() {
+  const pill = $("#status-pill"), text = $("#status-text");
+  const mode = S.apply.mode || "off";
+  pill.className = "pill " + (mode === "auto" ? "ok" : "");
+  text.textContent = mode === "auto" ? "Auto-apply on" : mode === "dry_run" ? "Auto-apply: dry run" : "Auto-apply off";
+  $("#nav-messages").textContent = S.unread_messages || "";
+  $("#nav-profile").textContent = S.profile_complete ? "" : "!";
+  const t = S.telegram;
+  $("#mtg-status").innerHTML = !t.api_ready ? `<div class="note warn">The administrator hasn't set up Telegram access yet, so accounts can't be linked for now.</div>`
+    : t.linked ? `<div class="row"><span class="tag ok">✓ Linked</span><button class="btn small" type="button" id="mtg-logout">Log out of Telegram</button></div>`
+    : `<div class="note">Not linked. Enter your phone number; Telegram sends you a code.</div>`;
+  $("#mtg-flow").classList.toggle("hidden", !t.api_ready || t.linked);
+  $("#mtg-logout")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    if (!await confirmBox("Log out of Telegram?", "Job Radar stops sending applications from your account and reading replies.")) return;
+    S = await api("POST", "/api/tg/logout", {}); mtgStage("phone"); renderUser(); toast("Logged out of Telegram.");
+  }));
+  const b = S.bot;
+  $("#mbot-status").innerHTML = !b.ready ? `<div class="note warn">The administrator hasn't connected the Job Radar bot yet.</div>`
+    : b.linked ? `<div class="row"><span class="tag ok">✓ Linked</span><span class="muted small">Job alerts and notices come to your chat with the bot.</span><button class="btn small" type="button" id="mbot-unlink">Unlink</button></div>`
+    : `<p class="muted small">Get job alerts and "applied" notices in your own chat with the Job Radar bot.</p><div id="mbot-code"></div><div><button class="btn primary" type="button" id="mbot-link">Link my bot chat</button></div>`;
+  $("#mbot-link")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    const r = await api("POST", "/api/bot/link", {});
+    $("#mbot-code").innerHTML = `<div class="note">${r.url ? `<a class="btn small" href="${esc(r.url)}" target="_blank" rel="noopener">Open the bot in Telegram</a> and press <b>Start</b>.` : `Open the Job Radar bot in Telegram and send <span class="mono">/start ${esc(r.code)}</span>.`} Code: <b class="mono">${esc(r.code)}</b>. This page updates once it's linked.</div>`;
+  }));
+  $("#mbot-unlink")?.addEventListener("click", (e) => busy(e.currentTarget, async () => { S = await api("POST", "/api/bot/unlink", {}); renderUser(); }));
+  const c = S.apply.counts || {};
+  const ready = [[S.profile_complete, "Profile filled in (name, job title, education)", "profile"], [t.linked, "Telegram account linked", "mytg"], [b.linked, "Alerts chat linked (optional)", "mytg"]];
+  $("#mapply-status").innerHTML = `<p class="small">${mode === "off" ? "Auto-apply is switched off by the administrator." : mode === "dry_run" ? "Auto-apply is in <b>dry run</b>: drafts are made and shown to you, nothing is sent." : `Auto-apply is <b>on</b>: up to ${S.apply.daily_cap} applications a day are sent from your Telegram account.`}</p>`
+    + `<ul class="small" style="margin:0;padding-left:1.2rem">${ready.map(([ok, label]) => `<li>${ok ? "✓" : "✗"} ${esc(label)}</li>`).join("")}</ul>`
+    + `<p class="muted small">Sent ${c.sent || 0} · previewed ${c.dry_run || 0} · skipped ${(c.skipped_fit || 0) + (c.skipped_cooldown || 0)} · waiting ${S.apply.queue || 0}</p>`;
+}
+let mtgAt = "phone";
+function mtgStage(st) {
+  mtgAt = st;
+  $("#mtg-phone-row").classList.toggle("hidden", st !== "phone");
+  $("#mtg-code-row").classList.toggle("hidden", st !== "code");
+  $("#mtg-pw-row").classList.toggle("hidden", st !== "password");
+  $("#mtg-next").textContent = st === "phone" ? "Send code" : st === "code" ? "Confirm code" : "Confirm password";
+}
+$("#mtg-next").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = mtgAt === "phone" ? await api("POST", "/api/tg/start", { phone: $("#mtg-phone").value.trim() })
+    : mtgAt === "code" ? await api("POST", "/api/tg/code", { code: $("#mtg-code").value.trim() })
+    : await api("POST", "/api/tg/password", { password: $("#mtg-pw").value });
+  if (r.stage === "done") { mtgStage("phone"); toast("Telegram account linked."); await refresh(); }
+  else mtgStage(r.stage);
+}));
+
+// ----------------------------------------------------------- users (admin)
+async function loadUsers() {
+  try { renderUsers((await api("GET", "/api/users")).users); } catch (e) { toast(e.message, "bad"); }
+  renderAdminNote();
+}
+function renderUsers(list) {
+  const yes = (v) => v ? `<span class="tag ok">✓</span>` : `<span class="muted">—</span>`;
+  $("#users-rows").innerHTML = list.map((u) => `<tr>
+    <td title="Account since ${esc(when(u.created_at))}"><b>${esc(u.username)}</b>${u.is_admin ? ` <span class="tag info">admin</span>` : ""}</td>
+    <td>${u.status === "active" ? `<span class="tag ok">active</span>` : `<span class="tag bad">restricted</span>`}</td>
+    <td>${yes(u.telegram)}</td><td>${yes(u.bot_linked)}</td><td>${yes(u.profile_complete)}</td><td class="num">${u.sent}</td>
+    <td class="small" title="${esc(u.last_login_at ? when(u.last_login_at) : "")}">${esc(u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : "never")}</td>
+    <td>${u.is_admin ? "" : `<div class="acts">
+      <button class="btn small" type="button" data-ustatus="${u.id}" data-to="${u.status === "active" ? "disabled" : "active"}">${u.status === "active" ? "Restrict" : "Allow"}</button>
+      <button class="btn small" type="button" data-upw="${u.id}" data-name="${esc(u.username)}">New password</button>
+      <button class="btn small" type="button" data-udel="${u.id}" data-name="${esc(u.username)}">Delete</button></div>`}</td></tr>`).join("");
+  $$("[data-ustatus]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+    renderUsers((await api("POST", "/api/users/status", { id: Number(b.dataset.ustatus), status: b.dataset.to })).users);
+    toast(b.dataset.to === "disabled" ? "Restricted: logged out and can't log in; auto-apply stops." : "Allowed again.");
+  })));
+  $$("[data-upw]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+    const pw = prompt(`New password for ${b.dataset.name} (at least 8 characters):`); if (!pw) return;
+    renderUsers((await api("POST", "/api/users/password", { id: Number(b.dataset.upw), password: pw })).users);
+    toast("Password reset. Tell them the new one.");
+  })));
+  $$("[data-udel]").forEach((b) => b.addEventListener("click", () => busy(b, async () => {
+    if (!await confirmBox(`Delete ${b.dataset.name}?`, "Their account, profile, applications, conversations and Telegram login are removed for good.")) return;
+    renderUsers((await api("POST", "/api/users/delete", { id: Number(b.dataset.udel) })).users); toast("Deleted.");
+  })));
+}
+$("#nu-create").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  renderUsers((await api("POST", "/api/users/create", { username: $("#nu-name").value.trim(), password: $("#nu-pass").value })).users);
+  $("#nu-name").value = ""; $("#nu-pass").value = ""; toast("Account created.");
+}));
+
 // --------------------------------------------------------------- history
 const STATUS = { sent: ["Sent", "ok"], dry_run: ["Previewed", "info"], skipped_fit: ["Low fit", ""], skipped_cooldown: ["Already contacted", ""], failed: ["Failed", "bad"] };
 async function loadApps() {
@@ -1319,10 +1553,10 @@ async function loadApps() {
       const note = a.error || a.reason;
       const msg = (a.message ? '<details class="small"><summary>Message</summary><div class="draft">' + esc(a.message) + "</div></details>" : "")
         + (a.resume_file ? `<div class="small">📎 <a href="/api/file?path=${encodeURIComponent(a.resume_file)}" target="_blank" rel="noopener">Résumé ${a.status === "dry_run" ? "it would send" : "sent"}</a></div>` : "");
-      return `<tr><td class="small">${esc(when(a.at))}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}${msg}</td></tr>`;
+      return `<tr><td class="small">${esc(when(a.at))}${d.all_users ? `<div class="muted">👤 ${esc(a.username)}</div>` : ""}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}${msg}</td></tr>`;
     }).join("") : `<tr><td colspan="5" class="empty">No applications yet.</td></tr>`;
     $("#queue").innerHTML = d.queue.length ? d.queue.map((q) => `<li><a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer">${esc(q.title)}</a><div class="small muted">${esc([q.telegram, q.email].filter(Boolean).join(" · "))}</div></li>`).join("") : `<li class="empty">The queue is empty.</li>`;
-    const p = Object.entries(S.apply.paused);
+    const p = Object.entries((S.apply && S.apply.paused) || {});
     $("#paused").innerHTML = p.map(([ch, until]) => `<div class="note warn">${ch === "telegram" ? "Telegram" : "Email"} applications are paused until ${esc(when(until))} after a rate-limit warning.${ch === "telegram" ? " Check @SpamBot in Telegram." : ""}</div>`).join("");
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -1366,6 +1600,7 @@ $("#restore-file").addEventListener("change", async (e) => {
 // ---------------------------------------------------------------- render
 function render(force) {
   if (!S) return;
+  if (!ME || !ME.is_admin) { renderUser(); return; }
   const pill = $("#status-pill"), text = $("#status-text");
   pill.className = "pill " + (S.running ? "run" : !S.configured ? "warn" : S.config.auto_run ? "ok" : "");
   text.textContent = S.running ? "Checking for jobs…" : !S.configured ? "Setup needed"
@@ -1389,12 +1624,22 @@ async function refresh() {
 }
 window.addEventListener("beforeunload", (e) => { if (Object.keys(dirty).length) { e.preventDefault(); e.returnValue = ""; } });
 
+async function start() {
+  setRole();
+  await refresh();
+  if (!S) return;
+  const visible = (t) => { const b = $(`nav button[data-tab="${t}"]`); return b && getComputedStyle(b).display !== "none"; };
+  let first = ME.is_admin ? (S.configured ? "overview" : "telegram") : (S.profile_complete ? "mytg" : "profile");
+  try { const saved = sessionStorage.getItem("jr-tab"); if (saved && visible(saved)) first = saved; } catch {}
+  show(first);
+  renderAdminNote();
+}
 (async function init() {
   bindInputs();
-  await refresh();
-  let start = "overview"; try { start = sessionStorage.getItem("jr-tab") || (S && !S.configured ? "telegram" : "overview"); } catch {}
-  show(start);
-  setInterval(() => { if (!document.hidden) refresh(); }, 4000);
+  setInterval(() => { if (!document.hidden && ME) refresh(); }, 4000);
+  try { ME = (await api("GET", "/api/auth/me")).user; } catch { ME = null; }
+  if (!ME) { showAuth("login"); return; }
+  await start();
 })();
 </script>
 </body>

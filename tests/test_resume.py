@@ -588,7 +588,8 @@ class StateTests(unittest.TestCase):
             st.set_profile(PROFILE)
             self.assertEqual(st.get_profile()["experience"][0]["company"], "蚂蚁科技")
             st.close()
-            self.assertEqual(sqlite3.connect(path).execute("PRAGMA user_version").fetchone()[0], 6)
+            from jobradar.state import SCHEMA_VERSION
+            self.assertEqual(sqlite3.connect(path).execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
 
 
 if __name__ == "__main__":

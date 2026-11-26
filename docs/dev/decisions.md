@@ -3,6 +3,34 @@
 Newest first. Each entry says what was decided and why, so later work doesn't
 undo it by accident.
 
+## Accounts (owner's request, schema v7)
+- Owner's choices: open sign-up (log in at once); the administrator can
+  create, restrict and delete accounts; users link their own Telegram; users
+  get their own auto-apply and their own alerts chat.
+- `kof311` is the administrator: created by the migration as user 1 (owner
+  of all existing data) with no password. It's reserved at sign-up, so open
+  sign-up can't steal it. Its password is set from this computer (Account
+  dialog after the printed link, or `jobradar admin-password`).
+- The printed `?t=` link still logs in the admin, but only from loopback; on
+  any other address it's ignored. The token cookie from loopback also counts
+  as the admin (keeps local tools and tests working).
+- Per-user rows: user_id on applications, apply_queue, contacts,
+  apply_paused, conversations, profile (tables rebuilt; SQLite can't change a
+  primary key). Shared: jobs, sent, signatures, sources, runs, review queue.
+- Users share the admin's Telegram API ID/hash (one app can log in many
+  accounts) and the admin's bot. Alerts chat linking: `/start CODE` handled by
+  the bot inbox. Users apply by Telegram only (email is the admin's mailbox)
+  and have no uploaded-résumé fallback.
+- Every job delivered to the admin is copied to each active user's linked
+  chat (best effort). Auto-apply runs per account in sequence
+  (`service.EveryoneApplier`), so a run takes longer with more users.
+- The admin's Applications page shows everyone's; Messages stay private to
+  each account (conversations are personal), even for the admin.
+- Passwords: PBKDF2-SHA256, 240k iterations, salted. Session cookie = random
+  token; only its SHA-256 is stored. Throttling: 5 failures / 15 min per
+  address and per name, then 30 s doubling to 15 min; sign-ups 5 per hour per
+  address.
+
 ## Dashboard on other devices (owner's request)
 - Off by default; `web_allow_network` (Overview switch) binds 0.0.0.0 on the
   next start. `--host` on the command line wins over the switch.
