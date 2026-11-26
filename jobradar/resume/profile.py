@@ -129,6 +129,36 @@ def skill_groups(text: str) -> list[tuple[str, list[str]]]:
     return groups
 
 
+_MONTHS = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct",
+                                              "nov", "dec"))}
+
+
+def start_date(s: str) -> tuple[int, int] | None:
+    """(year, month) from how people write a start date: 2021.07, 2021-7,
+    2021年7月, Jul 2021, 2021. None when there's no year."""
+    s = (s or "").strip().lower()
+    m = re.search(r"((?:19|20)\d{2})\s*[./\-年]\s*(\d{1,2})", s)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r"([a-z]{3})[a-z]*\.?\s+((?:19|20)\d{2})", s)
+    if m and m.group(1) in _MONTHS:
+        return int(m.group(2)), _MONTHS[m.group(1)]
+    m = re.search(r"((?:19|20)\d{2})", s)
+    return (int(m.group(1)), 0) if m else None
+
+
+def newest_first(p: dict[str, Any]) -> dict[str, Any]:
+    """The profile with work experience newest first, by start date (what
+    recruiters and applicant-tracking systems expect). Left as entered when any
+    job has no readable start date."""
+    jobs = p.get("experience") or []
+    keys = [start_date(j.get("start", "")) for j in jobs]
+    if len(jobs) < 2 or any(k is None for k in keys):
+        return p
+    order = sorted(range(len(jobs)), key=lambda i: keys[i], reverse=True)
+    return {**p, "experience": [jobs[i] for i in order]}
+
+
 def facts_text(p: dict[str, Any]) -> str:
     """The profile as plain text, for the AI's fit check. Leaves out phone,
     email, birth date and gender: the AI doesn't need them."""

@@ -84,6 +84,8 @@ applicant_name = ""                      # signs the message
 # job when AI is on. "uploaded" sends your own resume.pdf instead.
 resume_source    = "generated"           # "generated" | "uploaded"
 resume_font_path = ""                    # font for the generated PDF; empty = find one on this computer
+resume_page_size = "letter"              # "letter" | "a4" | "auto" (Letter for US/Canada jobs, else A4)
+resume_max_pages = 2                     # warn when a résumé runs longer (0 = no limit)
 resume_pdf_path  = "resume.pdf"          # your own PDF ("uploaded", or a fallback)
 resume_text_path = ""                    # optional plain-text résumé for the AI; else it reads the PDF
 

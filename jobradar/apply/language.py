@@ -48,6 +48,10 @@ PHRASES = {
     "channel_email": {"zh": "邮件", "en": "Email"},
     "resume_tailored": {"zh": "📎 已为该职位定制简历：{file}", "en": "📎 Résumé tailored for this job: {file}"},
     "resume_failed": {"zh": "⚠️ 简历生成失败：{error}", "en": "⚠️ Couldn't make the résumé: {error}"},
+    "skills_match": {"zh": "🔎 技能匹配 {matched}/{total}（{pct}%）", "en": "🔎 Skills matched {matched}/{total} ({pct}%)"},
+    "skills_gap": {"zh": "缺少（不会写进简历）：{skills}", "en": "Missing (not put on the résumé): {skills}"},
+    "resume_long": {"zh": "⚠️ 简历共 {pages} 页，超过 {limit} 页上限，可精简资料",
+                    "en": "⚠️ The résumé is {pages} pages, over the {limit}-page limit; consider trimming your profile"},
     # The résumé itself (sent to recruiters)
     "cv_intro": {"zh": "职业概述", "en": "Professional Summary"},
     "cv_skills": {"zh": "技术技能", "en": "Technical Skills"},

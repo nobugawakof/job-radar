@@ -311,7 +311,7 @@ class Applier:
             self._record_conversation(key, entry, ch, contact, text, subject, sent, now, attachment)
             self._mark_contact(ch, contact, now)
             report.sent += 1
-            self._notify(self._confirmation(entry, draft, ch, contact, text))
+            self._notify(self._confirmation(entry, draft, ch, contact, text, attachment))
             return "done"
         if blocked:
             return "waiting"  # a channel may come back; keep it queued
@@ -426,10 +426,27 @@ class Applier:
             lines.append(language.t("subject", lang, subject=_esc(subject)))
         lines.append(_esc(text[:2500]))
         lines.append("\n" + resume)
+        lines += self._resume_notes(attachment, full=True)
         return "\n".join(lines)
 
+    def _resume_notes(self, attachment: Path | None, *, full: bool) -> list[str]:
+        """Skill match, what's missing, and a page warning for the résumé just made."""
+        info = getattr(self.resume_builder, "last", None)
+        if info is None or attachment is None or getattr(info, "path", None) != attachment:
+            return []
+        lang, out = self._lang(), []
+        r = info.skills
+        if r.skills:
+            out.append(language.t("skills_match", lang, matched=str(r.matched), total=str(len(r.skills)),
+                                  pct=str(r.percent)))
+            if full and r.gap:
+                out.append(language.t("skills_gap", lang, skills=_esc(("、" if lang == "zh" else ", ").join(r.gap))))
+        if info.too_long:
+            out.append(language.t("resume_long", lang, pages=str(info.pages), limit=str(info.max_pages)))
+        return out
+
     def _confirmation(self, entry: dict[str, Any], draft: ApplicationDraft, channel: str,
-                      contact: str, text: str) -> str:
+                      contact: str, text: str, attachment: Path | None = None) -> str:
         lines = [
             language.t("applied", self._lang(), channel=self._channel(channel), contact=_esc(contact),
                        fit=self._fit(draft)),
@@ -437,6 +454,7 @@ class Applier:
         ]
         if entry.get("source_url"):
             lines.append(f"🔗 {_esc(entry['source_url'])}")
+        lines += self._resume_notes(attachment, full=False)
         lines += ["", _esc(text[:1500])]
         return "\n".join(lines)
 

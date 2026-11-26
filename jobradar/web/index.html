@@ -521,6 +521,17 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
             <option value="generated">Made from my Profile, tailored to each job (recommended)</option>
             <option value="uploaded">My own PDF, uploaded below</option>
           </select></div>
+        <div class="grid2">
+          <div class="field"><label for="paper-size">Paper size</label>
+            <select id="paper-size" data-k="resume_page_size">
+              <option value="letter">US Letter (like the sample)</option>
+              <option value="a4">A4</option>
+              <option value="auto">Automatic: Letter for US/Canada jobs, A4 elsewhere</option>
+            </select></div>
+          <div class="field"><label for="max-pages">Page limit</label>
+            <input id="max-pages" type="number" min="0" max="10" data-k="resume_max_pages">
+            <span class="hint">You're warned when a résumé runs longer. 0 = no limit.</span></div>
+        </div>
         <div id="profile-resume-status"></div>
         <div id="resume-status"></div>
         <label class="drop" id="drop"><input type="file" id="resume-file" accept="application/pdf,.pdf" class="hidden">
@@ -1235,7 +1246,18 @@ $("#pf-preview").addEventListener("click", (e) => busy(e.currentTarget, async ()
   const posting = $("#pf-posting").value;
   const r = await api("POST", "/api/profile/preview", { profile: pfCollect(), posting });
   const url = `/api/file?path=${encodeURIComponent(r.file)}&v=${Date.now()}`;
-  $("#pf-preview-out").innerHTML = `<div class="note ok">${r.tailored ? "Tailored to that job post" : "Your general résumé"}: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="muted small">(${Math.max(1, Math.round(r.size / 1024))} KB)</span></div>`;
+  const pages = `${r.pages} page${r.pages === 1 ? "" : "s"}, ${r.paper === "a4" ? "A4" : "Letter"}`;
+  let html = `<div class="note ${r.too_long ? "warn" : "ok"}">${r.tailored ? "Tailored to that job post" : posting.trim() ? "Your résumé (AI is off, so it isn't tailored)" : "Your general résumé"}: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="muted small">(${pages}, ${Math.max(1, Math.round(r.size / 1024))} KB)</span>${r.too_long ? `<div class="small">Longer than your ${r.max_pages}-page limit. Shorten some points, or raise the limit under Auto-apply.</div>` : ""}</div>`;
+  const k = r.skills;
+  if (k && k.skills.length) {
+    const tags = (list, cls) => list.map((x) => `<span class="tag ${cls}">${esc(x)}</span>`).join(" ");
+    html += `<div class="card stack" style="margin-top:.6rem"><div class="row"><b>Skills the post names</b><span class="tag ${k.percent >= 70 ? "ok" : k.percent >= 40 ? "warn" : "bad"}">${k.matched}/${k.skills.length} · ${k.percent}%</span></div>`
+      + (k.existing.length ? `<div class="small">In your skills: ${tags(k.existing, "ok")}</div>` : "")
+      + (k.supported.length ? `<div class="small">Shown in your experience: ${tags(k.supported, "info")}</div>` : "")
+      + (k.gap.length ? `<div class="small">Missing, so not on the résumé: ${tags(k.gap, "bad")}</div><div class="muted small">If you really have one of these, add it to your profile and it will be used.</div>` : "")
+      + `</div>`;
+  }
+  $("#pf-preview-out").innerHTML = html;
   window.open(url, "_blank", "noopener");
 }));
 async function pfImport(promise) {

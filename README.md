@@ -357,6 +357,25 @@ A real bold font is used when your computer has one (e.g. Microsoft YaHei Bold).
   Anything that fails the check is replaced by your own wording. Employers,
   schools and dates always come straight from your profile, and the AI never
   sees your phone, email, birth date or gender.
+- **No promotions, no bigger roles.** Job titles and names stay exactly as you
+  wrote them; they're only translated when the résumé is in another language,
+  and a translation can't add seniority (工程师 never becomes "Senior Engineer").
+  A rewritten point can't claim more responsibility than yours does: "参与开发"
+  may become "helped build", never "led"; "used Kafka" never becomes "designed
+  the Kafka layer". Same for the summary.
+- **Skill check (no AI).** Job Radar lists the skills a post names and sorts
+  them into: in your skills / shown in your experience / missing. Dry-run and
+  "applied" notices show the match (🔎 技能匹配 5/7（71%）) and the dry run lists
+  what's missing; the Preview shows all three groups. Missing skills are never
+  put on the résumé, and the AI is told so. If you do have one, add it to your
+  profile.
+- **Newest job first.** Work experience is sorted by start date (2021.07,
+  2021年7月, Jul 2021 and 2021 all work). If a job has no start date, your order
+  is kept.
+- **Paper and length.** US Letter by default, as in the sample; or A4, or
+  automatic (Letter for US/Canada jobs, A4 elsewhere). You're warned when a
+  résumé runs past the page limit (2 by default). Both are under **Auto-apply →
+  Your résumé**.
 - **Without AI**, the résumé is your profile as you typed it, nicely laid out.
 - **Preview** on the Profile page makes it now (paste a job post to see the
   tailored version). In dry run, every draft also comes with the résumé it

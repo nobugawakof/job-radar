@@ -660,8 +660,10 @@ class Api:
             path = b.build(posting, key="preview")
         except ResumeError as e:
             raise ApiError(str(e)) from e
+        info = b.last
         return {"file": b.relative(path), "name": path.name, "tailored": bool(b.tailor and posting.strip()),
-                "size": path.stat().st_size}
+                "size": path.stat().st_size, "pages": info.pages, "paper": info.paper,
+                "max_pages": info.max_pages, "too_long": info.too_long, "skills": info.skills.to_dict()}
 
     def resume_upload(self, data: bytes) -> dict[str, Any]:
         _require(data[:5] == b"%PDF-", "That doesn't look like a PDF file.")

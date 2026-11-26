@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -17,12 +18,42 @@ from ..apply import language
 from ..config import Config
 from . import content as cv
 from . import profile as prof
-from .render import ResumeError, render
+from . import skillgap
+from .render import ResumeError, render_doc
 
 log = logging.getLogger("jobradar.resume")
 
-# (profile, posting text, language) -> the AI's unchecked JSON, or None
-Tailor = Callable[[dict[str, Any], str, str], "dict[str, Any] | None"]
+# (profile, posting text, language, skill hint) -> the AI's unchecked JSON, or None
+Tailor = Callable[[dict[str, Any], str, str, str], "dict[str, Any] | None"]
+
+
+@dataclass
+class BuildInfo:
+    """What the last build made, for notices and the dashboard."""
+    path: Path
+    pages: int = 1
+    paper: str = "letter"
+    tailored: bool = False
+    skills: skillgap.SkillReport = field(default_factory=skillgap.SkillReport)
+    max_pages: int = 0
+
+    @property
+    def too_long(self) -> bool:
+        return bool(self.max_pages) and self.pages > self.max_pages
+
+
+def paper_for(config: Config, posting_text: str) -> str:
+    """"letter" / "a4": as set, or with "auto" by the job's country
+    (Letter for the US and Canada, A4 elsewhere, Letter when unknown)."""
+    setting = (config.resume_page_size or "letter").strip().lower()
+    if setting in ("letter", "a4"):
+        return setting
+    from .. import places
+
+    countries = places.find(posting_text or "")
+    if not countries:
+        return "letter"
+    return "letter" if countries <= {"US", "CA"} else "a4"
 
 
 class ResumeBuilder:
@@ -30,28 +61,36 @@ class ResumeBuilder:
                  tailor: Tailor | None = None):
         self.config = config
         self.base_dir = Path(base_dir)
-        self.profile = prof.validate(profile)   # raises ProfileError if incomplete
+        self.profile = prof.newest_first(prof.validate(profile))   # raises ProfileError if incomplete
         self.tailor = tailor
+        self.last: BuildInfo | None = None
 
     def language_for(self, posting_text: str) -> str:
         return language.resolve(self.config.message_language, posting_text or prof.facts_text(self.profile))
 
-    def content(self, posting_text: str = "") -> cv.ResumeContent:
+    def skills(self, posting_text: str) -> skillgap.SkillReport:
+        return skillgap.check(posting_text, self.profile) if posting_text.strip() else skillgap.SkillReport()
+
+    def content(self, posting_text: str = "", report: skillgap.SkillReport | None = None) -> cv.ResumeContent:
         lang = self.language_for(posting_text)
         obj = None
         if self.tailor is not None:
+            hint = skillgap.ai_hint(report or self.skills(posting_text))
             try:
-                obj = self.tailor(self.profile, posting_text, lang)
+                obj = self.tailor(self.profile, posting_text, lang, hint)
             except Exception as e:  # noqa: BLE001 - fall back to your own wording
                 log.warning("résumé tailoring failed: %s", e)
         return cv.from_ai(obj, self.profile, lang) if obj else cv.from_profile(self.profile, lang)
 
     def build(self, posting_text: str = "", *, key: str | None = None) -> Path:
-        """Write the PDF and return its path. Raises ResumeError."""
-        c = self.content(posting_text)
+        """Write the PDF and return its path (details in ``self.last``). Raises ResumeError."""
+        report = self.skills(posting_text)
+        c = self.content(posting_text, report)
+        paper = paper_for(self.config, posting_text)
         try:
-            data = render(c, font_path=self.config.resume_font_path or "",
-                          font_dirs=[self.base_dir / "fonts"])
+            doc = render_doc(c, font_path=self.config.resume_font_path or "",
+                             font_dirs=[self.base_dir / "fonts"], paper=paper)
+            data = doc.to_bytes()
         except ResumeError:
             raise
         except Exception as e:  # noqa: BLE001 - a font or layout bug
@@ -67,6 +106,10 @@ class ResumeBuilder:
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
+        self.last = BuildInfo(path, pages=len(doc.pages), paper=paper, tailored=c.tailored, skills=report,
+                              max_pages=max(0, int(self.config.resume_max_pages or 0)))
+        if self.last.too_long:
+            log.warning("the résumé is %d pages (limit %d)", self.last.pages, self.last.max_pages)
         return path
 
     def relative(self, path: Path) -> str:
@@ -91,8 +134,8 @@ def make_builder(config: Config, base_dir: Path, profile: dict[str, Any]) -> Res
     key = ai_key(config)
     tailor: Tailor | None = None
     if config.use_ai and key:
-        def ai_tailor(p: dict[str, Any], posting: str, lang: str) -> dict[str, Any] | None:
+        def ai_tailor(p: dict[str, Any], posting: str, lang: str, hint: str = "") -> dict[str, Any] | None:
             return ai.tailor_resume(p, posting, language=lang, provider=config.ai_provider, api_key=key or "",
-                                    model=config.ai_model, max_chars=config.ai_max_chars)
+                                    model=config.ai_model, max_chars=config.ai_max_chars, hint=hint)
         tailor = ai_tailor
     return ResumeBuilder(config, base_dir, profile, tailor=tailor)

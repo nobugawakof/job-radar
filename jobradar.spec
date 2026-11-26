@@ -40,6 +40,7 @@ a = Analysis(
         "jobradar.resume.pdf",
         "jobradar.resume.profile",
         "jobradar.resume.render",
+        "jobradar.resume.skillgap",
         # Optional: bundled when Telethon is installed in the build env (the
         # GitHub workflow installs it) so the .exe can auto-apply via Telegram.
         "telethon",

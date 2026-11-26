@@ -3,6 +3,26 @@
 Newest first. Each entry says what was decided and why, so later work doesn't
 undo it by accident.
 
+## Ideas taken from career-ops (owner's request)
+- The owner pointed at career-ops (MIT). It uses the same overall design as
+  ours: one source of facts, the AI returns JSON, deterministic rendering, and
+  checks before anything is sent. The owner chose to adopt four of its ideas,
+  all written independently in Python:
+  1. **Title check and verb drift.** Titles stay exactly as written (only
+     translated, without seniority words); bullets and the summary may not
+     gain scope verbs. career-ops warns a person; Job Radar runs unattended,
+     so a failing rewrite falls back to the owner's text.
+  2. **Skill gaps.** existing / supported / gap without AI
+     (`resume/skillgap.py`, a fixed vocabulary in English and Chinese). Shown
+     in notices and the Preview, and passed to the AI as "never claim".
+  3. **Page budget and paper size.** Default 2 pages, warning only (sending
+     isn't blocked, since nobody is there to trim). Paper: Letter (the
+     sample) / A4 / auto by the job's country via `places.find`.
+  4. **Reverse-chronological order.** Experience sorted by start date; left
+     alone when a date can't be read.
+- Not adopted: Playwright HTML→PDF (needs a browser install), the competency
+  tag grid (not in the owner's sample), interactive warnings.
+
 ## Résumé layout follows the owner's sample
 - The owner supplied a sample résumé (.docx) to copy. Measured from it: US
   Letter; margins 36 pt top/bottom, 45 pt sides; name 20 pt bold #1A1A1A;

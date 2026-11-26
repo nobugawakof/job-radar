@@ -58,8 +58,11 @@ match to the owner's Telegram bot chat. Optional extras:
   in `resume/content.py`: every skill and bullet must quote its source text from
   the profile, and numbers must appear in that source (unit conversions like
   300万 → 3M are allowed). Employers, schools and dates always come from the
-  profile. Anything that fails falls back to the owner's own wording. Don't
-  loosen these checks. The AI never receives phone, email, birth date or gender
+  profile. Titles and names are kept verbatim in the same language, and a
+  translation can't add seniority; rewritten bullets and the summary can't
+  gain lead/own/design/manage/found verbs or drop "participated/参与"
+  (`_label`, `_no_inflation`). Anything that fails falls back to the owner's
+  own wording. Don't loosen these checks. The AI never receives phone, email, birth date or gender
   (`ai.resume_facts`).
 - **Chinese is the default message language** (`message_language = "zh"`):
   applications, AI drafts and bot notices. Every user-facing phrase Job Radar

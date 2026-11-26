@@ -16,6 +16,8 @@ come from the audit the owner works through one item at a time; keep them.
 - Résumés generated from a Profile page (required: name, job title, education),
   tailored per job by AI with no-invention checks, as PDF with an embedded
   Chinese font; preview, import from an old résumé, `jobradar resume`.
+- Résumé layout copied from the owner's sample; title/verb guards, skill-gap
+  report, page limit and paper size, newest-first order (ideas from career-ops).
 
 ## Open
 

@@ -233,7 +233,19 @@ def cmd_resume(args: argparse.Namespace) -> int:
         out.write_bytes(path.read_bytes())
         path = out
     how = "tailored by AI" if builder.tailor and text else "from your profile"
+    info = builder.last
     print(f"Résumé ({how}): {path}")
+    print(f"{info.pages} page(s), {info.paper.upper() if info.paper == 'a4' else 'Letter'}"
+          + (f" — over the {info.max_pages}-page limit" if info.too_long else ""))
+    r = info.skills
+    if r.skills:
+        print(f"Skills the post names: {r.matched}/{len(r.skills)} in your profile ({r.percent}%)")
+        if r.existing:
+            print("  listed in your skills: " + ", ".join(r.existing))
+        if r.supported:
+            print("  shown in your experience: " + ", ".join(r.supported))
+        if r.gap:
+            print("  missing (not put on the résumé): " + ", ".join(r.gap))
     return 0
 
 

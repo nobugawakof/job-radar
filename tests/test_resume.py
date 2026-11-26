@@ -20,7 +20,7 @@ from jobradar.config import Config
 from jobradar.models import Posting
 from jobradar.resume import builder as rb
 from jobradar.resume import content as cv
-from jobradar.resume import fonts, render
+from jobradar.resume import fonts, render, skillgap
 from jobradar.resume import profile as prof
 from jobradar.resume.pdf import PdfDoc
 from jobradar.state import State, utcnow
@@ -168,6 +168,39 @@ class ContentTests(unittest.TestCase):
         self.assertEqual(c.languages, ["English: Fluent"])
         self.assertEqual(c.headline, "Backend Engineer · Payments")
         self.assertEqual(c.contact[0], "Female")
+
+    def test_titles_stay_as_written(self):
+        # Same language: your own titles and names, whatever the AI says.
+        c = cv.from_ai(self.ai_answer(job_title="资深后端专家", experience=[
+            {"index": 0, "company": "蚂蚁金服", "role": "首席架构师", "area": "", "location": "", "bullets": []}]),
+            PROFILE, "zh")
+        self.assertEqual((c.job_title, c.experience[0].title, c.experience[0].org), ("后端工程师", "高级后端工程师", "蚂蚁科技"))
+        # Translation may not add seniority: 后端工程师 → "Senior …" is refused.
+        p = {**PROFILE, "experience": [{**PROFILE["experience"][1]}]}
+        c = cv.from_ai(self.ai_answer(experience=[{"index": 0, "company": "Xiaohong", "role": "Senior Backend Engineer",
+                                                   "area": "", "location": "", "bullets": []}]), p, "en")
+        self.assertEqual(c.experience[0].title, "后端工程师")
+        c = cv.from_ai(self.ai_answer(experience=[{"index": 0, "company": "Xiaohong", "role": "Backend Engineer",
+                                                   "area": "", "location": "", "bullets": []}]), p, "en")
+        self.assertEqual(c.experience[0].title, "Backend Engineer")
+
+    def test_bullets_cannot_claim_more_responsibility(self):
+        details = "- 参与支付系统开发\n- 使用 Kafka 处理消息"
+        p = {**PROFILE, "experience": [{"company": "A", "role": "工程师", "start": "2020", "details": details}]}
+
+        def bullets(*items):
+            obj = self.ai_answer(experience=[{"index": 0, "company": "A", "role": "Engineer", "area": "", "location": "",
+                                              "bullets": [{"text": t, "source": src} for t, src in items]}])
+            return cv.from_ai(obj, p, "en").experience[0].bullets
+
+        self.assertEqual(bullets(("Led the payment system build", "参与支付系统开发")), prof.lines(details))
+        self.assertEqual(bullets(("Built the payment system", "参与支付系统开发")), prof.lines(details))  # dropped "participated"
+        self.assertEqual(bullets(("Helped build the payment system", "参与支付系统开发")), ["Helped build the payment system"])
+        self.assertEqual(bullets(("Designed the Kafka messaging layer", "使用 Kafka 处理消息"),
+                                 ("Processed messages with Kafka", "使用 Kafka 处理消息")),
+                         ["Processed messages with Kafka"])
+        c = cv.from_ai(self.ai_answer(intro="Led and managed payment teams."), PROFILE, "en")
+        self.assertEqual(c.intro, PROFILE["summary"])
 
     def test_numbers_must_come_from_the_profile(self):
         c = cv.from_ai(self.ai_answer(intro="10 years building payment systems."), PROFILE, "en")
@@ -328,6 +361,78 @@ class BuilderTests(unittest.TestCase):
         self.assertNotIn("138 0000", json.dumps(seen["messages"], ensure_ascii=False))
 
 
+class SkillGapTests(unittest.TestCase):
+    JD = ("Senior Go engineer. Requirements: Golang, gRPC, Kafka, PostgreSQL, Kubernetes (K8s), Terraform. "
+          "Nice to have: Rust. You will go above and beyond — contact us.")
+
+    def test_find_skills(self):
+        self.assertEqual(skillgap.find_skills(self.JD),
+                         ["Go", "gRPC", "Kafka", "PostgreSQL", "Kubernetes", "Terraform", "Rust"])
+        self.assertEqual(skillgap.find_skills("招聘 Golang 开发：熟悉微服务、高并发，熟悉 MySQL、Redis，了解 K8s"),
+                         ["Go", "Microservices", "High Concurrency", "MySQL", "Redis", "Kubernetes"])
+        self.assertEqual(skillgap.find_skills("we go live soon; restful thinking"), ["REST"])  # "go" isn't Go
+
+    def test_three_groups(self):
+        p = {"name": "x", "job_title": "y", "education": [{"school": "z"}], "skills": "后端：Go, gRPC",
+             "projects": [{"name": "p", "stack": "PostgreSQL"}],
+             "experience": [{"company": "A", "details": "使用 Kafka 处理消息，部署在 Kubernetes 上"}]}
+        r = skillgap.check(self.JD, p)
+        self.assertEqual((r.existing, r.supported, r.gap),
+                         (["Go", "gRPC", "PostgreSQL"], ["Kafka", "Kubernetes"], ["Terraform", "Rust"]))
+        self.assertEqual((r.matched, r.percent), (5, 71))
+        hint = skillgap.ai_hint(r)
+        self.assertIn("never claim", hint)
+        self.assertIn("Terraform, Rust", hint)
+
+    def test_the_ai_is_told_the_gaps(self):
+        seen = {}
+
+        def fake(url, body, headers, timeout):
+            seen["text"] = body["messages"][0]["content"]
+            return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "{}"}]}
+
+        b = rb.make_builder(Config(use_ai=True, anthropic_api_key="k", message_language="en"), Path(tempfile.mkdtemp()),
+                            {**PROFILE, "skills": "Go"})
+        with mock.patch.object(ai, "_post_json", fake):
+            b.content(self.JD)
+        self.assertIn("<skill_check>", seen["text"])
+        self.assertIn("do NOT show (never claim", seen["text"])
+
+
+class OrderAndPaperTests(unittest.TestCase):
+    def test_newest_first(self):
+        p = {"experience": [{"company": "Old", "start": "2016.07"}, {"company": "New", "start": "Jan 2022"},
+                            {"company": "Mid", "start": "2019年3月"}]}
+        self.assertEqual([j["company"] for j in prof.newest_first(p)["experience"]], ["New", "Mid", "Old"])
+        p2 = {"experience": [{"company": "A", "start": "2016"}, {"company": "B", "start": ""}]}
+        self.assertEqual(prof.newest_first(p2), p2)               # a job without a date: left as entered
+        c = cv.from_profile({**PROFILE, "experience": list(reversed(PROFILE["experience"]))}, "zh")
+        self.assertEqual([e.org for e in c.experience], ["蚂蚁科技", "小红科技"])
+
+    def test_paper_size(self):
+        cfg = Config(resume_page_size="auto")
+        self.assertEqual(rb.paper_for(cfg, "Remote (US only), San Francisco"), "letter")
+        self.assertEqual(rb.paper_for(cfg, "Toronto, ON"), "letter")
+        self.assertEqual(rb.paper_for(cfg, "招聘后端工程师，上海"), "a4")
+        self.assertEqual(rb.paper_for(cfg, "Berlin, Germany"), "a4")
+        self.assertEqual(rb.paper_for(cfg, "Remote, anywhere"), "letter")
+        self.assertEqual(rb.paper_for(Config(resume_page_size="a4"), "San Francisco"), "a4")
+        self.assertEqual(rb.paper_for(Config(), "Berlin, Germany"), "letter")          # the default, like the sample
+
+    def test_page_count_and_limit(self):
+        with tempfile.TemporaryDirectory() as d:
+            long = {**PROFILE, "experience": [{"company": f"公司{i}", "role": "工程师", "start": f"20{10 + i}",
+                                               "details": "\n".join(["负责很多很多事情，做了很多很多工作"] * 8)}
+                                              for i in range(12)]}
+            b = rb.ResumeBuilder(Config(resume_max_pages=2, resume_page_size="a4"), Path(d), long)
+            with mock.patch.object(render, "pick_font", lambda *a, **k: None):
+                b.build("Berlin")
+            self.assertGreater(b.last.pages, 2)
+            self.assertTrue(b.last.too_long)
+            self.assertEqual(b.last.paper, "a4")
+            self.assertIn(b"595.28 841.89", b.last.path.read_bytes())
+
+
 class FakeSender:
     channel = "telegram"
 
@@ -382,6 +487,8 @@ class EngineTests(unittest.TestCase):
             self.applier("dry_run", builder=b).run([self.posting()], NOW)
         self.assertEqual(self.sender.sent, [])
         self.assertIn("Résumé tailored for this job: Mei_Chen_Resume.pdf", self.notes[0])
+        self.assertIn("Skills matched 0/1 (0%)", self.notes[0])            # the post names Go; the profile doesn't
+        self.assertIn("Missing (not put on the résumé): Go", self.notes[0])
         self.assertTrue((self.dir / self.state.get_application("fp1")["resume_file"]).exists())
 
     def test_failed_resume_falls_back_to_the_uploaded_pdf(self):
@@ -448,6 +555,10 @@ class DashboardTests(unittest.TestCase):
                 with mock.patch.object(render, "pick_font", lambda *a, **k: None):
                     prev = call("POST", "/api/profile/preview", {})
                 self.assertEqual((prev["name"], prev["tailored"]), ("Mei_Chen_Resume.pdf", False))
+                self.assertEqual((prev["pages"], prev["paper"], prev["too_long"]), (1, "letter", False))
+                with mock.patch.object(render, "pick_font", lambda *a, **k: None):
+                    prev2 = call("POST", "/api/profile/preview", {"posting": "Hiring: Go, Terraform"})
+                self.assertEqual((prev2["skills"]["existing"], prev2["skills"]["gap"]), (["Go"], ["Terraform"]))
                 pdf = call("GET", "/api/file?path=" + prev["file"], raw=True)
                 self.assertTrue(pdf.startswith(b"%PDF"))
                 self.assertIn("not found", error("GET", "/api/file?path=../config.toml"))

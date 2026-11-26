@@ -82,6 +82,8 @@ class Config:
     applicant_name: str = ""
     resume_source: str = "generated"            # "generated" (from your profile, tailored per job) | "uploaded"
     resume_font_path: str = ""                  # font for the generated PDF; empty = find one on this computer
+    resume_page_size: str = "letter"            # "letter" | "a4" | "auto" (Letter for US/Canada jobs, else A4)
+    resume_max_pages: int = 2                   # warn when a résumé runs longer (0 = no limit)
     resume_pdf_path: str = "resume.pdf"         # your own PDF (resume_source = "uploaded", or as a fallback)
     resume_text_path: str = ""                  # optional plain-text résumé for the AI (else the PDF is sent to it)
     # Language of application messages: "zh" (Chinese, default), "en", or

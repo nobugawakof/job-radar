@@ -103,7 +103,7 @@ def _meta(stack: str, role: str, link: str, lang: str) -> list[tuple[str, str]]:
 
 
 def from_profile(p: dict[str, Any], lang: str) -> ResumeContent:
-    p = prof.normalize(p)
+    p = prof.newest_first(prof.normalize(p))
     c = ResumeContent(lang=lang, name=p["name"], job_title=p["job_title"], focus=p["focus"],
                       contact=contact_line(p, lang), intro=p["summary"], skills=prof.skill_lines(p["skills"]))
     for e in p["experience"]:
@@ -155,6 +155,62 @@ def _backed(text: str, source: str, allowed: str) -> bool:
     return _same_numbers(text, source)
 
 
+# Words that claim more responsibility or seniority. A rewrite may only use a
+# group that its source already uses (in either language): "参与开发" may become
+# "helped build", never "led"; "工程师" may become "Engineer", never "Senior Engineer".
+_SCOPE_VERBS = {
+    "lead": r"\bled\b|\bleading\b|\bheaded\b|\bspearhead|\bdrove\b|\bdirected\b|主导|牵头|带领|领导|率领|领衔",
+    "own": r"\bowned\b|\bowner\b|\bownership\b|\bresponsible for\b|\bin charge of\b|负责",
+    "design": r"\bdesign(?:ed|ing)?\b|\barchitect(?:ed|ing|ure)?\b|设计|架构",
+    "manage": r"\bmanag(?:ed|ing)\b|\bsupervis(?:ed|ing)\b|\bmentor(?:ed|ing)?\b|管理|指导",
+    "found": r"\bfounded\b|\bco-?founded\b|\binvented\b|\binitiated\b|\bpioneer|创立|创建|发起|首创",
+}
+_PARTICIPATION = (r"\bparticipat|\bassist|\bcontribut|\bhelped\b|\bsupported\b|\bjoined\b|\bas part of\b"
+                  r"|参与|协助|配合|辅助")
+_SENIORITY = {
+    "senior": r"\bsenior\b|\bsr\b|高级|资深",
+    "lead": r"\blead\b|\bleader\b|组长|负责人|带头人",
+    "staff": r"\bstaff\b|\bprincipal\b|首席|专家",
+    "manager": r"\bmanager\b|\bsupervisor\b|经理|主管",
+    "head": r"\bhead\b|\bdirector\b|\bvp\b|\bvice president\b|总监|副总裁|总经理",
+    "chief": r"\bchief\b|\bc[a-z]o\b",
+    "architect": r"\barchitect\b|架构师",
+}
+
+
+def _groups(table: dict[str, str], text: str) -> set[str]:
+    t = (text or "").lower()
+    return {k for k, pat in table.items() if re.search(pat, t)}
+
+
+def _no_inflation(text: str, source: str) -> bool:
+    """The rewrite claims no more responsibility than its source: no new
+    lead/own/design/manage/found verbs, and "participated / 协助" isn't dropped."""
+    if not _groups(_SCOPE_VERBS, text) <= _groups(_SCOPE_VERBS, source):
+        return False
+    if re.search(_PARTICIPATION, (source or "").lower()) and not re.search(_PARTICIPATION, (text or "").lower()):
+        return False
+    return True
+
+
+def _lang_of(text: str) -> str:
+    return "zh" if re.search(r"[一-鿿]", text or "") else "en"
+
+
+def _label(ai_value: Any, mine: str, lang: str, limit: int = 120) -> str:
+    """A name or title from the profile, kept exactly as you wrote it when it is
+    already in the résumé's language; otherwise the AI's translation, if it adds
+    no numbers and no seniority ("工程师" → "Senior Engineer" is refused)."""
+    if not mine:
+        return ""
+    if _lang_of(mine) == lang:
+        return mine
+    s = str(ai_value or "").strip()
+    if not s or not _same_numbers(s, mine) or not _groups(_SENIORITY, s) <= _groups(_SENIORITY, mine):
+        return mine
+    return s[:limit]
+
+
 def _bullets(ai_items: Any, details: str) -> list[str]:
     """AI bullets that cite this entry's own notes; your lines if none survive."""
     mine = prof.lines(details)
@@ -163,7 +219,7 @@ def _bullets(ai_items: Any, details: str) -> list[str]:
         if not isinstance(b, dict):
             continue
         text, source = str(b.get("text") or "").strip(), str(b.get("source") or "")
-        if _backed(text, source, details):
+        if _backed(text, source, details) and _no_inflation(text, source):
             out.append(text[:500])
     return out or mine
 
@@ -180,14 +236,6 @@ def _by_index(items: Any, n: int) -> dict[int, dict[str, Any]]:
     return out
 
 
-def _short(v: Any, fallback: str, limit: int = 120, numbers_from: str | None = None) -> str:
-    """The AI's (translated) label, or the profile's when it's missing or adds numbers."""
-    s = str(v or "").strip()
-    if not s or (numbers_from is not None and not _same_numbers(s, numbers_from)):
-        return fallback
-    return s[:limit]
-
-
 def _int(v: Any) -> int:
     try:
         return int(v)
@@ -198,18 +246,17 @@ def _int(v: Any) -> int:
 def from_ai(obj: dict[str, Any] | None, p: dict[str, Any], lang: str) -> ResumeContent:
     """The AI's tailored résumé, with every claim checked against the profile.
     Falls back to :func:`from_profile` piece by piece."""
-    p = prof.normalize(p)
+    p = prof.newest_first(prof.normalize(p))
     base = from_profile(p, lang)
     if not isinstance(obj, dict):
         return base
     corpus = prof.facts_text(p)
-    c = ResumeContent(lang=lang, name=p["name"],
-                      job_title=_short(obj.get("job_title"), p["job_title"], 80, p["job_title"]),
-                      focus=_short(obj.get("focus"), p["focus"], 80, p["focus"]) if p["focus"] else "",
-                      contact=base.contact, tailored=True)
+    c = ResumeContent(lang=lang, name=p["name"], job_title=_label(obj.get("job_title"), p["job_title"], lang, 80),
+                      focus=_label(obj.get("focus"), p["focus"], lang, 80), contact=base.contact, tailored=True)
 
     intro = str(obj.get("intro") or "").strip()
-    c.intro = intro[:1500] if intro and _same_numbers(intro, corpus) else base.intro
+    c.intro = (intro[:1500] if intro and _same_numbers(intro, corpus) and _no_inflation(intro, corpus)
+               else base.intro)
 
     groups: list[tuple[str, str]] = []
     sep = "、" if lang == "zh" else ", "
@@ -227,12 +274,10 @@ def from_ai(obj: dict[str, Any] | None, p: dict[str, Any], lang: str) -> ResumeC
     ex = _by_index(obj.get("experience"), len(p["experience"]))
     for i, e in enumerate(p["experience"]):          # every job, in your order
         a, b = ex.get(i, {}), base.experience[i]
-        role = _short(a.get("role"), e["role"], numbers_from=e["role"])
-        company = _short(a.get("company"), e["company"], numbers_from=e["company"])
+        role, company = _label(a.get("role"), e["role"], lang), _label(a.get("company"), e["company"], lang)
         c.experience.append(Entry(
             role or company, company if role else "", b.period,
-            _join(_short(a.get("area"), e["area"], numbers_from=e["area"]) if e["area"] else "",
-                  _short(a.get("location"), e["location"], numbers_from=e["location"]) if e["location"] else ""),
+            _join(_label(a.get("area"), e["area"], lang), _label(a.get("location"), e["location"], lang)),
             bullets=_bullets(a.get("bullets"), e["details"])))
 
     pr = _by_index(obj.get("projects"), len(p["projects"]))
@@ -241,21 +286,20 @@ def from_ai(obj: dict[str, Any] | None, p: dict[str, Any], lang: str) -> ResumeC
     for i in order:
         e, a = p["projects"][i], pr.get(i, {})
         c.projects.append(Entry(
-            _short(a.get("name"), e["name"], numbers_from=e["name"]), period=base.projects[i].period,
-            meta=_meta(e["stack"], _short(a.get("role"), e["role"], numbers_from=e["role"]) if e["role"] else "",
-                       e["link"], lang),
+            _label(a.get("name"), e["name"], lang), period=base.projects[i].period,
+            meta=_meta(e["stack"], _label(a.get("role"), e["role"], lang), e["link"], lang),
             bullets=_bullets(a.get("bullets"), e["details"])))
 
     ed = _by_index(obj.get("education"), len(p["education"]))
     for i, e in enumerate(p["education"]):
         a = ed.get(i, {})
         c.education.append(Entry(
-            _join(*(_short(a.get(k), e[k], numbers_from=e[k]) if e[k] else "" for k in ("major", "degree", "school"))),
+            _join(*(_label(a.get(k), e[k], lang) for k in ("major", "degree", "school"))),
             period=base.education[i].period, notes=_bullets(a.get("bullets"), e["details"])))
 
     la = _by_index(obj.get("languages"), len(p["languages"]))
-    c.languages = [_language_line(_short(la.get(i, {}).get("language"), x["language"], 60, x["language"]),
-                                  _short(la.get(i, {}).get("level"), x["level"], 60, x["level"]), lang)
+    c.languages = [_language_line(_label(la.get(i, {}).get("language"), x["language"], lang, 60),
+                                  _label(la.get(i, {}).get("level"), x["level"], lang, 60), lang)
                    for i, x in enumerate(p["languages"])]
     return c
 

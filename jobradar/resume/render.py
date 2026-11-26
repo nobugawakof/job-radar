@@ -14,7 +14,9 @@ from pathlib import Path
 from ..apply import language
 from .content import Entry, ResumeContent
 from .fonts import TrueTypeFont, find_bold, find_font
-from .pdf import LETTER, PdfDoc, Run, Style
+from .pdf import A4, LETTER, PdfDoc, Run, Style
+
+PAPER = {"letter": LETTER, "a4": A4}
 
 INK = (0x1A / 255, 0x1A / 255, 0x1A / 255)
 ACCENT = (0x1F / 255, 0x3A / 255, 0x5F / 255)
@@ -108,14 +110,20 @@ def _entry_head(L: _Layout, e: Entry, size: float, *, marker: bool = False) -> N
         L.doc.diamond(L.left + size * 0.4, top - h * L.asc + size * 0.35, size * 0.33, color=INK)
 
 
-def render(c: ResumeContent, *, font: TrueTypeFont | None = None, bold_font: TrueTypeFont | None = None,
-           font_path: str = "", font_dirs: list[Path] | None = None) -> bytes:
+def render(c: ResumeContent, **kw) -> bytes:
+    return render_doc(c, **kw).to_bytes()
+
+
+def render_doc(c: ResumeContent, *, font: TrueTypeFont | None = None, bold_font: TrueTypeFont | None = None,
+               font_path: str = "", font_dirs: list[Path] | None = None, paper: str = "letter") -> PdfDoc:
+    """The laid-out document (``.pages`` tells how many pages; ``.to_bytes()`` is the PDF)."""
     text = c.plain_text()
     if font is None:
         font = pick_font(text, font_path=font_path, font_dirs=font_dirs)
     if font is not None and bold_font is None:
         bold_font = find_bold(font, text, extra_dirs=font_dirs)
-    doc = PdfDoc(font, bold_font=bold_font, title=f"{c.name} — {c.job_title}", author=c.name, size=LETTER)
+    doc = PdfDoc(font, bold_font=bold_font, title=f"{c.name} — {c.job_title}", author=c.name,
+                 size=PAPER.get(paper, LETTER))
     L = _Layout(doc)
     lang = c.lang
     colon = "：" if lang == "zh" else ": "
@@ -164,4 +172,4 @@ def render(c: ResumeContent, *, font: TrueTypeFont | None = None, bold_font: Tru
     if c.languages:
         L.heading(language.t("cv_languages", lang))
         L.lines([((" ｜ " if lang == "zh" else "  |  ").join(c.languages), Style(10, INK))])
-    return doc.to_bytes()
+    return doc

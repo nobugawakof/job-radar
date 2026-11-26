@@ -596,7 +596,7 @@ def resume_facts(profile: dict[str, Any]) -> dict[str, Any]:
 
 def tailor_resume(profile: dict[str, Any], posting_text: str, *, language: str = "zh", provider: str = "claude",
                   api_key: str, model: str = _CLAUDE_DEFAULT_MODEL, max_chars: int = 6000,
-                  timeout: float = 120.0) -> dict[str, Any] | None:
+                  timeout: float = 120.0, hint: str = "") -> dict[str, Any] | None:
     """The AI's résumé for one posting (unchecked JSON; see resume.content.from_ai),
     or None on any failure."""
     if not api_key:
@@ -605,7 +605,9 @@ def tailor_resume(profile: dict[str, Any], posting_text: str, *, language: str =
     system = _RESUME_SYSTEM.replace("{language}", _RESUME_LANGUAGE[lang])
     facts = json.dumps(resume_facts(profile), ensure_ascii=False, indent=1)
     posting = posting_text.strip()[:max_chars] or "(No posting: write a general résumé for the candidate's own title.)"
-    text = f"<candidate>\n{facts}\n</candidate>\n\n<job_posting>\n{posting}\n</job_posting>\n\nWrite the tailored résumé."
+    notes = f"<skill_check>\n{hint}\n</skill_check>\n\n" if hint else ""
+    text = (f"<candidate>\n{facts}\n</candidate>\n\n<job_posting>\n{posting}\n</job_posting>\n\n{notes}"
+            "Write the tailored résumé.")
     try:
         if (provider or "claude").strip().lower() == "gemini":
             return _gemini_json(system + _RESUME_GEMINI_FIELDS, [{"text": text}], api_key=api_key,
