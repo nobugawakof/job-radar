@@ -54,7 +54,7 @@ class ApplierTestCase(unittest.TestCase):
         self.sleeps: list[float] = []
         self.tg = FakeSender("telegram")
         self.mail = FakeSender("email")
-        self.cfg = Config(apply_mode="auto", apply_daily_cap=10, apply_min_score=70,
+        self.cfg = Config(apply_mode="auto", apply_daily_cap=10, apply_min_score=70, message_language="en",
                           apply_delay_seconds=[45, 120])
         self.score = 85
 
@@ -199,7 +199,7 @@ class GateTests(ApplierTestCase):
 
 class TemplateTests(unittest.TestCase):
     def test_template_fills_placeholders_and_keeps_unknown(self):
-        cfg = Config(applicant_name="Mei", apply_template="Role {title} — {name} {unknown}")
+        cfg = Config(applicant_name="Mei", apply_template="Role {title} — {name} {unknown}", message_language="en")
         d = template_draft(cfg, {"title": "Go Dev"})
         self.assertEqual(d.message, "Role Go Dev — Mei {unknown}")
         self.assertIsNone(d.fit_score)

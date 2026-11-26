@@ -52,6 +52,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
      ["apply_mode", "apply_channels", "applicant_name", "resume_pdf_path", "resume_text_path",
       "apply_min_score", "apply_keywords", "apply_exclude_keywords", "apply_daily_cap",
       "apply_delay_seconds", "apply_contact_cooldown_days", "apply_max_age_days",
+      "message_language", "apply_template_zh", "apply_email_subject_zh",
       "apply_template", "apply_email_subject"]),
     ("Your Telegram account (auto-apply) — keep the session file private",
      ["telegram_api_id", "telegram_api_hash", "telegram_phone", "telegram_session_path"]),
@@ -66,6 +67,7 @@ _CHOICES = {
     "apply_mode": ("off", "dry_run", "auto"),
     "ai_provider": ("gemini", "claude"),
     "unknown_location": ("review", "send", "drop"),
+    "message_language": ("zh", "en", "auto"),
 }
 
 
@@ -114,7 +116,7 @@ def coerce(key: str, value: Any) -> Any:
                 raise ConfigError(f"{label} must be a positive number")
             return n
         if kind in ("str", "str|None"):
-            s = str(value) if key in ("apply_template",) else str(value).strip()
+            s = str(value) if key in ("apply_template", "apply_template_zh") else str(value).strip()
             if key in _CHOICES and s not in _CHOICES[key]:
                 raise ConfigError(f"{label} must be one of {', '.join(_CHOICES[key])}")
             if key == "telegram_api_id" and s and not s.isdigit():

@@ -66,7 +66,7 @@ class PipelineApplyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             resume = Path(d) / "resume.pdf"
             resume.write_bytes(b"%PDF-1.4")
-            cfg = Config(keywords=["python"], telegram_chat_id="1", message_interval_seconds=0,
+            cfg = Config(keywords=["python"], telegram_chat_id="1", message_interval_seconds=0, message_language="en",
                          apply_mode="auto", apply_delay_seconds=[0, 0])
             state = State(Path(d) / "jobradar.db")
             transport = FakeTransport()

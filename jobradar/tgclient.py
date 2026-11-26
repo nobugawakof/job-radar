@@ -23,6 +23,12 @@ class TelethonMissing(RuntimeError):
     pass
 
 
+# Your account's session file must not be opened by two clients at once (it's
+# a SQLite file; parallel use corrupts or locks it). Every user of the account
+# — sender, channel reader, conversation sync, login check — holds this lock.
+ACCOUNT_LOCK = threading.RLock()
+
+
 def require_telethon():
     try:
         import telethon  # noqa: F401
@@ -54,9 +60,22 @@ class LoopThread:
             raise TimeoutError(f"Telegram did not respond within {timeout:.0f}s") from e
 
     def stop(self) -> None:
+        """Stop the loop and release its resources (each use of the account
+        makes one; a dashboard open for weeks must not leak them)."""
+        if self.loop.is_closed():
+            return
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self.loop.stop)
-            self._thread.join(5)
+        self._thread.join(5)
+        if not self._thread.is_alive():
+            # Cancel whatever Telethon left scheduled, then close the loop.
+            for task in asyncio.all_tasks(self.loop):
+                task.cancel()
+            try:
+                self.loop.run_until_complete(asyncio.sleep(0))
+            except Exception:  # noqa: BLE001
+                pass
+            self.loop.close()
 
 
 def make_client(runner: LoopThread, session_path: str, api_id: str | int, api_hash: str):

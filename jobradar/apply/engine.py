@@ -45,6 +45,7 @@ from ..filters import match_keywords
 from ..models import Posting
 from ..state import State, iso, parse_iso, utcnow
 from . import contacts as contact_rules
+from . import language
 from .senders import ChannelUnavailable, ContactError, EmailSender, Sender, TelegramUserSender
 
 log = logging.getLogger("jobradar.apply")
@@ -81,13 +82,17 @@ def _fmt(template: str, **values: str) -> str:
 
 
 def template_draft(config: Config, entry: dict[str, Any]) -> ApplicationDraft:
-    """Your fixed template, used when AI is off or unavailable."""
-    title = entry.get("title") or "this role"
-    body = _fmt(config.apply_template, title=title, name=config.applicant_name or "")
+    """Your fixed template (Chinese or English per message_language), used when
+    AI is off or unavailable."""
+    lang = language.resolve(config.message_language, entry.get("description") or "")
+    title = entry.get("title") or ("该职位" if lang == "zh" else "this role")
+    template = config.apply_template_zh if lang == "zh" else config.apply_template
+    subject = config.apply_email_subject_zh if lang == "zh" else config.apply_email_subject
+    body = _fmt(template, title=title, name=config.applicant_name or "")
     return ApplicationDraft(
         fit_score=None, fit_reason="template (no AI fit check)", message=body.strip(),
-        email_subject=_fmt(config.apply_email_subject, title=title)[:150],
-        email_body=body.strip(), source="template",
+        email_subject=_fmt(subject, title=title)[:150], email_body=body.strip(),
+        language=lang, source="template",
     )
 
 
@@ -255,12 +260,12 @@ class Applier:
             if self.mode == "dry_run":
                 self._notify(self._preview(entry, draft, ch, contact, subject, text))
                 self._finish(key, entry, now, status="dry_run", channel=ch, contact=contact,
-                             score=draft.fit_score, reason=draft.fit_reason)
+                             score=draft.fit_score, reason=draft.fit_reason, message=text)
                 self._mark_contact(ch, contact, now)
                 report.previewed += 1
                 return "done"
             try:
-                active[ch].send(contact, message=text, subject=subject, attachment=self.resume_pdf)
+                sent = active[ch].send(contact, message=text, subject=subject, attachment=self.resume_pdf)
             except ContactError as e:
                 errors.append(str(e))
                 log.warning("auto-apply: %s", e)
@@ -274,7 +279,8 @@ class Applier:
                 self._alert(report, f"Auto-apply: {_CHANNEL_LABEL[ch]} paused{until} — {e}")
                 continue
             self._finish(key, entry, now, status="sent", channel=ch, contact=contact,
-                         score=draft.fit_score, reason=draft.fit_reason)
+                         score=draft.fit_score, reason=draft.fit_reason, message=text)
+            self._record_conversation(key, entry, ch, contact, text, subject, sent, now)
             self._mark_contact(ch, contact, now)
             report.sent += 1
             self._notify(self._confirmation(entry, draft, ch, contact, text))
@@ -315,13 +321,36 @@ class Applier:
 
     def _finish(self, key: str, entry: dict[str, Any], now: datetime, *, status: str,
                 channel: str | None = None, contact: str | None = None,
-                score: int | None = None, reason: str = "", error: str = "") -> None:
+                score: int | None = None, reason: str = "", error: str = "", message: str = "") -> None:
         self.state.finish_application(key, {
             "at": iso(now), "mode": self.mode, "status": status, "channel": channel,
             "contact": contact, "title": (entry.get("title") or "")[:200],
             "source_url": entry.get("source_url"), "score": score, "reason": reason[:300],
-            "error": error,
+            "error": error, "message": message,
         })
+
+    def _record_conversation(self, key: str, entry: dict[str, Any], channel: str, contact: str,
+                             text: str, subject: str, sent, now: datetime) -> None:
+        """Keep the sent application in that representative's conversation, so
+        the dashboard shows it (and their replies, once synced)."""
+        try:
+            conv = self.state.conversation_id(channel, contact, display_name=getattr(sent, "display_name", ""),
+                                              peer_id=getattr(sent, "peer_id", None))
+            title = (entry.get("title") or "")[:200]
+            resume = self.resume_pdf.name if self.resume_pdf else ""
+            if channel == "email":
+                self.state.add_message(conv, "out", text, sent_at=now, subject=subject, attachment=resume,
+                                       external_id=getattr(sent, "text_id", None), job_fingerprint=key,
+                                       job_title=title)
+            else:
+                self.state.add_message(conv, "out", text, sent_at=now, external_id=getattr(sent, "text_id", None),
+                                       job_fingerprint=key, job_title=title)
+                if resume:
+                    self.state.add_message(conv, "out", "", sent_at=now, attachment=resume,
+                                           external_id=getattr(sent, "file_id", None), job_fingerprint=key,
+                                           job_title=title)
+        except Exception:  # noqa: BLE001 - the application itself went out fine
+            log.exception("couldn't record the conversation")
 
     def _alert(self, report: ApplyReport, message: str) -> None:
         log.warning(message)
@@ -336,24 +365,34 @@ class Applier:
         except Exception:  # noqa: BLE001 - a failed notice must not stop applying
             log.exception("auto-apply notification failed")
 
+    def _lang(self) -> str:
+        return language.ui(self.config.message_language)
+
     def _fit(self, draft: ApplicationDraft) -> str:
-        return f"fit {draft.fit_score}/100" if draft.fit_score is not None else "template"
+        lang = self._lang()
+        return (language.t("fit", lang, score=str(draft.fit_score)) if draft.fit_score is not None
+                else language.t("template", lang))
+
+    def _channel(self, channel: str) -> str:
+        return language.t("channel_" + channel, self._lang())
 
     def _preview(self, entry: dict[str, Any], draft: ApplicationDraft, channel: str,
                  contact: str, subject: str, text: str) -> str:
-        resume = self.resume_pdf.name if self.resume_pdf and self.resume_pdf.exists() else "⚠️ résumé PDF not found"
+        lang = self._lang()
+        resume = (self.resume_pdf.name if self.resume_pdf and self.resume_pdf.exists()
+                  else language.t("no_resume", lang))
         lines = [
-            f"📝 <b>DRY RUN</b> — would apply ({self._fit(draft)})",
+            language.t("dry_run", lang, fit=self._fit(draft)),
             f"<b>{_esc(entry.get('title') or '(untitled)')}</b>",
-            f"To: {_CHANNEL_LABEL[channel]} {_esc(contact)}",
+            language.t("to", lang, channel=self._channel(channel), contact=_esc(contact)),
         ]
         if draft.fit_reason:
-            lines.append(f"Why: {_esc(draft.fit_reason)}")
+            lines.append(language.t("why", lang, reason=_esc(draft.fit_reason)))
         if entry.get("source_url"):
             lines.append(f"🔗 {_esc(entry['source_url'])}")
         lines.append("")
         if channel == "email":
-            lines.append(f"Subject: {_esc(subject)}")
+            lines.append(language.t("subject", lang, subject=_esc(subject)))
         lines.append(_esc(text[:2500]))
         lines.append(f"\n📎 {_esc(resume)}")
         return "\n".join(lines)
@@ -361,7 +400,8 @@ class Applier:
     def _confirmation(self, entry: dict[str, Any], draft: ApplicationDraft, channel: str,
                       contact: str, text: str) -> str:
         lines = [
-            f"✅ <b>Applied</b> via {_CHANNEL_LABEL[channel]} {_esc(contact)} ({self._fit(draft)})",
+            language.t("applied", self._lang(), channel=self._channel(channel), contact=_esc(contact),
+                       fit=self._fit(draft)),
             f"<b>{_esc(entry.get('title') or '(untitled)')}</b>",
         ]
         if entry.get("source_url"):
@@ -417,7 +457,8 @@ def build_applier(config: Config, state: State, *, base_dir: Path,
             d = ai.draft_application(
                 entry.get("description") or "", resume_text=resume_text, resume_pdf=pdf_bytes,
                 applicant_name=config.applicant_name, provider=config.ai_provider,
-                api_key=key or "", model=config.ai_model, max_chars=config.ai_max_chars)
+                api_key=key or "", model=config.ai_model, max_chars=config.ai_max_chars,
+                language=config.message_language)
             if d is not None:
                 return d
             # AI failed: the template is only a safe stand-in when a keyword gate

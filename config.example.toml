@@ -97,7 +97,13 @@ apply_delay_seconds         = [45, 120]  # random gap between sends
 apply_contact_cooldown_days = 30         # never message the same person twice within this
 apply_max_age_days          = 7          # don't apply to postings older than this
 
+# Language of applications, replies and bot notices:
+# "zh" = Chinese (default), "en" = English, "auto" = the job post's language.
+message_language = "zh"
+
 # Used when AI is off (or fails while apply_keywords is set). {title} {name}
+# apply_template_zh = "您好！我在贵司发布的「{title}」职位信息中看到了招聘需求，希望应聘该职位。..."
+# apply_email_subject_zh = "应聘：{title}"
 # apply_template = "Hi! I saw your post for {title} and would like to apply. ..."
 # apply_email_subject = "Application: {title}"
 

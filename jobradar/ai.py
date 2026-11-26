@@ -377,7 +377,7 @@ _DRAFT_SYSTEM = (
     "different field, needs core skills or seniority the résumé does not show, or "
     "requires a location, language, or work authorisation the candidate clearly "
     "lacks. Score 80+ only when the résumé matches the main requirements.\n"
-    "2. Write the application in the same language as the posting, in the first "
+    "2. {language} Write in the first "
     "person, as the candidate. Use only facts that appear in the résumé — never "
     "invent experience, skills, dates, availability, salary expectations, or "
     "contact details. Name the role, and give two or three concrete matches "
@@ -386,8 +386,20 @@ _DRAFT_SYSTEM = (
     "   - message: a Telegram DM, 50-120 words (or about 150 Chinese characters), "
     "friendly and direct, no subject line.\n"
     "   - email_subject: short, includes the role.\n"
-    "   - email_body: 100-200 words, polite greeting and sign-off."
+    "   - email_body: 100-200 words (or about 200-350 Chinese characters), polite "
+    "greeting and sign-off."
 )
+_LANGUAGE_RULES = {
+    "zh": "Write the application in Simplified Chinese (简体中文), whatever language the "
+          "posting is in; keep company names, product names and technical terms (Python, "
+          "Kubernetes…) as written, and use a polite, natural tone (您).",
+    "en": "Write the application in English, whatever language the posting is in.",
+    "auto": "Write the application in the same language as the posting.",
+}
+
+
+def _draft_system(language: str) -> str:
+    return _DRAFT_SYSTEM.replace("{language}", _LANGUAGE_RULES.get(language, _LANGUAGE_RULES["zh"]))
 
 _DRAFT_GEMINI_FIELDS = (
     "\n\nReturn a JSON object with exactly these keys: fit_score (integer 0-100), "
@@ -436,8 +448,10 @@ def draft_application(
     model: str = _CLAUDE_DEFAULT_MODEL,
     max_chars: int = 6000,
     timeout: float = 90.0,
+    language: str = "zh",
 ) -> ApplicationDraft | None:
     """Score fit and write the application for one posting, or None on failure.
+    ``language``: "zh" (Simplified Chinese, default), "en", or "auto" (the post's).
 
     The résumé is sent as text when ``resume_text`` is given, otherwise as the
     PDF itself (both providers read PDFs natively).
@@ -458,7 +472,7 @@ def draft_application(
                               + posting + "\n\n" + task})
             else:
                 parts.append({"text": f"{name_line}<resume>\n{resume_text}\n</resume>\n\n{posting}\n\n{task}"})
-            obj = _gemini_json(_DRAFT_SYSTEM + _DRAFT_GEMINI_FIELDS, parts, api_key=api_key,
+            obj = _gemini_json(_draft_system(language) + _DRAFT_GEMINI_FIELDS, parts, api_key=api_key,
                                model=model, timeout=timeout)
         else:
             if b64:
@@ -469,7 +483,7 @@ def draft_application(
                 ]
             else:
                 content = f"{name_line}<resume>\n{resume_text}\n</resume>\n\n{posting}\n\n{task}"
-            obj = _claude_json(_DRAFT_SYSTEM, content, _DRAFT_SCHEMA, api_key=api_key,
+            obj = _claude_json(_draft_system(language), content, _DRAFT_SCHEMA, api_key=api_key,
                                model=model, timeout=timeout)
     except Exception as e:  # noqa: BLE001 - drafting is best-effort
         log.warning("AI application drafting failed: %s", e)

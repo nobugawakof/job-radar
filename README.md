@@ -87,7 +87,7 @@ shown back in full.
 | File | What it is |
 |---|---|
 | `config.toml` | Settings and keys. Kept out of the database on purpose (spec DR-6), so sharing the database never leaks a key |
-| `jobradar.db` | History: sent jobs, applications, check history |
+| `jobradar.db` | History: sent jobs, applications (with the message sent), your conversations with representatives, check history |
 | `jobradar-user.session` | Your Telegram login, if you logged in. Full access to your account: keep it private |
 | `resume.pdf` / `resume.txt` | Your résumé, if uploaded |
 | `jobradar-web.token` | The dashboard's private session-cookie secret |
@@ -283,8 +283,9 @@ own Telegram account**. Postings that only give an **email** get an email.
 
 ```
 delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI fit score ≥ threshold?
-   ─▶ draft (in the post's language) ─▶ dry_run: show it to you   |   auto: send + résumé
+   ─▶ draft (Chinese by default) ─▶ dry_run: show it to you   |   auto: send + résumé
    ─▶ record (never the same posting twice, never the same person twice in 30 days)
+   ─▶ a conversation with that person opens in the dashboard's Messages tab
 ```
 
 ### Set it up
@@ -295,9 +296,9 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
 2. **AI (recommended).** Set `use_ai = true` and a Gemini or Claude key (see
    above). For each posting the AI scores how well your résumé fits (0–100) and
    writes a short, specific message. It uses only facts from your résumé, in
-   the posting's language. Postings below `apply_min_score` are skipped.
+   your message language (below). Postings below `apply_min_score` are skipped.
    Without AI, `apply_keywords` is required and every application uses your
-   fixed `apply_template`.
+   fixed template (`apply_template_zh` in Chinese, `apply_template` in English).
 3. **Telegram account** (for Telegram contacts). A bot can't message people who
    never started it, so this logs in as *you*:
    ```bash
@@ -323,6 +324,21 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
    so you see exactly what a hiring manager would get. Use `--posting job.txt`
    to draft against a real posting.
 
+### Message language: Chinese by default
+
+Applications, replies the AI writes, and the notices in your bot chat are in
+**Chinese (简体中文)** unless you change it (dashboard: **Auto-apply → Message
+language**):
+
+```toml
+message_language = "zh"     # "zh" (default) | "en" | "auto" = the job post's language
+```
+
+With `zh` the AI writes in Chinese even for English postings, keeping technical
+terms (Go, Kubernetes…) as they are. Without AI, `apply_template_zh` /
+`apply_email_subject_zh` are used for Chinese and `apply_template` /
+`apply_email_subject` for English. Both are editable in the dashboard.
+
 ### Dry run first, then go live
 
 ```toml
@@ -331,7 +347,7 @@ apply_mode = "dry_run"
 
 In dry run, everything happens (gates, AI scoring, drafting, the daily cap)
 except contacting anyone. Each draft shows up in your bot chat as
-**📝 DRY RUN — would apply (fit 82/100)** with the recipient, the reason, and the
+**📝 演练 — 将会投递（匹配度 82/100）** (English: *📝 DRY RUN — would apply*) with the recipient, the reason, and the
 full text. Run it for a few days and tune `apply_min_score`, `apply_keywords`
 and `apply_exclude_keywords` until you'd be happy to send every draft. Then:
 
@@ -339,7 +355,7 @@ and `apply_exclude_keywords` until you'd be happy to send every draft. Then:
 apply_mode = "auto"
 ```
 
-Each real application is followed by **✅ Applied via Telegram @…** in your bot
+Each real application is followed by **✅ 已投递，通过 Telegram @…** (*Applied via Telegram*) in your bot
 chat. `applications` lists everything that was sent, skipped (low fit /
 cooldown) or failed, and why. Postings you saw in dry run aren't re-sent when
 you switch, but going live doesn't reuse dry-run cooldowns, so new postings
@@ -371,6 +387,30 @@ from the same contacts are fair game.
 > and new accounts are flagged fastest. Keep the cap low, use an account with
 > some history, and don't lower the cooldown. Applications are sent in your
 > name, so read your dry-run drafts before switching to `auto`.
+
+### Conversations with representatives (Messages tab)
+
+Every application that's actually sent opens a **conversation**, one per
+representative (Telegram account or email address), so everything you've said
+to one recruiter is in one thread, even across several jobs.
+
+- **It's your real Telegram chat.** Applications are sent from your own account,
+  so the whole history lives in Telegram, and you can carry on from your phone
+  as usual. Job Radar *mirrors* each chat: every check (and every 5 minutes
+  while the dashboard is open, or **Check for replies**) it reads the new
+  messages in those chats, both their replies and anything you sent from your
+  phone. It only reads chats with people it applied to, never your other chats.
+- **New replies** show a badge on **Messages** and a 💬 notice in your bot chat
+  (*“Anna Li 回复了你（后端工程师）…”*).
+- **Reply from the dashboard.** Type in the box under a thread (Ctrl+Enter
+  sends). Telegram replies go from your account, so they also appear in
+  Telegram. Email replies go by SMTP with `Re: <subject>`.
+- **Stored** in `jobradar.db`: the `conversations` table (one row per
+  representative) and `messages` (each message, in or out, with the job it was
+  about). The text of every application is also kept in `applications.message`,
+  including dry-run drafts, and is shown under **Applications**.
+- **Email replies aren't read yet.** That would need IMAP; read them in your
+  mailbox. Your sent email (and dashboard replies) do appear in the thread.
 
 Coverage: most HN, WeWorkRemotely and Reddit posts ask you to apply through a
 web form, and those aren't automated. Auto-apply only covers posts that give a
@@ -490,7 +530,8 @@ make it.
 ```
 jobradar/
   config.py          keywords, remote_only, telegram, sources, interval
-  state.py           the SQLite database (jobradar.db): sent jobs, sources, history
+  state.py           the SQLite database (jobradar.db): sent jobs, sources, history,
+                     applications, conversations and messages
   classifier.py      recall-first "is this a job posting?"
   extraction.py      title / remote / salary / contact / apply-url
   filters.py         keyword + remote
@@ -500,7 +541,8 @@ jobradar/
   cli.py             entry point
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
-  apply/             auto-apply: contacts, engine (gates/caps/queue), senders
+  apply/             auto-apply: contacts, engine (gates/caps/queue), senders,
+                     conversations (mirror + reply), language (zh/en)
   web/               the dashboard: app.py (server + API), index.html, configfile.py
 tests/               python -m unittest discover -s tests
 ```

@@ -115,6 +115,7 @@ class Controller:
         self.run_started: str | None = None
         self.last_summary: dict[str, Any] | None = None
         self._manual = False
+        self._last_sync = 0.0
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -204,6 +205,12 @@ class Controller:
             if self._stop.is_set():
                 break
             manual, self._manual = self._manual, False
+            if time.time() - self._last_sync > 300 and not self.running:
+                self._last_sync = time.time()
+                with self._svc_lock:
+                    svc = self.service
+                if svc.state.conversations("telegram"):
+                    svc.sync_conversations()
             nxt = self.next_run()
             due = nxt is not None and parse_iso(nxt) <= utcnow()
             if manual or due:
@@ -273,6 +280,7 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
         "last_run": st.last_run, "next_run": ctrl.next_run(),
         "last_summary": _newest(ctrl.last_summary, st.last_run_summary()),
         "history": st.recent_runs(10),
+        "unread_messages": st.unread_total(),
         "review": {"pending": st.review_counts().get("pending", 0), "mode": c.unknown_location,
                    "regions_set": bool(c.regions)},
         "checklist": checklist,
@@ -372,6 +380,10 @@ class Api:
             ("GET", "/api/state"): lambda _: build_state(self.ctrl),
             ("GET", "/api/applications"): self.applications,
             ("GET", "/api/review"): self.review_list,
+            ("GET", "/api/messages"): self.messages_list,
+            ("POST", "/api/messages/open"): self.messages_open,
+            ("POST", "/api/messages/sync"): self.messages_sync,
+            ("POST", "/api/messages/send"): self.messages_send,
             ("POST", "/api/review/decide"): self.review_decide,
             ("POST", "/api/config"): self.save_config,
             ("POST", "/api/run"): self.run,
@@ -411,6 +423,44 @@ class Api:
             raise ApiError(str(e)) from e
         log.info("settings saved: %s", ", ".join(sorted(changes)))
         return build_state(self.ctrl)
+
+    def messages_list(self, _: Any) -> dict[str, Any]:
+        st = self.ctrl.service.state
+        return {"conversations": st.conversations(), "unread": st.unread_total(),
+                "telegram_logged_in": build_state(self.ctrl)["apply"]["telegram_session"]}
+
+    def messages_open(self, body: dict[str, Any]) -> dict[str, Any]:
+        st = self.ctrl.service.state
+        try:
+            conv_id = int(body.get("id"))
+        except (TypeError, ValueError) as e:
+            raise ApiError("missing conversation id") from e
+        conv = st.conversation(conv_id)
+        _require(conv, "That conversation doesn't exist.", 404)
+        st.mark_read(conv_id)
+        conv["unread"] = 0
+        return {"conversation": conv}
+
+    def messages_sync(self, body: dict[str, Any]) -> dict[str, Any]:
+        _require(not self.ctrl.running, "A check is running; it reads new replies itself when done.", 409)
+        result = self.ctrl.service.sync_conversations()
+        self.ctrl._last_sync = time.time()
+        return {"result": result, **self.messages_list(None)}
+
+    def messages_send(self, body: dict[str, Any]) -> dict[str, Any]:
+        from ..apply.conversations import ReplyError, send_reply
+
+        try:
+            conv_id = int(body.get("id"))
+        except (TypeError, ValueError) as e:
+            raise ApiError("missing conversation id") from e
+        try:
+            conv = send_reply(self.ctrl.config, self.ctrl.service.state, self.ctrl.base_dir, conv_id,
+                              str(body.get("text") or ""))
+        except ReplyError as e:
+            raise ApiError(str(e)) from e
+        log.info("reply sent in a conversation")
+        return {"conversation": conv}
 
     def review_list(self, _: Any) -> dict[str, Any]:
         st = self.ctrl.service.state
@@ -603,7 +653,10 @@ class Api:
 
     def tg_logout(self, _: Any) -> dict[str, Any]:
         acct = self._account()
-        TelegramLogin.logout(**acct)
+        try:
+            TelegramLogin.logout(**acct)
+        except LoginError as e:
+            raise ApiError(str(e), 409) from e
         log.info("Telegram account logged out; session file deleted")
         return build_state(self.ctrl)
 

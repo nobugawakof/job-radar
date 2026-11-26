@@ -168,6 +168,38 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .log .WARNING { color: var(--warn); } .log .ERROR, .log .CRITICAL { color: var(--bad); }
 .log .t { color: var(--muted); }
 .draft { white-space: pre-wrap; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: .75rem .85rem; }
+.msgs { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); min-height: 62vh; overflow: hidden; }
+.msg-list { border-right: 1px solid var(--line); overflow-y: auto; max-height: 72vh; }
+.conv { display: flex; gap: .65rem; padding: .7rem .85rem; border-bottom: 1px solid var(--line); cursor: pointer; background: none; border-left: 0; border-right: 0; border-top: 0; width: 100%; text-align: left; }
+.conv:hover { background: var(--panel-2); }
+.conv[aria-current="true"] { background: var(--accent-soft); }
+.avatar { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.conv .meta { min-width: 0; flex: 1; }
+.conv .conv-top { display: flex; gap: .4rem; align-items: baseline; }
+.conv .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.conv .when { font-size: .75rem; color: var(--muted); white-space: nowrap; }
+.conv .last { font-size: .85rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unread { background: var(--accent); color: var(--accent-ink); border-radius: 99px; font-size: .72rem; font-weight: 700; padding: 0 .45rem; }
+.msg-thread { display: flex; flex-direction: column; min-width: 0; max-height: 72vh; }
+.thread-head { padding: .75rem 1rem; border-bottom: 1px solid var(--line); display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.thread-body { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .45rem; background: var(--bg); }
+.day { align-self: center; font-size: .75rem; color: var(--muted); margin: .4rem 0; }
+.bubble { max-width: min(78%, 34rem); padding: .55rem .75rem; border-radius: 14px; white-space: pre-wrap; word-break: break-word; font-size: .93rem; }
+.bubble.in { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bubble.out { align-self: flex-end; background: var(--accent-soft); border-bottom-right-radius: 4px; }
+.bubble .t { display: block; font-size: .7rem; color: var(--muted); margin-top: .2rem; text-align: right; }
+.bubble .att { display: block; font-weight: 600; }
+.bubble .job { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .2rem; }
+.composer { border-top: 1px solid var(--line); padding: .6rem; display: flex; gap: .5rem; align-items: flex-end; background: var(--panel); }
+.composer textarea { min-height: 2.6rem; max-height: 10rem; flex: 1; }
+.back { display: none; }
+@media (max-width: 760px) {
+  .msgs { grid-template-columns: 1fr; }
+  .msg-list { border-right: 0; max-height: none; }
+  .msgs.open .msg-list { display: none; }
+  .msgs:not(.open) .msg-thread { display: none; }
+  .back { display: inline-flex; }
+}
 .drop { display: flex; align-items: center; justify-content: center; gap: .5rem; flex-direction: column; text-align: center;
   padding: 1.1rem; border: 2px dashed var(--line); border-radius: 10px; cursor: pointer; background: var(--panel-2); }
 .drop.over { border-color: var(--accent); background: var(--accent-soft); }
@@ -217,6 +249,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
     <button data-tab="search">Job search</button>
     <button data-tab="ai">AI</button>
     <button data-tab="apply">Auto-apply <span class="badge" id="nav-apply"></span></button>
+    <button data-tab="messages">Messages <span class="badge" id="nav-messages"></span></button>
     <button data-tab="review">Review <span class="badge" id="nav-review"></span></button>
     <button data-tab="history">Applications</button>
     <button data-tab="activity">Activity</button>
@@ -408,6 +441,13 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
 
       <div class="card stack">
         <h3>Which jobs to apply to</h3>
+        <div class="field"><label for="msg-lang">Message language</label>
+          <select id="msg-lang" data-k="message_language" style="max-width:24rem">
+            <option value="zh">中文 Chinese (default)</option>
+            <option value="en">English</option>
+            <option value="auto">Same as the job post (跟随职位语言)</option>
+          </select>
+          <span class="hint">Applications (AI-written or the template) and Job Radar's notices in Telegram use this language.</span></div>
         <div class="field"><label for="minscore">Minimum fit score: <b id="minscore-v"></b> / 100</label>
           <input id="minscore" type="range" min="0" max="100" step="5" data-k="apply_min_score">
           <span class="hint">With AI on, each job is scored against your résumé. 70 is a sensible start; raise it if the dry run shows poor matches.</span></div>
@@ -475,12 +515,27 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
       </div>
 
       <details class="card">
-        <summary>Message used without AI</summary>
+        <summary>Messages used without AI (中文 / English)</summary>
         <div class="stack" style="margin-top:.7rem">
-          <div class="field"><label for="tpl">Message</label><textarea id="tpl" rows="6" data-k="apply_template"></textarea><span class="hint"><code>{title}</code> becomes the job title, <code>{name}</code> your name.</span></div>
-          <div class="field"><label for="tpl-subj">Email subject</label><input id="tpl-subj" type="text" data-k="apply_email_subject"></div>
+          <div class="field"><label for="tpl-zh">中文消息 (Chinese message)</label><textarea id="tpl-zh" rows="5" data-k="apply_template_zh"></textarea></div>
+          <div class="field"><label for="tpl-subj-zh">中文邮件主题 (Chinese email subject)</label><input id="tpl-subj-zh" type="text" data-k="apply_email_subject_zh"></div>
+          <div class="field"><label for="tpl">English message</label><textarea id="tpl" rows="5" data-k="apply_template"></textarea><span class="hint"><code>{title}</code> becomes the job title, <code>{name}</code> your name.</span></div>
+          <div class="field"><label for="tpl-subj">English email subject</label><input id="tpl-subj" type="text" data-k="apply_email_subject"></div>
         </div>
       </details>
+    </section>
+
+    <!-- ============================================================ MESSAGES -->
+    <section class="view hidden" data-view="messages">
+      <div class="view-head"><h2>Messages</h2>
+        <button class="btn small" id="msg-sync" type="button">Check for replies</button>
+        <span class="muted small" id="msg-sync-note"></span>
+        <p class="muted">Your conversations with recruiters and HR, one per person. They live in your Telegram account; Job Radar mirrors them here and checks for new replies every few minutes.</p></div>
+      <div id="msg-hint"></div>
+      <div class="msgs" id="msgs">
+        <div class="msg-list" id="msg-list"></div>
+        <div class="msg-thread" id="msg-thread"><div class="empty" style="padding:2rem">Choose a conversation.</div></div>
+      </div>
     </section>
 
     <!-- ============================================================ REVIEW -->
@@ -577,6 +632,7 @@ function show(name) {
   try { sessionStorage.setItem("jr-tab", name); } catch {}
   if (name === "history") loadApps();
   if (name === "review") loadReview();
+  if (name === "messages") loadMessages();
   if (name === "activity") pollLogs();
   window.scrollTo({ top: 0 });
 }
@@ -819,6 +875,7 @@ function renderApply() {
   $$("#mode-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
   $("#mode-note").textContent = MODE_NOTES[mode] || "";
   $("#mode-note").className = `note ${mode === "auto" ? "warn" : ""}`;
+  $("#nav-messages").innerHTML = S.unread_messages ? '<span class="tag info">' + S.unread_messages + "</span>" : "";
   $("#nav-review").innerHTML = S.review.pending ? '<span class="tag warn">' + S.review.pending + "</span>" : "";
   $("#nav-apply").innerHTML = mode === "auto" ? `<span class="tag ok">on</span>` : mode === "dry_run" ? `<span class="tag info">dry run</span>` : "";
   const r = S.apply.resume_pdf;
@@ -905,6 +962,83 @@ $("#preview-btn").addEventListener("click", (e) => busy(e.currentTarget, async (
     <div><div class="label">Email: ${esc(d.email_subject)}</div><div class="draft">${esc(d.email_body)}</div></div></div>`;
 }));
 
+// -------------------------------------------------------------- messages
+let convs = [], openConv = null, msgLoggedIn = false;
+const initial = (s) => esc(((s || "?").replace(/^@/, "")[0] || "?").toUpperCase());
+const convName = (c) => c.display_name || c.contact;
+function dayLabel(iso) { return new Date(iso).toLocaleDateString([], { weekday: "short", year: "numeric", month: "short", day: "numeric" }); }
+function timeLabel(iso) { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+
+async function loadMessages(data) {
+  try {
+    const d = data || await api("GET", "/api/messages");
+    convs = d.conversations; msgLoggedIn = d.telegram_logged_in;
+    $("#msg-hint").innerHTML = msgLoggedIn ? "" :
+      '<div class="note warn">Log in your Telegram account (Auto-apply tab) so Job Radar can read replies and you can answer from here.</div>';
+    $("#msg-list").innerHTML = convs.length ? convs.map((c) =>
+      '<button class="conv" type="button" data-conv="' + c.id + '" aria-current="' + (openConv === c.id) + '">' +
+        '<span class="avatar">' + initial(convName(c)) + "</span>" +
+        '<span class="meta"><span class="conv-top"><span class="name">' + esc(convName(c)) + "</span>" +
+          '<span class="when">' + esc(c.last_message_at ? rel(c.last_message_at) : "") + "</span>" +
+          (c.unread ? ' <span class="unread">' + c.unread + "</span>" : "") + "</span>" +
+          '<span class="last">' + (c.channel === "email" ? "✉️ " : "✈️ ") + esc((c.last_direction === "out" ? "You: " : "") + (c.last_text || (c.job_title || ""))) + "</span>" +
+        "</span></button>").join("")
+      : '<div class="empty" style="padding:1.2rem">No conversations yet. They appear when auto-apply sends an application.</div>';
+    $$("[data-conv]").forEach((b) => b.onclick = () => openConversation(Number(b.dataset.conv)));
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function openConversation(id) {
+  openConv = id;
+  try {
+    const r = await api("POST", "/api/messages/open", { id });
+    renderThread(r.conversation);
+    $("#msgs").classList.add("open");
+    loadMessages(); refresh();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function renderThread(c) {
+  const tg = c.channel === "telegram";
+  const link = tg && c.contact.startsWith("@") ? '<a class="btn small" href="https://t.me/' + esc(c.contact.slice(1)) + '" target="_blank" rel="noopener">Open in Telegram</a>' : "";
+  let lastDay = "", body = "";
+  for (const m of c.messages) {
+    const day = dayLabel(m.sent_at);
+    if (day !== lastDay) { body += '<div class="day">' + esc(day) + "</div>"; lastDay = day; }
+    body += '<div class="bubble ' + (m.direction === "out" ? "out" : "in") + '">' +
+      (m.job_title ? '<span class="job">' + esc(m.job_title) + "</span>" : "") +
+      (m.subject ? "<b>" + esc(m.subject) + "</b>\n" : "") + esc(m.text) +
+      (m.attachment ? '<span class="att">📎 ' + esc(m.attachment) + "</span>" : "") +
+      '<span class="t">' + esc(timeLabel(m.sent_at)) + "</span></div>";
+  }
+  const canReply = tg ? msgLoggedIn : true;
+  $("#msg-thread").innerHTML =
+    '<div class="thread-head"><button class="btn small back" type="button" id="msg-back">←</button>' +
+      '<span class="avatar">' + initial(convName(c)) + "</span>" +
+      "<div><b>" + esc(convName(c)) + '</b><div class="small muted">' + (tg ? "Telegram " : "Email ") + esc(c.contact) + "</div></div>" +
+      '<span style="flex:1"></span>' + link + "</div>" +
+    '<div class="thread-body" id="thread-body">' + (body || '<div class="empty">No messages yet.</div>') + "</div>" +
+    '<div class="composer"><textarea id="reply-text" placeholder="' + (canReply ? "Write a reply… (Ctrl+Enter to send)" : "Log in your Telegram account to reply") + '"' + (canReply ? "" : " disabled") + "></textarea>" +
+      '<button class="btn primary" type="button" id="reply-send"' + (canReply ? "" : " disabled") + ">Send</button></div>";
+  const tb = $("#thread-body"); tb.scrollTop = tb.scrollHeight;
+  $("#msg-back").onclick = () => { $("#msgs").classList.remove("open"); openConv = null; loadMessages(); };
+  const send = () => busy($("#reply-send"), async () => {
+    const text = $("#reply-text").value.trim(); if (!text) return;
+    const r = await api("POST", "/api/messages/send", { id: c.id, text });
+    renderThread(r.conversation); loadMessages(); toast("Sent.");
+  });
+  $("#reply-send").onclick = send;
+  $("#reply-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
+}
+
+$("#msg-sync").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const d = await api("POST", "/api/messages/sync", {});
+  const r = d.result || {};
+  $("#msg-sync-note").textContent = r.error ? r.error : (r.new_replies ? r.new_replies + " new repl" + (r.new_replies > 1 ? "ies" : "y") : "No new replies") + " · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  loadMessages(d);
+  if (openConv) openConversation(openConv);
+}));
+
 // ---------------------------------------------------------------- review
 async function loadReview(data) {
   try {
@@ -945,7 +1079,8 @@ async function loadApps() {
       const [label, cls] = STATUS[a.status] || [a.status, ""];
       const to = a.contact ? `${a.channel === "email" ? "✉️" : "✈️"} ${esc(a.contact)}` : "—";
       const note = a.error || a.reason;
-      return `<tr><td class="small">${esc(when(a.at))}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}</td></tr>`;
+      const msg = a.message ? '<details class="small"><summary>Message</summary><div class="draft">' + esc(a.message) + "</div></details>" : "";
+      return `<tr><td class="small">${esc(when(a.at))}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}${msg}</td></tr>`;
     }).join("") : `<tr><td colspan="5" class="empty">No applications yet.</td></tr>`;
     $("#queue").innerHTML = d.queue.length ? d.queue.map((q) => `<li><a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer">${esc(q.title)}</a><div class="small muted">${esc([q.telegram, q.email].filter(Boolean).join(" · "))}</div></li>`).join("") : `<li class="empty">The queue is empty.</li>`;
     const p = Object.entries(S.apply.paused);

@@ -33,7 +33,7 @@ from typing import Any, Iterator
 
 log = logging.getLogger("jobradar.state")
 
-SCHEMA_VERSION = 4   # 2: runs (check history); 3: bot inbox; 4: review queue
+SCHEMA_VERSION = 5   # 2: runs; 3: bot inbox; 4: review queue; 5: conversations + messages
 
 
 def utcnow() -> datetime:
@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS applications (
     source_url  TEXT,
     score       INTEGER,
     reason      TEXT NOT NULL DEFAULT '',
-    error       TEXT NOT NULL DEFAULT ''
+    error       TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS applications_by_time ON applications (at);
 CREATE INDEX IF NOT EXISTS applications_by_mode ON applications (mode, status, at);
@@ -163,11 +164,37 @@ CREATE TABLE IF NOT EXISTS review_queue (
     resolved_via TEXT
 );
 CREATE INDEX IF NOT EXISTS review_by_status ON review_queue (status, added_at);
+CREATE TABLE IF NOT EXISTS conversations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel         TEXT NOT NULL,              -- telegram / email
+    contact         TEXT NOT NULL,              -- "@handle" or "name@company.com" (lower-case)
+    display_name    TEXT NOT NULL DEFAULT '',
+    peer_id         TEXT,                       -- Telegram user id, once known
+    created_at      TEXT NOT NULL,
+    last_message_at TEXT,
+    unread          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (channel, contact)
+);
+CREATE TABLE IF NOT EXISTS messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+    direction       TEXT NOT NULL,              -- out (you) / in (them)
+    sent_at         TEXT NOT NULL,
+    text            TEXT NOT NULL DEFAULT '',
+    subject         TEXT NOT NULL DEFAULT '',
+    attachment      TEXT NOT NULL DEFAULT '',   -- file name, e.g. resume.pdf
+    external_id     TEXT,                       -- Telegram message id / email Message-ID
+    job_fingerprint TEXT,
+    job_title       TEXT NOT NULL DEFAULT '',
+    UNIQUE (conversation_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages (conversation_id, sent_at);
 """
 RUNS_KEPT = 500
 
-_APP_FIELDS = ("at", "mode", "status", "channel", "contact", "title", "source_url",
+_APP_FIELDS = ("at", "mode", "status", "channel", "contact", "title", "source_url", "message",
                "score", "reason", "error")
+_APP_TEXT_FIELDS = ("title", "reason", "error", "message")  # NOT NULL, default ""
 
 
 def _pid_alive(pid: int) -> bool:
@@ -226,6 +253,9 @@ class State:
                 raise sqlite3.DatabaseError(
                     f"{self.path.name} was written by a newer Job Radar (schema {version}); update Job Radar")
             db.executescript(_SCHEMA)
+            app_cols = {r[1] for r in db.execute("PRAGMA table_info(applications)")}
+            if "message" not in app_cols:  # schema 5: the exact text sent/drafted
+                db.execute("ALTER TABLE applications ADD COLUMN message TEXT NOT NULL DEFAULT ''")
             if version < SCHEMA_VERSION:
                 db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         except BaseException:
@@ -424,6 +454,73 @@ class State:
             out.setdefault(r["source"], {"approved": 0, "rejected": 0})[r["status"]] = r["n"]
         return out
 
+    # --------------------------------------------------------- conversations
+    def conversation_id(self, channel: str, contact: str, *, display_name: str | None = None,
+                        peer_id: str | None = None) -> int:
+        """The conversation with one representative (created if new)."""
+        key = contact.strip().lower()
+        with self._tx() as db:
+            db.execute("INSERT OR IGNORE INTO conversations (channel, contact, created_at) VALUES (?, ?, ?)",
+                       (channel, key, iso(utcnow())))
+            if display_name:
+                db.execute("UPDATE conversations SET display_name = ? WHERE channel = ? AND contact = ?",
+                           (display_name, channel, key))
+            if peer_id:
+                db.execute("UPDATE conversations SET peer_id = ? WHERE channel = ? AND contact = ?",
+                           (str(peer_id), channel, key))
+            return db.execute("SELECT id FROM conversations WHERE channel = ? AND contact = ?",
+                              (channel, key)).fetchone()["id"]
+
+    def add_message(self, conversation_id: int, direction: str, text: str, *, sent_at: datetime | None = None,
+                    external_id: str | None = None, attachment: str = "", subject: str = "",
+                    job_fingerprint: str | None = None, job_title: str = "", unread: bool = False) -> bool:
+        """Store one message. Returns False if it was already stored (same id)."""
+        when = iso(sent_at or utcnow())
+        with self._tx() as db:
+            cur = db.execute(
+                "INSERT OR IGNORE INTO messages (conversation_id, direction, sent_at, text, subject, attachment, "
+                "external_id, job_fingerprint, job_title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (conversation_id, direction, when, text or "", subject or "", attachment or "",
+                 external_id, job_fingerprint, job_title or ""))
+            if not cur.rowcount:
+                return False
+            db.execute("UPDATE conversations SET last_message_at = MAX(COALESCE(last_message_at, ''), ?), "
+                       "unread = unread + ? WHERE id = ?", (when, 1 if unread else 0, conversation_id))
+            return True
+
+    def conversations(self, channel: str | None = None) -> list[dict[str, Any]]:
+        """Every conversation, most recent first, with its last message."""
+        rows = self._q(
+            "SELECT c.*, (SELECT text FROM messages m WHERE m.conversation_id = c.id ORDER BY sent_at DESC, id DESC "
+            "LIMIT 1) AS last_text, (SELECT direction FROM messages m WHERE m.conversation_id = c.id "
+            "ORDER BY sent_at DESC, id DESC LIMIT 1) AS last_direction, (SELECT job_title FROM messages m "
+            "WHERE m.conversation_id = c.id AND job_title != '' ORDER BY sent_at DESC LIMIT 1) AS job_title, "
+            "(SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count "
+            "FROM conversations c WHERE (? IS NULL OR c.channel = ?) "
+            "ORDER BY COALESCE(c.last_message_at, c.created_at) DESC", (channel, channel))
+        return [dict(r) for r in rows]
+
+    def conversation(self, conversation_id: int) -> dict[str, Any] | None:
+        row = self._one("SELECT * FROM conversations WHERE id = ?", (conversation_id,))
+        if not row:
+            return None
+        d = dict(row)
+        d["messages"] = [dict(r) for r in self._q(
+            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY sent_at, id", (conversation_id,))]
+        return d
+
+    def mark_read(self, conversation_id: int) -> None:
+        with self._tx() as db:
+            db.execute("UPDATE conversations SET unread = 0 WHERE id = ?", (conversation_id,))
+
+    def unread_total(self) -> int:
+        return self._one("SELECT COALESCE(SUM(unread), 0) AS n FROM conversations")["n"]
+
+    def last_telegram_message_id(self, conversation_id: int) -> int:
+        row = self._one("SELECT MAX(CAST(external_id AS INTEGER)) AS n FROM messages "
+                        "WHERE conversation_id = ? AND external_id GLOB '[0-9]*'", (conversation_id,))
+        return int(row["n"] or 0)
+
     # ------------------------------------------------------------- run lock
     def acquire_run_lock(self, owner: str, *, ttl: timedelta = timedelta(hours=3)) -> bool:
         """Only one check at a time across processes (e.g. the dashboard and
@@ -573,7 +670,7 @@ class State:
 
     def finish_application(self, fingerprint: str, record: dict[str, Any]) -> None:
         """Record an application's outcome and take it off the queue, atomically."""
-        values = [record.get(f) for f in _APP_FIELDS]
+        values = [(record.get(f) or "") if f in _APP_TEXT_FIELDS else record.get(f) for f in _APP_FIELDS]
         with self._tx() as db:
             db.execute(f"INSERT OR REPLACE INTO applications (fingerprint, {', '.join(_APP_FIELDS)}) "
                        f"VALUES (?{', ?' * len(_APP_FIELDS)})", (fingerprint, *values))
@@ -673,7 +770,7 @@ class State:
                 if isinstance(rec, dict) and rec.get("at"):
                     db.execute(f"INSERT OR IGNORE INTO applications (fingerprint, {', '.join(_APP_FIELDS)}) "
                                f"VALUES (?{', ?' * len(_APP_FIELDS)})",
-                               (fp, *[rec.get(f) if f not in ("title", "reason", "error") else (rec.get(f) or "")
+                               (fp, *[(rec.get(f) or "") if f in _APP_TEXT_FIELDS else rec.get(f)
                                       for f in _APP_FIELDS]))
             for fp, e in (data.get("apply_queue") or {}).items():
                 if isinstance(e, dict):

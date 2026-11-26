@@ -67,6 +67,18 @@ class Service:
         if self.inbox is not None:
             self.inbox.on_button("rv:", self._review_button)
 
+    # ------------------------------------------------------- conversations
+    def sync_conversations(self, *, lock_timeout: float = 15.0) -> dict:
+        """Read new messages in every conversation with a representative from
+        your Telegram account, and notify you about new replies."""
+        from .apply.conversations import sync_telegram
+
+        try:
+            return sync_telegram(self.config, self.state, notify=self.notify_owner, lock_timeout=lock_timeout)
+        except Exception as e:  # noqa: BLE001 - never break a check over this
+            log.warning("couldn't read your Telegram conversations: %s", e)
+            return {"synced": 0, "new_replies": 0, "error": str(e)}
+
     # ------------------------------------------------------------ review
     def review_decide(self, item_id: int, approve: bool, via: str) -> str:
         """Approve (send it to me) or reject a job waiting in the review queue.
@@ -140,6 +152,8 @@ class Service:
                                  f"right now, started {holder.get('at', '?')[:16]}Z")
         try:
             summary = self.pipeline.run(trigger=trigger)
+            if self.state.conversations("telegram"):
+                self.sync_conversations(lock_timeout=60)  # replies from representatives
             try:
                 self.state.record_run(summary.to_dict())
             except Exception:  # noqa: BLE001 - history is a nice-to-have

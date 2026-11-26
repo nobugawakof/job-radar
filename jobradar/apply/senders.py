@@ -27,6 +27,7 @@ import ssl
 from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Protocol
 
 from ..redact import mask_contact
@@ -46,11 +47,20 @@ class ChannelUnavailable(RuntimeError):
         self.pause_seconds = pause_seconds
 
 
+@dataclass
+class SendResult:
+    """What was sent, so the conversation can be recorded."""
+    peer_id: str | None = None          # Telegram user id
+    display_name: str = ""              # their name, as Telegram shows it
+    text_id: str | None = None          # Telegram message id / email Message-ID
+    file_id: str | None = None          # Telegram message id of the résumé file
+
+
 class Sender(Protocol):
     channel: str
 
     def send(self, contact: str, *, message: str, subject: str,
-             attachment: Path | None) -> None: ...
+             attachment: Path | None) -> SendResult | None: ...
 
     def close(self) -> None: ...
 
@@ -75,8 +85,11 @@ class TelegramUserSender:
     def _connect(self):
         if self._client is not None:
             return self._client
-        from ..tgclient import LoopThread, TelethonMissing, make_client
+        from ..tgclient import ACCOUNT_LOCK, LoopThread, TelethonMissing, make_client
 
+        if not ACCOUNT_LOCK.acquire(timeout=120):
+            raise ChannelUnavailable("your Telegram account is busy (another task is using it); try again shortly")
+        self._locked = True
         runner = LoopThread()
         try:
             client = make_client(runner, self.session_path, self.api_id, self.api_hash)
@@ -84,26 +97,34 @@ class TelegramUserSender:
             authorized = runner.call(lambda: client.is_user_authorized(), 15)
         except TelethonMissing as e:
             runner.stop()
+            self._unlock()
             raise ChannelUnavailable(str(e)) from e
         except Exception as e:  # noqa: BLE001 - network/session problems, timeouts
             runner.stop()
+            self._unlock()
             raise ChannelUnavailable(f"could not connect your Telegram account: {e}") from e
         if not authorized:
             self._disconnect(runner, client)
+            self._unlock()
             raise ChannelUnavailable("your Telegram account is not logged in — log in from the "
                                      "dashboard (Auto-apply tab) or run `jobradar telegram-login`")
         self._runner, self._client = runner, client
         return client
 
     def send(self, contact: str, *, message: str, subject: str = "",
-             attachment: Path | None = None) -> None:
+             attachment: Path | None = None) -> SendResult:
         from telethon import errors
 
         client = self._connect()
         run = self._runner.call
+        result = SendResult()
         try:
             entity = run(lambda: client.get_entity(contact), 30)
-            run(lambda: client.send_message(entity, message, link_preview=False), 30)
+            sent = run(lambda: client.send_message(entity, message, link_preview=False), 30)
+            name = " ".join(x for x in (getattr(entity, "first_name", None), getattr(entity, "last_name", None)) if x)
+            result = SendResult(peer_id=str(getattr(entity, "id", "") or "") or None,
+                                display_name=name or getattr(entity, "title", "") or "",
+                                text_id=str(getattr(sent, "id", "") or "") or None)
         except errors.FloodWaitError as e:
             raise ChannelUnavailable(f"Telegram flood wait {e.seconds}s",
                                      pause_seconds=max(float(e.seconds), 3600.0)) from e
@@ -126,9 +147,11 @@ class TelegramUserSender:
 
         if attachment:
             try:
-                run(lambda: client.send_file(entity, str(attachment), force_document=True), 120)
+                f = run(lambda: client.send_file(entity, str(attachment), force_document=True), 120)
+                result.file_id = str(getattr(f, "id", "") or "") or None
             except Exception as e:  # noqa: BLE001 - message already went out
                 log.warning("message sent to %s but the résumé upload failed: %s", mask_contact(contact), e)
+        return result
 
     @staticmethod
     def _disconnect(runner, client) -> None:
@@ -139,10 +162,18 @@ class TelegramUserSender:
         finally:
             runner.stop()
 
+    def _unlock(self) -> None:
+        if getattr(self, "_locked", False):
+            from ..tgclient import ACCOUNT_LOCK
+
+            self._locked = False
+            ACCOUNT_LOCK.release()
+
     def close(self) -> None:
         if self._client is not None:
             self._disconnect(self._runner, self._client)
             self._runner = self._client = None
+        self._unlock()
 
 
 # -------------------------------------------------------------------- Email
@@ -195,7 +226,7 @@ class EmailSender:
         return msg
 
     def send(self, contact: str, *, message: str, subject: str,
-             attachment: Path | None = None) -> None:
+             attachment: Path | None = None) -> SendResult:
         msg = self.build(contact, subject=subject, body=message, attachment=attachment)
         smtp = self._connect()
         try:
@@ -210,6 +241,7 @@ class EmailSender:
         except (smtplib.SMTPServerDisconnected, OSError) as e:
             self._smtp = None
             raise ChannelUnavailable(f"SMTP connection lost: {e}") from e
+        return SendResult(text_id=str(msg["Message-ID"]))
 
     def close(self) -> None:
         if self._smtp is not None:
