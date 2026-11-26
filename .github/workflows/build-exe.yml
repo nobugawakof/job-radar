@@ -40,7 +40,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path package | Out-Null
           Copy-Item dist/jobradar.exe package/
-          Copy-Item config.example.toml package/config.toml
+          New-Item -ItemType Directory -Force -Path package/jobradar-data | Out-Null
+          Copy-Item config.example.toml package/jobradar-data/config.toml
           Copy-Item README.md package/
 
       - name: Upload artifact

@@ -24,7 +24,7 @@ library, with a single-file **SQLite** database (`jobradar.db`).
 ```
 
 Everything Job Radar remembers lives in one **SQLite** database file,
-`jobradar.db`, next to your config. SQLite is built into Python, so there's no
+`jobradar.db`, in the `jobradar-data` folder. SQLite is built into Python, so there's no
 database server to install or run. The file holds:
 
 | Table | What it remembers |
@@ -80,8 +80,35 @@ what happened and why.
 Keep the window open: closing it stops Job Radar. The dashboard only accepts
 connections from your own computer. Opening it needs the link the program
 prints, which logs your browser in with a private cookie, and secrets are never
-shown back in full. Settings are saved to `config.toml`; your original file is
-kept as `config.toml.bak` the first time you save.
+shown back in full.
+
+**Your files** all live in one folder, `jobradar-data`, beside the program:
+
+| File | What it is |
+|---|---|
+| `config.toml` | Settings and keys. Kept out of the database on purpose (spec DR-6), so sharing the database never leaks a key |
+| `jobradar.db` | History: sent jobs, applications, check history |
+| `jobradar-user.session` | Your Telegram login, if you logged in. Full access to your account: keep it private |
+| `resume.pdf` / `resume.txt` | Your résumé, if uploaded |
+| `jobradar-web.token` | The dashboard's private session-cookie secret |
+
+Older versions kept these files loose beside the program; they're moved into
+the folder automatically the first time. You never need to open them, because
+the dashboard manages them all.
+
+**Backup and restore:** on the Overview page, **Download backup** saves
+settings, history and résumé as one `.zip`. Tick the box to include your
+Telegram login, but only when moving to another computer. **Restore from a
+backup…** puts it back; the files it replaces are moved to a
+`before-restore-<time>` folder, never deleted. Without the dashboard:
+
+```bash
+python3 -m jobradar.cli backup                       # writes jobradar-backup-<date>.zip
+```
+
+```bash
+python3 -m jobradar.cli restore jobradar-backup-20261126-0930.zip
+```
 
 ## Quick start — command line
 
@@ -89,19 +116,19 @@ Requires Python 3.11+. Nothing to install.
 
 ```bash
 # 1. Configure — just fill in the two Telegram lines; the rest has defaults
-cp config.example.toml config.toml      # edit telegram_bot_token + telegram_chat_id
+mkdir -p jobradar-data && cp config.example.toml jobradar-data/config.toml   # edit the two Telegram lines
 
 # 2. Check the wiring
-python3 -m jobradar.cli --config config.toml test-telegram
+python3 -m jobradar.cli test-telegram
 
 # 3. Run one cycle now…
-python3 -m jobradar.cli --config config.toml run
+python3 -m jobradar.cli run
 
 # 4. …or run forever at the configured interval
-python3 -m jobradar.cli --config config.toml serve
+python3 -m jobradar.cli serve
 ```
 
-There is a **single** config file — `config.toml`, copied from
+There is a **single** config file — `jobradar-data/config.toml`, copied from
 `config.example.toml`. Everything lives in it: your `telegram_bot_token` and
 `telegram_chat_id`, the sites to search, filters, and any API tokens. Create the
 bot with **@BotFather** for the token; to find your chat id, message the bot once
@@ -262,7 +289,7 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
 
 ### Set it up
 
-1. **Résumé.** Put `resume.pdf` next to `config.toml`. Optionally also a
+1. **Résumé.** Upload it in the dashboard, or put `resume.pdf` in `jobradar-data`. Optionally also a
    plain-text copy (`resume_text_path`). The AI reads the text if you give
    one, otherwise it reads the PDF directly.
 2. **AI (recommended).** Set `use_ai = true` and a Gemini or Claude key (see
@@ -277,20 +304,20 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
    pip install telethon
    ```
    Get `telegram_api_id` / `telegram_api_hash` at <https://my.telegram.org> →
-   *API development tools*, put them in `config.toml`, then run once:
+   *API development tools*, enter them in the dashboard (or `config.toml`), then log in there, or run once:
    ```bash
-   python3 -m jobradar.cli --config config.toml telegram-login
+   python3 -m jobradar.cli telegram-login
    ```
    It asks for the code Telegram sends you (and your 2FA password, if set) and
-   saves `jobradar-user.session`. **Keep that file private: it gives full access
+   saves `jobradar-data/jobradar-user.session`. **Keep that file private: it gives full access
    to your Telegram account.** It's git-ignored.
 4. **Email** (for email-only postings). Fill in the `smtp_*` settings. For
    Gmail, use `smtp.gmail.com:587` with an
    [App Password](https://myaccount.google.com/apppasswords).
 5. **Check the wiring:**
    ```bash
-   python3 -m jobradar.cli --config config.toml test-apply            # prints the draft
-   python3 -m jobradar.cli --config config.toml test-apply --send     # sends it to YOU
+   python3 -m jobradar.cli test-apply            # prints the draft
+   python3 -m jobradar.cli test-apply --send     # sends it to YOU
    ```
    `--send` delivers it to your Telegram *Saved Messages* and your own inbox,
    so you see exactly what a hiring manager would get. Use `--posting job.txt`
@@ -361,14 +388,14 @@ python build.py          # produces dist/jobradar (or dist/jobradar.exe on Windo
 PyInstaller doesn't cross-compile — run `build.py` **on Windows** to get a
 `.exe`. If you don't have a Windows machine, the included GitHub Actions
 workflow (`.github/workflows/build-exe.yml`) builds it on a `windows-latest`
-runner and uploads `jobradar-windows` (the `.exe` + a `config.toml`) as a
+runner and uploads `jobradar-windows` (the `.exe` + `jobradar-data/config.toml`) as a
 downloadable artifact on every push, or from the Actions tab via "Run workflow".
 
 Double-click the `.exe` and the dashboard opens in your browser, where you
-set everything up. Settings, state and your résumé are stored next to the
-executable. The `config.toml` beside it holds your tokens, so keep that folder
-private. To run it headless instead (for example on a server), use
-`jobradar.exe serve` with a hand-written `config.toml`.
+set everything up. Settings, history and your résumé are stored in the
+`jobradar-data` folder beside the executable. It holds your tokens, so keep it
+private. To run headless instead (for example on a server), use
+`jobradar.exe serve` with a hand-written `jobradar-data/config.toml`.
 
 ## Filtering
 

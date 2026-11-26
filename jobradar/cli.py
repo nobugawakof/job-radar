@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 import os
 import sys
 from pathlib import Path
@@ -68,7 +69,11 @@ def base_dir() -> Path:
 
 
 def default_config_path() -> str:
-    return str(base_dir() / "config.toml")
+    """jobradar-data/config.toml beside the program (an older loose layout is
+    moved there first; see jobradar/datadir.py)."""
+    from .datadir import default_config_path as data_config
+
+    return str(data_config(base_dir()))
 
 
 def _service(args: argparse.Namespace) -> Service:
@@ -267,6 +272,47 @@ def cmd_applications(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    from .backup import make_backup
+
+    data = make_backup(args.config, include_login=args.with_login)
+    out = Path(args.output or time.strftime("jobradar-backup-%Y%m%d-%H%M.zip"))
+    out.write_bytes(data)
+    print(f"Saved {out} ({len(data) // 1024} KB){' — includes your Telegram login' if args.with_login else ''}.")
+    print("It contains your keys: keep it private.")
+    return 0
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    from .backup import BackupError, data_files, read_backup, restore_backup
+    from .state import State
+
+    data = Path(args.file).read_bytes()
+    try:
+        manifest, contents = read_backup(data)
+    except BackupError as e:
+        print(f"Can't restore: {e}")
+        return 1
+    print(f"Backup from {manifest.get('created', '?')[:16]}: {', '.join(sorted(contents))}.")
+    if not args.yes and input("Replace your current settings and history with it? [y/N] ").strip().lower() != "y":
+        print("Nothing changed.")
+        return 1
+    cfg_path = Path(args.config)
+    db = data_files(cfg_path).get("database") if cfg_path.exists() else None
+    if db is not None and db.exists():
+        st = State(db)
+        busy = not st.acquire_run_lock("restore")
+        st.close()
+        if busy:
+            print("Another Job Radar is running a check. Close it first, then restore.")
+            return 1
+    result = restore_backup(data, cfg_path)
+    print(f"Restored: {', '.join(result['restored'])}.")
+    if result["previous_files"]:
+        print(f"Your previous files were moved to {result['previous_files']}")
+    return 0
+
+
 def cmd_web(args: argparse.Namespace) -> int:
     from .web.app import main as web_main
 
@@ -275,7 +321,8 @@ def cmd_web(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jobradar", description="Social Job Radar (Telegram-only)")
-    p.add_argument("--config", default=default_config_path(), help="path to config TOML")
+    p.add_argument("--config", default=None,
+                   help="path to config TOML (default: jobradar-data/config.toml beside the program)")
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="command", required=True)
     web = sub.add_parser("web", help="open the dashboard in your browser (recommended)")
@@ -285,6 +332,15 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--no-browser", action="store_true", help="don't open a browser window")
     web.set_defaults(func=cmd_web)
     sub.add_parser("run", help="one collection cycle + Telegram digest").set_defaults(func=cmd_run)
+    bk = sub.add_parser("backup", help="save settings, history and résumé to one .zip")
+    bk.add_argument("-o", "--output", help="file to write (default: jobradar-backup-<date>.zip)")
+    bk.add_argument("--with-login", action="store_true",
+                    help="also include your Telegram login (full access to your account)")
+    bk.set_defaults(func=cmd_backup)
+    rs = sub.add_parser("restore", help="restore a backup .zip (current files are kept aside)")
+    rs.add_argument("file")
+    rs.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
+    rs.set_defaults(func=cmd_restore)
     sub.add_parser("serve", help="loop at the configured interval").set_defaults(func=cmd_serve)
     sub.add_parser("sources", help="list configured sources").set_defaults(func=cmd_sources)
     sub.add_parser("test-telegram", help="send a test message").set_defaults(func=cmd_test_telegram)
@@ -311,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
 
     _disable_console_quick_edit()  # a stray click must not freeze the daemon
     args = build_parser().parse_args(argv)
+    if args.config is None:
+        args.config = default_config_path()
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

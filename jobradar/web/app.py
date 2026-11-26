@@ -133,6 +133,31 @@ class Controller:
             if self._thread is not None and self.service.inbox is not None:
                 self.service.inbox.start()
 
+    def restore(self, data: bytes) -> dict[str, Any]:
+        """Replace settings, database and files with a backup's (see
+        jobradar/backup.py). Refuses while a check is running."""
+        from ..backup import read_backup, restore_backup
+
+        read_backup(data)  # validate before touching anything
+        with self._svc_lock:
+            if self.running:
+                raise ApiError("Wait for the current check to finish, then restore.", 409)
+            old = self.service
+            if not old.state.acquire_run_lock("restore"):
+                raise ApiError("Another Job Radar is checking right now; close it first.", 409)
+            if old.inbox is not None:
+                old.inbox.stop()
+            old.state.close()
+            try:
+                result = restore_backup(data, self.config_path)
+            finally:
+                self.service = self._build(None)  # fresh database connection
+                self.last_summary = None
+                if self._thread is not None and self.service.inbox is not None:
+                    self.service.inbox.start()
+        log.info("restored a backup from %s", result.get("backup_created"))
+        return result
+
     @property
     def config(self) -> Config:
         return self.service.config
@@ -242,6 +267,7 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
     return {
         "version": __version__,
         "config_file": str(ctrl.config_path),
+        "data_folder": str(ctrl.base_dir),
         "configured": ctrl.configured(),
         "running": ctrl.running, "run_started": ctrl.run_started,
         "last_run": st.last_run, "next_run": ctrl.next_run(),
@@ -355,6 +381,7 @@ class Api:
             ("POST", "/api/email/test"): self.email_test,
             ("POST", "/api/apply/preview"): self.apply_preview,
             ("PUT", "/api/resume"): self.resume_upload,
+            ("PUT", "/api/restore"): self.restore,
             ("DELETE", "/api/resume"): self.resume_delete,
             ("POST", "/api/resume/text"): self.resume_text,
             ("POST", "/api/tg/start"): self.tg_start,
@@ -484,6 +511,15 @@ class Api:
                 "message": draft.message, "email_subject": draft.email_subject,
                 "email_body": draft.email_body, "threshold": c.apply_min_score,
                 "ai": applier.ai_available}
+
+    def restore(self, data: bytes) -> dict[str, Any]:
+        from ..backup import BackupError
+
+        try:
+            result = self.ctrl.restore(data)
+        except BackupError as e:
+            raise ApiError(str(e)) from e
+        return {"result": result, **build_state(self.ctrl)}
 
     def resume_upload(self, data: bytes) -> dict[str, Any]:
         _require(data[:5] == b"%PDF-", "That doesn't look like a PDF file.")
@@ -671,6 +707,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._error(403, "Session expired — reopen the link Job Radar printed.")
         if method != "GET" and not self._same_origin():
             return self._error(403, "cross-site request refused")
+        if method == "GET" and url.path == "/api/backup":
+            from ..backup import make_backup
+
+            q = urllib.parse.parse_qs(url.query)
+            login = (q.get("login") or ["0"])[0] == "1"
+            ctrl = self.server.ctrl
+            data = make_backup(ctrl.config_path, include_login=login, state=ctrl.service.state)
+            name = time.strftime("jobradar-backup-%Y%m%d-%H%M.zip")
+            return self._send(200, data, "application/zip",
+                              {"Content-Disposition": f'attachment; filename="{name}"'})
         if method == "GET" and url.path == "/api/logs":
             q = urllib.parse.parse_qs(url.query)
             after = int((q.get("after") or ["0"])[0] or 0)
@@ -680,7 +726,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._error(404, "unknown API call")
         try:
             if method == "PUT":
-                arg: Any = self._body(MAX_RESUME + 1)
+                from ..backup import MAX_TOTAL
+
+                arg: Any = self._body(MAX_TOTAL if url.path == "/api/restore" else MAX_RESUME + 1)
             elif method == "GET":
                 arg = None
             else:
