@@ -13,6 +13,9 @@ come from the audit the owner works through one item at a time; keep them.
 - `jobradar-data` folder; one-file backup and restore (manual; S8 automatic backups still open).
 - Conversations with representatives mirrored from Telegram, Messages tab,
   replies from the dashboard, Chinese/English messages with Chinese the default.
+- Résumés generated from a Profile page (required: name, job title, education),
+  tailored per job by AI with no-invention checks, as PDF with an embedded
+  Chinese font; preview, import from an old résumé, `jobradar resume`.
 
 ## Open
 
@@ -21,16 +24,19 @@ come from the audit the owner works through one item at a time; keep them.
 |---|---|
 | V1 | Telegram bot: sending jobs, "Find my chat", review buttons |
 | V2 | Telegram account: login, applying, reading channels, **conversation sync and replies** |
-| V3 | Gemini and Claude calls, including Chinese drafts |
+| V3 | Gemini and Claude calls, including Chinese drafts, **résumé tailoring and résumé import** |
 | V4 | SMTP email |
 | V5 | Live sites (HN, WeWorkRemotely, Reddit, V2EX, Ruby China, Bluesky; Bluesky search may need a login) |
-| V6 | The Windows .exe on real Windows |
+| V6 | The Windows .exe on real Windows, **including finding Microsoft YaHei/SimHei for the résumé PDF** |
+| V8 | Résumé PDFs opened in real viewers (Telegram preview, WeChat, Acrobat, phones); checked here only with poppler |
 | V7 | AC-10: a week of real use |
 
 ### Not built
 | # | Item |
 |---|---|
 | M1 | Reading email replies (IMAP) into conversations |
+| R1 | CFF-based fonts (.otf, e.g. Noto Sans CJK) for the résumé PDF |
+| R2 | Résumé photo, and more than one layout |
 | S2 | Several users |
 | S3 | Interactive bot commands (beyond the review buttons) |
 | S4 | Browsing, filtering and marking jobs in the dashboard |

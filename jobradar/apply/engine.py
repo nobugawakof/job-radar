@@ -81,14 +81,14 @@ def _fmt(template: str, **values: str) -> str:
     return template.format_map(_Keep(values))
 
 
-def template_draft(config: Config, entry: dict[str, Any]) -> ApplicationDraft:
+def template_draft(config: Config, entry: dict[str, Any], name: str | None = None) -> ApplicationDraft:
     """Your fixed template (Chinese or English per message_language), used when
     AI is off or unavailable."""
     lang = language.resolve(config.message_language, entry.get("description") or "")
     title = entry.get("title") or ("该职位" if lang == "zh" else "this role")
     template = config.apply_template_zh if lang == "zh" else config.apply_template
     subject = config.apply_email_subject_zh if lang == "zh" else config.apply_email_subject
-    body = _fmt(template, title=title, name=config.applicant_name or "")
+    body = _fmt(template, title=title, name=name or config.applicant_name or "")
     return ApplicationDraft(
         fit_score=None, fit_reason="template (no AI fit check)", message=body.strip(),
         email_subject=_fmt(subject, title=title)[:150], email_body=body.strip(),
@@ -106,6 +106,7 @@ class Applier:
         drafter: Drafter,
         notify: Notifier | None = None,
         resume_pdf: Path | None = None,
+        resume_builder: Any = None,
         ai_available: bool = False,
         sleep: Callable[[float], None] = time.sleep,
         rand: Callable[[float, float], float] = random.uniform,
@@ -116,6 +117,7 @@ class Applier:
         self.drafter = drafter
         self.notify = notify
         self.resume_pdf = resume_pdf
+        self.resume_builder = resume_builder   # makes a tailored PDF per application (resume.builder)
         self.ai_available = ai_available
         self.sleep = sleep
         self.rand = rand
@@ -131,9 +133,9 @@ class Applier:
         report = ApplyReport(mode=self.mode)
         if self.mode == "off":
             return report
-        if self.mode == "auto" and not (self.resume_pdf and self.resume_pdf.exists()):
-            self._alert(report, f"Auto-apply is on but the résumé PDF was not found "
-                                f"({self.config.resume_pdf_path}); nothing was sent.")
+        if self.mode == "auto" and self.resume_builder is None and not (self.resume_pdf and self.resume_pdf.exists()):
+            self._alert(report, "Auto-apply is on but there's no résumé: fill in your profile (name, job title, "
+                                f"education) or upload a PDF ({self.config.resume_pdf_path}). Nothing was sent.")
             report.queued = self.enqueue(postings, now)
             report.waiting = self.state.queue_len()
             return report
@@ -234,7 +236,17 @@ class Applier:
                          draft.fit_score, cfg.apply_min_score, draft.fit_reason)
                 continue
 
-            outcome = self._deliver(key, entry, draft, fresh, active, now, report)
+            attachment, resume_file = self._resume_for(key, entry)
+            if attachment is None and self.mode == "auto":   # never send an application without a résumé
+                entry["attempts"] = int(entry.get("attempts", 0)) + 1
+                if entry["attempts"] >= MAX_DRAFT_ATTEMPTS:
+                    self._finish(key, entry, now, status="failed", error="could not make the résumé")
+                    report.failed += 1
+                else:
+                    self.state.queue_put(key, entry)
+                continue
+
+            outcome = self._deliver(key, entry, draft, fresh, active, now, report, attachment, resume_file)
             if outcome == "done":
                 remaining -= 1
                 # (Each record above is already committed to the database, so a
@@ -244,9 +256,24 @@ class Applier:
                     self.sleep(max(0.0, self.rand(float(lo), float(max(lo, hi)))))
 
     # ------------------------------------------------------------ helpers
+    def _resume_for(self, key: str, entry: dict[str, Any]) -> tuple[Path | None, str]:
+        """The résumé to attach: a fresh one tailored to this posting from your
+        profile, else your uploaded PDF. (path, path relative to the data folder)."""
+        if self.resume_builder is not None:
+            try:
+                path = self.resume_builder.build(
+                    f"{entry.get('title') or ''}\n{entry.get('description') or ''}", key=key)
+                return path, self.resume_builder.relative(path)
+            except Exception as e:  # noqa: BLE001 - fall back to the uploaded PDF, if any
+                log.warning("auto-apply: couldn't make the résumé: %s", e)
+                self._notify(language.t("resume_failed", self._lang(), error=_esc(str(e))[:300]))
+        if self.resume_pdf and self.resume_pdf.exists():
+            return self.resume_pdf, ""
+        return None, ""
+
     def _deliver(self, key: str, entry: dict[str, Any], draft: ApplicationDraft,
                  channels: list[str], active: dict[str, Sender], now: datetime,
-                 report: ApplyReport) -> str:
+                 report: ApplyReport, attachment: Path | None = None, resume_file: str = "") -> str:
         errors: list[str] = []
         blocked = False
         for ch in channels:
@@ -258,14 +285,15 @@ class Applier:
             subject = draft.email_subject or _fmt(self.config.apply_email_subject,
                                                   title=entry.get("title") or "")
             if self.mode == "dry_run":
-                self._notify(self._preview(entry, draft, ch, contact, subject, text))
+                self._notify(self._preview(entry, draft, ch, contact, subject, text, attachment))
                 self._finish(key, entry, now, status="dry_run", channel=ch, contact=contact,
-                             score=draft.fit_score, reason=draft.fit_reason, message=text)
+                             score=draft.fit_score, reason=draft.fit_reason, message=text,
+                             resume_file=resume_file)
                 self._mark_contact(ch, contact, now)
                 report.previewed += 1
                 return "done"
             try:
-                sent = active[ch].send(contact, message=text, subject=subject, attachment=self.resume_pdf)
+                sent = active[ch].send(contact, message=text, subject=subject, attachment=attachment)
             except ContactError as e:
                 errors.append(str(e))
                 log.warning("auto-apply: %s", e)
@@ -279,8 +307,8 @@ class Applier:
                 self._alert(report, f"Auto-apply: {_CHANNEL_LABEL[ch]} paused{until} — {e}")
                 continue
             self._finish(key, entry, now, status="sent", channel=ch, contact=contact,
-                         score=draft.fit_score, reason=draft.fit_reason, message=text)
-            self._record_conversation(key, entry, ch, contact, text, subject, sent, now)
+                         score=draft.fit_score, reason=draft.fit_reason, message=text, resume_file=resume_file)
+            self._record_conversation(key, entry, ch, contact, text, subject, sent, now, attachment)
             self._mark_contact(ch, contact, now)
             report.sent += 1
             self._notify(self._confirmation(entry, draft, ch, contact, text))
@@ -321,23 +349,24 @@ class Applier:
 
     def _finish(self, key: str, entry: dict[str, Any], now: datetime, *, status: str,
                 channel: str | None = None, contact: str | None = None,
-                score: int | None = None, reason: str = "", error: str = "", message: str = "") -> None:
+                score: int | None = None, reason: str = "", error: str = "", message: str = "",
+                resume_file: str = "") -> None:
         self.state.finish_application(key, {
             "at": iso(now), "mode": self.mode, "status": status, "channel": channel,
             "contact": contact, "title": (entry.get("title") or "")[:200],
             "source_url": entry.get("source_url"), "score": score, "reason": reason[:300],
-            "error": error, "message": message,
+            "error": error, "message": message, "resume_file": resume_file,
         })
 
     def _record_conversation(self, key: str, entry: dict[str, Any], channel: str, contact: str,
-                             text: str, subject: str, sent, now: datetime) -> None:
+                             text: str, subject: str, sent, now: datetime, attachment: Path | None = None) -> None:
         """Keep the sent application in that representative's conversation, so
         the dashboard shows it (and their replies, once synced)."""
         try:
             conv = self.state.conversation_id(channel, contact, display_name=getattr(sent, "display_name", ""),
                                               peer_id=getattr(sent, "peer_id", None))
             title = (entry.get("title") or "")[:200]
-            resume = self.resume_pdf.name if self.resume_pdf else ""
+            resume = attachment.name if attachment else ""
             if channel == "email":
                 self.state.add_message(conv, "out", text, sent_at=now, subject=subject, attachment=resume,
                                        external_id=getattr(sent, "text_id", None), job_fingerprint=key,
@@ -377,10 +406,12 @@ class Applier:
         return language.t("channel_" + channel, self._lang())
 
     def _preview(self, entry: dict[str, Any], draft: ApplicationDraft, channel: str,
-                 contact: str, subject: str, text: str) -> str:
+                 contact: str, subject: str, text: str, attachment: Path | None = None) -> str:
         lang = self._lang()
-        resume = (self.resume_pdf.name if self.resume_pdf and self.resume_pdf.exists()
-                  else language.t("no_resume", lang))
+        if attachment is not None and self.resume_builder is not None and attachment != self.resume_pdf:
+            resume = language.t("resume_tailored", lang, file=_esc(attachment.name))
+        else:
+            resume = f"📎 {_esc(attachment.name)}" if attachment else language.t("no_resume", lang)
         lines = [
             language.t("dry_run", lang, fit=self._fit(draft)),
             f"<b>{_esc(entry.get('title') or '(untitled)')}</b>",
@@ -394,7 +425,7 @@ class Applier:
         if channel == "email":
             lines.append(language.t("subject", lang, subject=_esc(subject)))
         lines.append(_esc(text[:2500]))
-        lines.append(f"\n📎 {_esc(resume)}")
+        lines.append("\n" + resume)
         return "\n".join(lines)
 
     def _confirmation(self, entry: dict[str, Any], draft: ApplicationDraft, channel: str,
@@ -442,9 +473,20 @@ def build_applier(config: Config, state: State, *, base_dir: Path,
                   notify: Notifier | None = None) -> Applier:
     from .. import ai
 
+    from ..resume import builder as resume_builder
+    from ..resume import profile as prof
+
     resume_pdf = _resolve(base_dir, config.resume_pdf_path)
     text_path = _resolve(base_dir, config.resume_text_path)
     resume_text = text_path.read_text("utf-8") if text_path and text_path.exists() else None
+    builder = None
+    if (config.resume_source or "generated") == "generated":
+        profile = state.get_profile()
+        builder = resume_builder.make_builder(config, base_dir, profile)
+        if builder is not None:
+            resume_text = prof.facts_text(builder.profile)   # the AI judges fit from your profile
+        elif resume_pdf and resume_pdf.exists():
+            log.info("auto-apply: your profile is incomplete, so your uploaded résumé is used")
     key = ai_key(config)
     ai_on = bool(config.use_ai and key and (resume_text or (resume_pdf and resume_pdf.exists())))
     pdf_bytes: bytes | None = None
@@ -456,7 +498,8 @@ def build_applier(config: Config, state: State, *, base_dir: Path,
                 pdf_bytes = resume_pdf.read_bytes()
             d = ai.draft_application(
                 entry.get("description") or "", resume_text=resume_text, resume_pdf=pdf_bytes,
-                applicant_name=config.applicant_name, provider=config.ai_provider,
+                applicant_name=(builder.profile["name"] if builder else config.applicant_name),
+                provider=config.ai_provider,
                 api_key=key or "", model=config.ai_model, max_chars=config.ai_max_chars,
                 language=config.message_language)
             if d is not None:
@@ -465,7 +508,7 @@ def build_applier(config: Config, state: State, *, base_dir: Path,
             # already narrowed the roles; otherwise retry next run.
             if not config.apply_keywords:
                 return None
-        return template_draft(config, entry)
+        return template_draft(config, entry, name=builder.profile["name"] if builder else None)
 
     return Applier(config, state, senders=build_senders(config, base_dir), drafter=drafter,
-                   notify=notify, resume_pdf=resume_pdf, ai_available=ai_on)
+                   notify=notify, resume_pdf=resume_pdf, resume_builder=builder, ai_available=ai_on)

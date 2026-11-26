@@ -32,6 +32,14 @@ a = Analysis(
         "jobradar.web.app",
         "jobradar.web.configfile",
         "jobradar.web.tglogin",
+        "jobradar.apply.conversations",
+        "jobradar.apply.language",
+        "jobradar.resume.builder",
+        "jobradar.resume.content",
+        "jobradar.resume.fonts",
+        "jobradar.resume.pdf",
+        "jobradar.resume.profile",
+        "jobradar.resume.render",
         # Optional: bundled when Telethon is installed in the build env (the
         # GitHub workflow installs it) so the .exe can auto-apply via Telegram.
         "telethon",

@@ -1,5 +1,5 @@
 """Message language (Chinese by default) and the few phrases Job Radar itself
-writes in Telegram: auto-apply notices and reply notices.
+writes in Telegram (auto-apply and reply notices) and in the generated résumé.
 
 ``message_language`` in the config:
 
@@ -46,6 +46,20 @@ PHRASES = {
     "reply_job": {"zh": "（{title}）", "en": " ({title})"},
     "channel_telegram": {"zh": "Telegram", "en": "Telegram"},
     "channel_email": {"zh": "邮件", "en": "Email"},
+    "resume_tailored": {"zh": "📎 已为该职位定制简历：{file}", "en": "📎 Résumé tailored for this job: {file}"},
+    "resume_failed": {"zh": "⚠️ 简历生成失败：{error}", "en": "⚠️ Couldn't make the résumé: {error}"},
+    # The résumé itself (sent to recruiters)
+    "cv_intro": {"zh": "个人简介", "en": "Profile"},
+    "cv_skills": {"zh": "技术栈", "en": "Tech stack"},
+    "cv_experience": {"zh": "工作经历", "en": "Work experience"},
+    "cv_projects": {"zh": "项目经历", "en": "Notable projects"},
+    "cv_education": {"zh": "教育背景", "en": "Education"},
+    "cv_languages": {"zh": "语言能力", "en": "Languages"},
+    "cv_present": {"zh": "至今", "en": "Present"},
+    "cv_male": {"zh": "男", "en": "Male"},
+    "cv_female": {"zh": "女", "en": "Female"},
+    "cv_born": {"zh": "出生：{date}", "en": "Born {date}"},
+    "cv_file": {"zh": "{name}_简历", "en": "{name}_Resume"},
 }
 
 

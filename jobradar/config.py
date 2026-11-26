@@ -80,7 +80,9 @@ class Config:
     apply_contact_cooldown_days: int = 30       # never message the same person twice within this
     apply_max_age_days: int = 7                 # don't apply to postings older than this
     applicant_name: str = ""
-    resume_pdf_path: str = "resume.pdf"         # attached to every application
+    resume_source: str = "generated"            # "generated" (from your profile, tailored per job) | "uploaded"
+    resume_font_path: str = ""                  # font for the generated PDF; empty = find one on this computer
+    resume_pdf_path: str = "resume.pdf"         # your own PDF (resume_source = "uploaded", or as a fallback)
     resume_text_path: str = ""                  # optional plain-text résumé for the AI (else the PDF is sent to it)
     # Language of application messages: "zh" (Chinese, default), "en", or
     # "auto" (the job post's own language). Also used for Job Radar's notices.

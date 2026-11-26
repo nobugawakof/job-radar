@@ -192,6 +192,16 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bubble .job { display: block; font-size: .75rem; color: var(--muted); margin-bottom: .2rem; }
 .composer { border-top: 1px solid var(--line); padding: .6rem; display: flex; gap: .5rem; align-items: flex-end; background: var(--panel); }
 .composer textarea { min-height: 2.6rem; max-height: 10rem; flex: 1; }
+/* profile */
+input[type=email] { width: 100%; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.req { color: var(--bad); font-weight: 700; }
+.pf-rows { display: flex; flex-direction: column; gap: .8rem; }
+.pf-row { border: 1px solid var(--line); border-radius: 10px; padding: .8rem; background: var(--panel-2); display: flex; flex-direction: column; gap: .6rem; }
+.pf-row-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.pf-row-head b { font-size: .92rem; }
+.pf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .6rem .8rem; }
+.pf-actions { position: sticky; bottom: 0; z-index: 5; background: var(--bg); padding: .7rem 0; border-top: 1px solid var(--line); }
+
 .back { display: none; }
 @media (max-width: 760px) {
   .msgs { grid-template-columns: 1fr; }
@@ -245,6 +255,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
 <div class="shell">
   <nav aria-label="Sections">
     <button data-tab="overview">Overview</button>
+    <button data-tab="profile">Profile <span class="badge" id="nav-profile"></span></button>
     <button data-tab="telegram">Telegram bot <span class="badge" id="nav-tg"></span></button>
     <button data-tab="search">Job search</button>
     <button data-tab="ai">AI</button>
@@ -310,6 +321,82 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
           <label class="btn" for="restore-file">Restore from a backup…</label>
           <input type="file" id="restore-file" accept=".zip,application/zip" class="hidden">
         </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ PROFILE -->
+    <section class="view hidden" data-view="profile">
+      <div class="view-head"><h2>Profile</h2>
+        <p class="muted">Enter the facts once; Job Radar makes your résumé from them and, with AI on, tailors it to each job before sending it. <span class="req">*</span> = required.</p></div>
+      <div class="note">The AI only rewrites, translates and reorders what you enter here. It never adds jobs, skills, dates or numbers you didn't write, and anything it can't trace back to this page is left out. Empty sections are simply not on the résumé.</div>
+      <div id="pf-status"></div>
+
+      <div class="card stack">
+        <h3>Basic details</h3>
+        <div class="grid2">
+          <div class="field"><label for="pf-name">Name <span class="req">*</span></label><input id="pf-name" type="text" data-pf="name" autocomplete="name"></div>
+          <div class="field"><label for="pf-job_title">Job title <span class="req">*</span></label><input id="pf-job_title" type="text" data-pf="job_title" placeholder="e.g. 后端工程师 / Backend Engineer"></div>
+          <div class="field"><label for="pf-gender">Gender</label><select id="pf-gender" data-pf="gender"><option value="">— (leave off)</option><option value="male">男 Male</option><option value="female">女 Female</option></select></div>
+          <div class="field"><label for="pf-birth_date">Date of birth</label><input id="pf-birth_date" type="text" data-pf="birth_date" placeholder="e.g. 1995-03"></div>
+          <div class="field"><label for="pf-location">Location</label><input id="pf-location" type="text" data-pf="location" placeholder="e.g. 上海 / Kuala Lumpur"></div>
+          <div class="field"><label for="pf-phone">Phone</label><input id="pf-phone" type="tel" data-pf="phone" autocomplete="tel"></div>
+          <div class="field"><label for="pf-email">Email</label><input id="pf-email" type="email" data-pf="email" autocomplete="email"></div>
+        </div>
+        <span class="hint small muted">Gender and date of birth are common on Chinese résumés but optional; leave them empty to keep them off.</span>
+      </div>
+
+      <div class="card stack">
+        <h3>Education <span class="req">*</span></h3>
+        <div class="pf-rows" id="pf-education"></div>
+        <div><button class="btn small" type="button" data-pf-add="education">+ Add education</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>About you &amp; tech stack <span class="muted small">(optional)</span></h3>
+        <div class="field"><label for="pf-summary">About you</label><textarea id="pf-summary" data-pf="summary" rows="3" placeholder="A few facts you want in your introduction, e.g. 五年后端开发经验，专注支付系统。"></textarea>
+          <span class="hint">The AI writes the personal introduction from this and the rest of your profile. Without AI, this text is the introduction.</span></div>
+        <div class="field"><label for="pf-skills">Tech stack</label><textarea id="pf-skills" data-pf="skills" rows="4" placeholder="后端：Go, Python, gRPC&#10;数据库：PostgreSQL, Redis&#10;Docker, Kubernetes"></textarea>
+          <span class="hint">One group per line; "Label: a, b, c" makes a labelled group.</span></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Work experience <span class="muted small">(optional)</span></h3>
+        <div class="pf-rows" id="pf-experience"></div>
+        <div><button class="btn small" type="button" data-pf-add="experience">+ Add a job</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Notable projects <span class="muted small">(optional)</span></h3>
+        <div class="pf-rows" id="pf-projects"></div>
+        <div><button class="btn small" type="button" data-pf-add="projects">+ Add a project</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Languages <span class="muted small">(optional)</span></h3>
+        <div class="pf-rows" id="pf-languages"></div>
+        <div><button class="btn small" type="button" data-pf-add="languages">+ Add a language</button></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Preview</h3>
+        <div class="field"><label for="pf-posting">Job post to tailor to (optional)</label>
+          <textarea id="pf-posting" rows="4" placeholder="Paste a job post to see the résumé the AI would send for it. Leave empty for your general résumé."></textarea></div>
+        <div id="pf-preview-out"></div>
+      </div>
+
+      <div class="card stack">
+        <h3>Fill in from an existing résumé <span class="muted small">(AI)</span></h3>
+        <p class="muted small">The AI copies the facts from a résumé into the fields above for you to check. Nothing is saved until you press Save.</p>
+        <div class="row">
+          <label class="btn small" for="pf-import-file">Choose a résumé PDF…</label><input type="file" id="pf-import-file" accept="application/pdf,.pdf" class="hidden">
+          <button class="btn small" type="button" id="pf-import-saved">Use my uploaded résumé</button>
+        </div>
+      </div>
+
+      <div class="row pf-actions">
+        <button class="btn primary" type="button" id="pf-save">Save profile</button>
+        <button class="btn" type="button" id="pf-preview">Preview résumé</button>
+        <span class="muted small" id="pf-dirty"></span>
       </div>
     </section>
 
@@ -428,9 +515,15 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
 
       <div class="card stack">
         <h3>Your résumé</h3>
+        <div class="field"><label for="resume-source">Résumé to send</label>
+          <select id="resume-source" data-k="resume_source" style="max-width:30rem">
+            <option value="generated">Made from my Profile, tailored to each job (recommended)</option>
+            <option value="uploaded">My own PDF, uploaded below</option>
+          </select></div>
+        <div id="profile-resume-status"></div>
         <div id="resume-status"></div>
         <label class="drop" id="drop"><input type="file" id="resume-file" accept="application/pdf,.pdf" class="hidden">
-          <span><b>Drop your résumé PDF here</b> or click to choose</span><span class="muted small">Sent with every application. Max 10 MB.</span></label>
+          <span><b>Drop your résumé PDF here</b> or click to choose</span><span class="muted small">Sent when "My own PDF" is chosen, or if a résumé can't be made from your profile. Max 10 MB.</span></label>
         <div class="field"><label for="applicant">Your name</label><input id="applicant" type="text" data-k="applicant_name"><span class="hint">Used to sign the messages.</span></div>
         <details><summary>Résumé as plain text (optional)</summary>
           <p class="muted small">If you paste it here, the AI reads this instead of the PDF (cheaper and a bit more reliable).</p>
@@ -633,6 +726,7 @@ function show(name) {
   if (name === "history") loadApps();
   if (name === "review") loadReview();
   if (name === "messages") loadMessages();
+  if (name === "profile") loadProfile();
   if (name === "activity") pollLogs();
   window.scrollTo({ top: 0 });
 }
@@ -879,8 +973,15 @@ function renderApply() {
   $("#nav-review").innerHTML = S.review.pending ? '<span class="tag warn">' + S.review.pending + "</span>" : "";
   $("#nav-apply").innerHTML = mode === "auto" ? `<span class="tag ok">on</span>` : mode === "dry_run" ? `<span class="tag info">dry run</span>` : "";
   const r = S.apply.resume_pdf;
+  const gen = S.apply.resume_source !== "uploaded";
+  $("#profile-resume-status").innerHTML = gen ? (S.apply.profile_complete
+    ? `<div class="note ok">✓ Each application gets a résumé made from your <a href="#" data-goto="profile">Profile</a>${cfg("use_ai") ? ", tailored by the AI to that job" : ""}.</div>`
+    : `<div class="note warn">Your <a href="#" data-goto="profile">Profile</a> isn't complete yet (name, job title, education)${r.exists ? ", so your uploaded PDF is used for now" : ""}.</div>`) : "";
+  $$("#profile-resume-status [data-goto]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); show(a.dataset.goto); }));
+  if (S.apply.profile_complete && $("#nav-profile")) $("#nav-profile").textContent = "";
+  if (!S.apply.profile_complete && $("#nav-profile")) $("#nav-profile").textContent = "!";
   $("#resume-status").innerHTML = r.exists ? `<div class="row"><span class="tag ok">✓ ${esc(r.name)}</span><span class="muted small">${Math.max(1, Math.round(r.size / 1024))} KB</span><button class="linkbtn" id="resume-del">Remove</button></div>`
-    : `<div class="note warn">No résumé yet. Upload a PDF before switching auto-apply on.</div>`;
+    : (gen ? "" : `<div class="note warn">No résumé yet. Upload a PDF before switching auto-apply on.</div>`);
   $("#resume-del")?.addEventListener("click", () => api("DELETE", "/api/resume").then((x) => { S = x; render(); toast("Résumé removed."); }).catch((e) => toast(e.message, "bad")));
   const rt = $("#resume-text"); if (rt !== document.activeElement && !rt.dataset.touched) rt.value = S.apply.resume_text;
   $("#apply-kw-hint").textContent = cfg("use_ai") ? "Optional, because the AI already checks fit against your résumé." : "Required while AI is off, otherwise nothing is applied to.";
@@ -1070,6 +1171,85 @@ async function loadReview(data) {
   } catch (e) { toast(e.message, "bad"); }
 }
 
+// --------------------------------------------------------------- profile
+const PF_LISTS = {
+  education: { label: "Education", fields: [["school", "School", "e.g. 复旦大学"], ["degree", "Degree", "e.g. 本科 / BSc"], ["major", "Major", "e.g. 计算机科学"], ["start", "From", "2015.09"], ["end", "To", "2019.06"], ["details", "Details (optional)", "Honours, GPA, relevant courses — one per line", true]] },
+  experience: { label: "Job", fields: [["company", "Company", ""], ["role", "Role", ""], ["location", "Location", ""], ["start", "From", "2021.07"], ["end", "To (empty = now)", ""], ["details", "What you did", "One point per line. Real facts and numbers only.", true]] },
+  projects: { label: "Project", fields: [["name", "Project", ""], ["role", "Your role", ""], ["link", "Link", "github.com/…"], ["start", "From", ""], ["end", "To", ""], ["details", "Details", "What it is and what you did, one point per line", true]] },
+  languages: { label: "Language", fields: [["language", "Language", "e.g. 英语 / English"], ["level", "Level", "e.g. 流利（CET-6） / Fluent"]] },
+};
+let PF = null, pfDirty = false;
+function pfRow(section, row, i) {
+  const spec = PF_LISTS[section];
+  const cells = spec.fields.map(([f, label, ph, wide]) => {
+    const id = `pf-${section}-${i}-${f}`, v = esc(row[f] || "");
+    const input = wide ? `<textarea id="${id}" rows="3" data-row="${section}" data-i="${i}" data-f="${f}" placeholder="${esc(ph)}">${v}</textarea>`
+      : `<input id="${id}" type="text" data-row="${section}" data-i="${i}" data-f="${f}" value="${v}" placeholder="${esc(ph)}">`;
+    return `<div class="field"${wide ? ' style="grid-column:1/-1"' : ""}><label for="${id}">${esc(label)}</label>${input}</div>`;
+  }).join("");
+  return `<div class="pf-row"><div class="pf-row-head"><b>${esc(spec.label)} ${i + 1}</b><button class="linkbtn" type="button" data-pf-del="${section}" data-i="${i}">Remove</button></div><div class="pf-grid">${cells}</div></div>`;
+}
+function pfRenderLists() {
+  for (const section of Object.keys(PF_LISTS)) {
+    const rows = PF[section];
+    $(`#pf-${section}`).innerHTML = rows.length ? rows.map((r, i) => pfRow(section, r, i)).join("") : `<div class="muted small">${section === "education" ? "Add at least one school." : "Nothing yet."}</div>`;
+  }
+}
+function pfFill() {
+  for (const el of $$("[data-pf]")) el.value = PF[el.dataset.pf] || "";
+  pfRenderLists(); pfMarkDirty(false);
+}
+function pfMarkDirty(v) { pfDirty = v; $("#pf-dirty").textContent = v ? "Unsaved changes" : ""; }
+function pfStatus(complete) {
+  $("#pf-status").innerHTML = complete ? `<div class="note ok">✓ Your profile is complete. ${S && S.apply.resume_source === "uploaded" ? "Auto-apply is set to send your uploaded PDF instead; change that under Auto-apply → Your résumé." : "Applications get a résumé made from it."}</div>`
+    : `<div class="note warn">Fill in your name, job title and at least one school, then save, so Job Radar can make your résumé.</div>`;
+  $("#nav-profile").textContent = complete ? "" : "!";
+}
+async function loadProfile(force) {
+  if (pfDirty && !force) return;
+  try { const d = await api("GET", "/api/profile"); PF = d.profile; pfFill(); pfStatus(d.complete); } catch (e) { toast(e.message, "bad"); }
+}
+function pfCollect() {
+  const p = { ...PF };
+  for (const el of $$("[data-pf]")) p[el.dataset.pf] = el.value;
+  for (const section of Object.keys(PF_LISTS)) p[section] = PF[section].map((r) => ({ ...r }));
+  return p;
+}
+$("[data-view=profile]").addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.dataset.row) { PF[t.dataset.row][Number(t.dataset.i)][t.dataset.f] = t.value; pfMarkDirty(true); }
+  else if (t.dataset.pf) { PF[t.dataset.pf] = t.value; pfMarkDirty(true); }
+});
+$("[data-view=profile]").addEventListener("change", (e) => { if (e.target.dataset.pf) { PF[e.target.dataset.pf] = e.target.value; pfMarkDirty(true); } });
+$("[data-view=profile]").addEventListener("click", (e) => {
+  const add = e.target.closest("[data-pf-add]"), del = e.target.closest("[data-pf-del]");
+  if (add) { const s = add.dataset.pfAdd; PF[s].push({}); pfRenderLists(); pfMarkDirty(true); $(`#pf-${s} .pf-row:last-child input, #pf-${s} .pf-row:last-child textarea`)?.focus(); }
+  if (del) { PF[del.dataset.pfDel].splice(Number(del.dataset.i), 1); pfRenderLists(); pfMarkDirty(true); }
+});
+$("#pf-save").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const r = await api("POST", "/api/profile", { profile: pfCollect() });
+  PF = r.profile; S = r; pfFill(); pfStatus(true); render(); toast("Profile saved.");
+}));
+$("#pf-preview").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+  const posting = $("#pf-posting").value;
+  const r = await api("POST", "/api/profile/preview", { profile: pfCollect(), posting });
+  const url = `/api/file?path=${encodeURIComponent(r.file)}&v=${Date.now()}`;
+  $("#pf-preview-out").innerHTML = `<div class="note ok">${r.tailored ? "Tailored to that job post" : "Your general résumé"}: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="muted small">(${Math.max(1, Math.round(r.size / 1024))} KB)</span></div>`;
+  window.open(url, "_blank", "noopener");
+}));
+async function pfImport(promise) {
+  const r = await promise;
+  PF = { ...PF, ...Object.fromEntries(Object.entries(r.profile).filter(([, v]) => (Array.isArray(v) ? v.length : v))) };
+  pfFill(); pfMarkDirty(true); toast("Fields filled in from the résumé. Check them, then press Save.");
+}
+$("#pf-import-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const btn = $("label[for=pf-import-file]"); btn.classList.add("disabled"); const label = btn.innerHTML; btn.innerHTML = `<span class="spin"></span>Reading…`;
+  try { await pfImport(api("PUT", "/api/profile/import", undefined, await f.arrayBuffer())); } catch (err) { toast(err.message, "bad"); }
+  finally { btn.innerHTML = label; btn.classList.remove("disabled"); }
+});
+$("#pf-import-saved").addEventListener("click", (e) => busy(e.currentTarget, () => pfImport(api("POST", "/api/profile/import", {}))));
+
 // --------------------------------------------------------------- history
 const STATUS = { sent: ["Sent", "ok"], dry_run: ["Previewed", "info"], skipped_fit: ["Low fit", ""], skipped_cooldown: ["Already contacted", ""], failed: ["Failed", "bad"] };
 async function loadApps() {
@@ -1079,7 +1259,8 @@ async function loadApps() {
       const [label, cls] = STATUS[a.status] || [a.status, ""];
       const to = a.contact ? `${a.channel === "email" ? "✉️" : "✈️"} ${esc(a.contact)}` : "—";
       const note = a.error || a.reason;
-      const msg = a.message ? '<details class="small"><summary>Message</summary><div class="draft">' + esc(a.message) + "</div></details>" : "";
+      const msg = (a.message ? '<details class="small"><summary>Message</summary><div class="draft">' + esc(a.message) + "</div></details>" : "")
+        + (a.resume_file ? `<div class="small">📎 <a href="/api/file?path=${encodeURIComponent(a.resume_file)}" target="_blank" rel="noopener">Résumé ${a.status === "dry_run" ? "it would send" : "sent"}</a></div>` : "");
       return `<tr><td class="small">${esc(when(a.at))}</td><td><span class="tag ${cls}">${esc(label)}</span></td><td class="num">${a.score ?? "—"}</td><td class="small">${to}</td><td>${a.source_url ? `<a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>` : esc(a.title)}${note ? `<div class="small muted">${esc(note)}</div>` : ""}${msg}</td></tr>`;
     }).join("") : `<tr><td colspan="5" class="empty">No applications yet.</td></tr>`;
     $("#queue").innerHTML = d.queue.length ? d.queue.map((q) => `<li><a href="${esc(q.url)}" target="_blank" rel="noopener noreferrer">${esc(q.title)}</a><div class="small muted">${esc([q.telegram, q.email].filter(Boolean).join(" · "))}</div></li>`).join("") : `<li class="empty">The queue is empty.</li>`;

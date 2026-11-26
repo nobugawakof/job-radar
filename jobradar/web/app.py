@@ -237,6 +237,12 @@ def summarize(s) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ state
+def _profile_complete(st: Any) -> bool:
+    from ..resume import profile as prof
+
+    return prof.is_complete(st.get_profile())
+
+
 def build_state(ctrl: Controller) -> dict[str, Any]:
     c = ctrl.config
     raw = cf.read_raw(ctrl.config_path)
@@ -271,6 +277,9 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
          "done": has_sites and "keywords" in raw},
         {"id": "autorun", "label": "Switch on automatic checks", "done": bool(c.auto_run), "tab": "overview"},
     ]
+    if (c.apply_mode or "off") != "off" and (c.resume_source or "generated") == "generated":
+        checklist.append({"id": "profile", "label": "Fill in your profile (your résumé is made from it)",
+                          "done": _profile_complete(st), "tab": "profile"})
     return {
         "version": __version__,
         "config_file": str(ctrl.config_path),
@@ -294,6 +303,8 @@ def build_state(ctrl: Controller) -> dict[str, Any]:
             "resume_pdf": {"exists": pdf.exists(), "name": pdf.name,
                            "size": pdf.stat().st_size if pdf.exists() else 0},
             "resume_text": txt.read_text("utf-8")[:20000] if txt and txt.exists() else "",
+            "resume_source": c.resume_source or "generated",
+            "profile_complete": _profile_complete(st),
             "telegram_session": session_file.exists(),
             "login_stage": ctrl.login.stage,
             "telethon": _has_telethon(),
@@ -393,6 +404,11 @@ class Api:
             ("POST", "/api/email/test"): self.email_test,
             ("POST", "/api/apply/preview"): self.apply_preview,
             ("PUT", "/api/resume"): self.resume_upload,
+            ("GET", "/api/profile"): self.profile_get,
+            ("POST", "/api/profile"): self.profile_save,
+            ("PUT", "/api/profile/import"): self.profile_import,
+            ("POST", "/api/profile/import"): self.profile_import_saved,
+            ("POST", "/api/profile/preview"): self.profile_preview,
             ("PUT", "/api/restore"): self.restore,
             ("DELETE", "/api/resume"): self.resume_delete,
             ("POST", "/api/resume/text"): self.resume_text,
@@ -570,6 +586,82 @@ class Api:
         except BackupError as e:
             raise ApiError(str(e)) from e
         return {"result": result, **build_state(self.ctrl)}
+
+    # ------------------------------------------------------------ profile
+    def profile_get(self, _: Any) -> dict[str, Any]:
+        from ..resume import profile as prof
+
+        p = prof.normalize(self.ctrl.service.state.get_profile())
+        return {"profile": p, "complete": prof.is_complete(p)}
+
+    def profile_save(self, body: dict[str, Any]) -> dict[str, Any]:
+        from ..resume import profile as prof
+
+        try:
+            p = prof.validate(body.get("profile") if isinstance(body.get("profile"), dict) else {})
+        except prof.ProfileError as e:
+            raise ApiError(str(e)) from e
+        self.ctrl.service.state.set_profile(p)
+        log.info("profile saved")
+        return {"profile": p, "complete": True, **build_state(self.ctrl)}
+
+    def _ai(self) -> tuple[str, str]:
+        from ..apply.engine import ai_key
+
+        c = self.ctrl.config
+        key = ai_key(c)
+        _require(key, "Add an AI key on the AI page first: reading a résumé needs AI.")
+        return c.ai_provider, key or ""
+
+    def _import(self, *, text: str | None, pdf: bytes | None) -> dict[str, Any]:
+        from .. import ai
+        from ..resume import profile as prof
+
+        provider, key = self._ai()
+        got = ai.import_profile(resume_text=text, resume_pdf=pdf, provider=provider, api_key=key,
+                                model=self.ctrl.config.ai_model)
+        _require(got, "The AI couldn't read that résumé. Try again, or fill in the fields yourself.", 502)
+        return {"profile": prof.normalize(got)}
+
+    def profile_import(self, data: bytes) -> dict[str, Any]:
+        """Read a résumé PDF you pick into the profile fields (not saved: you check them first)."""
+        _require(data[:5] == b"%PDF-", "That doesn't look like a PDF file.")
+        _require(len(data) <= MAX_RESUME, "The PDF is larger than 10 MB.")
+        return self._import(text=None, pdf=data)
+
+    def profile_import_saved(self, _: dict[str, Any]) -> dict[str, Any]:
+        """Same, from the résumé you already uploaded (or its text)."""
+        self._ai()   # say "add an AI key" before anything else
+        c = self.ctrl.config
+        txt = self.ctrl.resolve(c.resume_text_path) if c.resume_text_path else None
+        if txt and txt.exists() and txt.read_text("utf-8").strip():
+            return self._import(text=txt.read_text("utf-8"), pdf=None)
+        pdf = self.ctrl.resolve(c.resume_pdf_path or "resume.pdf")
+        _require(pdf.exists(), "Upload a résumé PDF first.")
+        return self._import(text=None, pdf=pdf.read_bytes())
+
+    def profile_preview(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Make the résumé now (tailored to a pasted job post, if given) for you to look at."""
+        from ..resume import builder as rb
+        from ..resume import profile as prof
+        from ..resume.render import ResumeError
+
+        st = self.ctrl.service.state
+        p = body.get("profile") if isinstance(body.get("profile"), dict) else st.get_profile()
+        try:
+            prof.validate(p)
+        except prof.ProfileError as e:
+            raise ApiError(str(e)) from e
+        posting = str(body.get("posting") or "")[:20000]
+        b = rb.make_builder(self.ctrl.config, self.ctrl.base_dir, p)
+        if not posting.strip():
+            b.tailor = None    # a general résumé is just your profile, laid out; no AI call
+        try:
+            path = b.build(posting, key="preview")
+        except ResumeError as e:
+            raise ApiError(str(e)) from e
+        return {"file": b.relative(path), "name": path.name, "tailored": bool(b.tailor and posting.strip()),
+                "size": path.stat().st_size}
 
     def resume_upload(self, data: bytes) -> dict[str, Any]:
         _require(data[:5] == b"%PDF-", "That doesn't look like a PDF file.")
@@ -770,6 +862,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             name = time.strftime("jobradar-backup-%Y%m%d-%H%M.zip")
             return self._send(200, data, "application/zip",
                               {"Content-Disposition": f'attachment; filename="{name}"'})
+        if method == "GET" and url.path == "/api/file":
+            return self._resume_file(urllib.parse.parse_qs(url.query).get("path", [""])[0])
         if method == "GET" and url.path == "/api/logs":
             q = urllib.parse.parse_qs(url.query)
             after = int((q.get("after") or ["0"])[0] or 0)
@@ -798,6 +892,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             log.exception("dashboard API %s %s failed", method, url.path)
             self._error(500, redact(f"{type(e).__name__}: {e}"))
+
+    def _resume_file(self, rel: str) -> None:
+        """A generated résumé, for viewing (only files under jobradar-data/resumes)."""
+        root = (self.server.ctrl.base_dir / "resumes").resolve()
+        try:
+            path = (self.server.ctrl.base_dir / rel).resolve()
+            path.relative_to(root)
+        except (ValueError, OSError):
+            return self._error(404, "not found")
+        if path.suffix.lower() != ".pdf" or not path.is_file():
+            return self._error(404, "That résumé file is no longer there.")
+        name = urllib.parse.quote(path.name)
+        return self._send(200, path.read_bytes(), "application/pdf",
+                          {"Content-Disposition": f"inline; filename=\"resume.pdf\"; filename*=UTF-8''{name}"})
 
     def _index(self, url) -> None:
         q = urllib.parse.parse_qs(url.query)

@@ -80,7 +80,11 @@ ai_provider = "gemini"              # "gemini" (free tier) or "claude" (paid)
 apply_mode     = "off"                   # "off" | "dry_run" | "auto"
 apply_channels = ["telegram", "email"]   # tried in this order
 applicant_name = ""                      # signs the message
-resume_pdf_path  = "resume.pdf"          # attached to every application (next to config.toml)
+# Your résumé is made from your Profile (dashboard → Profile), tailored to each
+# job when AI is on. "uploaded" sends your own resume.pdf instead.
+resume_source    = "generated"           # "generated" | "uploaded"
+resume_font_path = ""                    # font for the generated PDF; empty = find one on this computer
+resume_pdf_path  = "resume.pdf"          # your own PDF ("uploaded", or a fallback)
 resume_text_path = ""                    # optional plain-text résumé for the AI; else it reads the PDF
 
 # Which postings to apply to. With use_ai = true, the AI scores each posting

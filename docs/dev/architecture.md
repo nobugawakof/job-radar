@@ -14,6 +14,7 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
        dedup.py             exact hash + MinHash/LSH near-duplicates and reworded reposts (CJK aware)
        delivery/telegram.py one message per job to the bot chat (digest.py formats)
        apply/engine.py      auto-apply delivered posts that name a contact (off | dry_run | auto)
+         resume/builder.py  a PDF résumé per application: profile → AI tailoring (checked) → render
   └─ sync_conversations     read new messages in recruiter chats (apply/conversations.py)
   └─ state.record_run       run history (B9)
 ```
@@ -41,6 +42,12 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `apply/engine.py` | `Applier`: gates, AI or template draft, daily cap, pacing, queue, flood back-off, recording, notices |
 | `apply/senders.py` | `TelegramUserSender` and `EmailSender`. Both return a `SendResult` (peer id, name, message ids) |
 | `apply/conversations.py` | `sync_telegram` mirrors recruiter chats; `send_reply` replies by Telegram or email |
+| `resume/profile.py` | Profile shape, normalize/validate (name, job title, education required), `facts_text` |
+| `resume/content.py` | `ResumeContent` in the fixed section order; `from_profile` (no AI); `from_ai` with the no-invention checks |
+| `resume/fonts.py` | TrueType/TTC parser, per-OS font discovery (+ `jobradar-data/fonts`), glyph subsetting |
+| `resume/pdf.py` | Minimal PDF writer: embedded subset font, ToUnicode, wrapping (CJK + Latin), drawn bullets |
+| `resume/render.py` | A4 layout of the résumé; `ResumeError` when no usable font |
+| `resume/builder.py` | `ResumeBuilder.build(posting, key)` → `resumes/<key>/<Name>_简历.pdf`; `make_builder` |
 | `apply/language.py` | `resolve(setting, text)` → zh/en; `PHRASES` + `t()` for notices; `ui()` |
 | `ai.py` | Gemini and Claude over raw HTTPS (stdlib). `draft_application(..., language=)` for fit score + message |
 | `web/app.py` | `http.server` dashboard: JSON API under `/api/*`, runner thread, `build_state()` |
@@ -48,7 +55,7 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `web/tglogin.py` | Phone → code → 2FA login for the user's Telegram account, plus check and logout |
 | `web/index.html` | The whole UI (vanilla JS). Tabs: overview, telegram, search, ai, apply, messages, review, history, activity |
 
-## Database (`jobradar.db`, schema v5)
+## Database (`jobradar.db`, schema v6)
 
 | Table | Holds |
 |---|---|
@@ -57,7 +64,7 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `signatures` | MinHash signatures for near-duplicate and repost detection |
 | `jobs` | Delivered jobs (the dashboard's recent list) |
 | `sources` | Per-source health, failures and switched-off state |
-| `applications` | One row per posting: mode, status, channel, contact, title, **message** (exact text sent or drafted), score, reason, error |
+| `applications` | One row per posting: mode, status, channel, contact, title, **message** (exact text sent or drafted), score, reason, error, **resume_file** (generated PDF, relative to the data folder) |
 | `apply_queue` | Applications waiting for the daily cap |
 | `contacts` | Last time each contact was messaged (cooldown) |
 | `apply_paused` | Telegram flood back-off |
@@ -65,12 +72,14 @@ Service.run (service.py)  ── takes the cross-process run lock (one check at 
 | `bot_chats`, `bot_posts` | Bot inbox: chats seen, channel posts buffered |
 | `review_queue` | Jobs with an unclear region waiting for ✅/❌ |
 | `conversations` | One per representative: `(channel, contact)` unique, display_name, peer_id, last_message_at, unread |
+| `profile` | One row (id = 1): the profile JSON the résumé is built from |
 | `messages` | Each message: direction `out` or `in`, text, subject, attachment, external_id (Telegram message id or email Message-ID, unique per conversation), job_fingerprint, job_title |
 
 Some files are deliberately **not** in the database:
 - `config.toml`: secrets, so that sharing the database never leaks a key.
 - `jobradar-user.session`: Telethon's own SQLite file.
-- The résumé files.
+- The résumé files (uploaded PDF/text; generated PDFs in `resumes/`, which are
+  not in backups because they can be made again).
 
 The backup zip bundles all of them; the Telegram login is included only on
 request.

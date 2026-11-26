@@ -33,7 +33,7 @@ from typing import Any, Iterator
 
 log = logging.getLogger("jobradar.state")
 
-SCHEMA_VERSION = 5   # 2: runs; 3: bot inbox; 4: review queue; 5: conversations + messages
+SCHEMA_VERSION = 6   # 2: runs; 3: bot inbox; 4: review queue; 5: conversations + messages; 6: profile + résumé files
 
 
 def utcnow() -> datetime:
@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS applications (
     score       INTEGER,
     reason      TEXT NOT NULL DEFAULT '',
     error       TEXT NOT NULL DEFAULT '',
-    message     TEXT NOT NULL DEFAULT ''
+    message     TEXT NOT NULL DEFAULT '',
+    resume_file TEXT NOT NULL DEFAULT ''        -- the résumé sent/drafted, relative to the data folder
 );
 CREATE INDEX IF NOT EXISTS applications_by_time ON applications (at);
 CREATE INDEX IF NOT EXISTS applications_by_mode ON applications (mode, status, at);
@@ -189,12 +190,17 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (conversation_id, external_id)
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages (conversation_id, sent_at);
+CREATE TABLE IF NOT EXISTS profile (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),   -- one profile
+    data       TEXT NOT NULL,                       -- JSON, see jobradar/resume/profile.py
+    updated_at TEXT NOT NULL
+);
 """
 RUNS_KEPT = 500
 
 _APP_FIELDS = ("at", "mode", "status", "channel", "contact", "title", "source_url", "message",
-               "score", "reason", "error")
-_APP_TEXT_FIELDS = ("title", "reason", "error", "message")  # NOT NULL, default ""
+               "score", "reason", "error", "resume_file")
+_APP_TEXT_FIELDS = ("title", "reason", "error", "message", "resume_file")  # NOT NULL, default ""
 
 
 def _pid_alive(pid: int) -> bool:
@@ -256,6 +262,8 @@ class State:
             app_cols = {r[1] for r in db.execute("PRAGMA table_info(applications)")}
             if "message" not in app_cols:  # schema 5: the exact text sent/drafted
                 db.execute("ALTER TABLE applications ADD COLUMN message TEXT NOT NULL DEFAULT ''")
+            if "resume_file" not in app_cols:  # schema 6: the generated résumé that went with it
+                db.execute("ALTER TABLE applications ADD COLUMN resume_file TEXT NOT NULL DEFAULT ''")
             if version < SCHEMA_VERSION:
                 db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         except BaseException:
@@ -512,6 +520,21 @@ class State:
     def mark_read(self, conversation_id: int) -> None:
         with self._tx() as db:
             db.execute("UPDATE conversations SET unread = 0 WHERE id = ?", (conversation_id,))
+
+    # ------------------------------------------------------------- profile
+    def get_profile(self) -> dict[str, Any]:
+        """Your profile (the facts the résumé is built from); empty if not set."""
+        row = self._one("SELECT data FROM profile WHERE id = 1")
+        try:
+            return json.loads(row["data"]) if row else {}
+        except (TypeError, ValueError):
+            return {}
+
+    def set_profile(self, data: dict[str, Any]) -> None:
+        with self._tx() as db:
+            db.execute("INSERT INTO profile (id, data, updated_at) VALUES (1, ?, ?) "
+                       "ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+                       (json.dumps(data, ensure_ascii=False), iso(utcnow())))
 
     def unread_total(self) -> int:
         return self._one("SELECT COALESCE(SUM(unread), 0) AS n FROM conversations")["n"]

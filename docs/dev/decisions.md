@@ -3,6 +3,30 @@
 Newest first. Each entry says what was decided and why, so later work doesn't
 undo it by accident.
 
+## Generated résumés (schema v6)
+- The owner asked for résumés made automatically from a simple profile instead
+  of uploading one. Required: name, job title, education; everything else is
+  optional. Section order (owner's spec): name, job title, introduction, tech
+  stack, work experience, projects, education, languages.
+- **Owner's choices:** experience, projects, skills and languages come from
+  optional profile fields (the AI may not invent them); a résumé tailored to
+  each job; sent as PDF.
+- No-invention guard: the AI cites a verbatim `source` for every skill and
+  bullet; the source must be in the profile (in that entry's details, for
+  bullets), and the numbers must be in the source. Failures fall back to the
+  owner's text. Entries are referenced by index, so dates and organisations
+  can't drift. The intro can't contain numbers that aren't in the profile.
+- One AI call per application for the résumé, made only after the fit score
+  passes; dry runs make the résumé too, so the owner can check it.
+- The PDF is written with the standard library: a full TTF subsetter and PDF
+  writer instead of a dependency. Fonts come from the OS; a missing Chinese
+  font is a clear error, and the uploaded PDF is the fallback.
+- The profile is stored in the database (personal data, not secrets) so it's
+  backed up; generated PDFs aren't backed up.
+- `resume_source = "generated"` is the default. With an incomplete profile, an
+  uploaded PDF is still used, so existing setups keep working.
+- The profile name signs messages (`applicant_name` is the fallback).
+
 ## Conversations and language (schema v5)
 - **The real conversation lives in the owner's Telegram account. Job Radar mirrors it.**
   - Applications are sent from that account, so the owner can also continue

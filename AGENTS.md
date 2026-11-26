@@ -22,8 +22,11 @@ feeds, HN, Reddit, Bluesky, V2EX and other sites, then filters them by keyword,
 remote, region and salary. It drops duplicates and reposts and sends each new
 match to the owner's Telegram bot chat. Optional extras:
 - **AI:** Gemini or Claude, for extraction and fit scoring.
-- **Auto-apply:** sends an application and the résumé PDF from the owner's own
+- **Auto-apply:** sends an application and a résumé PDF from the owner's own
   Telegram account or by email.
+- **Generated résumés:** the owner fills in a Profile (name, job title, education
+  required); a PDF résumé is made per application, tailored to the job by AI.
+  The PDF writer is in-house (stdlib), embedding a subset TrueType font for Chinese.
 - **Conversations:** one thread per recruiter, mirrored from that Telegram account.
 - **Dashboard:** a local web page for all setup.
 
@@ -51,6 +54,13 @@ match to the owner's Telegram bot chat. Optional extras:
   - Only one check runs at a time, across processes.
   - Don't weaken any of these.
 - **Recipients come from the rules in `apply/contacts.py`, never from the AI.**
+- **Résumés never contain invented facts.** The AI's tailored résumé is checked
+  in `resume/content.py`: every skill and bullet must quote its source text from
+  the profile, and numbers must appear in that source (unit conversions like
+  300万 → 3M are allowed). Employers, schools and dates always come from the
+  profile. Anything that fails falls back to the owner's own wording. Don't
+  loosen these checks. The AI never receives phone, email, birth date or gender
+  (`ai.resume_facts`).
 - **Chinese is the default message language** (`message_language = "zh"`):
   applications, AI drafts and bot notices. Every user-facing phrase Job Radar
   writes to a recruiter or the bot chat goes through `apply/language.py`, in
@@ -110,6 +120,19 @@ dashboard tests, start `web.make_server(cfg, port=0)` and send the cookie and th
   then run `python3 script.py ROOT`.
 - Chromium and Playwright are preinstalled (`require('playwright')` from Node).
   Don't reinstall them.
+
+## PDF and fonts
+
+- `resume/pdf.py` writes PDFs by hand: Type0/CIDFontType2, Identity-H, a
+  ToUnicode map (so text is selectable and parseable), with Helvetica as the
+  fallback for Latin-only text. `resume/fonts.py` parses TTF/TTC, finds fonts
+  per OS, and subsets by emptying unused glyphs (glyph ids stay the same).
+- Only TrueType outlines (`glyf`) are supported; CFF `.otf` fonts are skipped.
+- To check a PDF here: `pdftotext file.pdf -`, `pdffonts file.pdf`,
+  `pdftoppm -r 70 -png file.pdf out` (poppler is installed; then Read the PNG).
+  Installing other PDF libraries with pip was refused in this sandbox.
+- The sandbox has a Chinese font (WenQuanYi Zen Hei); tests that need one are
+  skipped where none exists.
 
 ## Editing tips
 

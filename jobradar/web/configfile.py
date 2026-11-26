@@ -49,7 +49,8 @@ SECTIONS: list[tuple[str, list[str]]] = [
     ("Schedule", ["auto_run", "run_interval_hours", "max_messages_per_run"]),
     ("AI (optional)", ["use_ai", "ai_provider", "ai_model", "gemini_api_key", "anthropic_api_key"]),
     ("Auto-apply (optional)",
-     ["apply_mode", "apply_channels", "applicant_name", "resume_pdf_path", "resume_text_path",
+     ["apply_mode", "apply_channels", "applicant_name", "resume_source", "resume_font_path",
+      "resume_pdf_path", "resume_text_path",
       "apply_min_score", "apply_keywords", "apply_exclude_keywords", "apply_daily_cap",
       "apply_delay_seconds", "apply_contact_cooldown_days", "apply_max_age_days",
       "message_language", "apply_template_zh", "apply_email_subject_zh",
@@ -64,6 +65,7 @@ SECTIONS: list[tuple[str, list[str]]] = [
 
 _FIELDS = {f.name: f for f in dataclasses.fields(Config)}
 _CHOICES = {
+    "resume_source": ("generated", "uploaded"),
     "apply_mode": ("off", "dry_run", "auto"),
     "ai_provider": ("gemini", "claude"),
     "unknown_location": ("review", "send", "drop"),

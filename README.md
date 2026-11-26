@@ -87,7 +87,9 @@ shown back in full.
 | File | What it is |
 |---|---|
 | `config.toml` | Settings and keys. Kept out of the database on purpose (spec DR-6), so sharing the database never leaks a key |
-| `jobradar.db` | History: sent jobs, applications (with the message sent), your conversations with representatives, check history |
+| `jobradar.db` | History: sent jobs, applications (with the message sent), your conversations with representatives, your profile, check history |
+| `resumes/` | The résumé PDF made for each application (and the latest preview) |
+| `fonts/` | Optional: a font for the résumé PDF, if your computer has no Chinese TrueType font |
 | `jobradar-user.session` | Your Telegram login, if you logged in. Full access to your account: keep it private |
 | `resume.pdf` / `resume.txt` | Your résumé, if uploaded |
 | `jobradar-web.token` | The dashboard's private session-cookie secret |
@@ -155,6 +157,7 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 | `test-telegram` | Send a test message to the configured chat |
 | `telegram-login` | Log **your own** Telegram account in, once (for auto-apply) |
 | `test-apply [--posting FILE] [--send]` | Draft an application for a sample (or real) posting; `--send` delivers it to yourself |
+| `resume [--posting FILE] [-o FILE]` | Make your résumé PDF from your profile (tailored to a posting, with AI) |
 | `applications` | List recent auto-apply results, the queue, and any paused channel |
 
 ## Sources
@@ -290,9 +293,10 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
 
 ### Set it up
 
-1. **Résumé.** Upload it in the dashboard, or put `resume.pdf` in `jobradar-data`. Optionally also a
-   plain-text copy (`resume_text_path`). The AI reads the text if you give
-   one, otherwise it reads the PDF directly.
+1. **Your profile → your résumé.** On the dashboard's **Profile** page, enter
+   your details; Job Radar makes the résumé PDF from them (see
+   [Résumés made from your profile](#résumés-made-from-your-profile)). Or set
+   **Résumé to send → My own PDF** and upload one (`resume_source = "uploaded"`).
 2. **AI (recommended).** Set `use_ai = true` and a Gemini or Claude key (see
    above). For each posting the AI scores how well your résumé fits (0–100) and
    writes a short, specific message. It uses only facts from your résumé, in
@@ -323,6 +327,50 @@ delivered posting ─▶ names a contact? ─▶ passes apply gates? ─▶ AI f
    `--send` delivers it to your Telegram *Saved Messages* and your own inbox,
    so you see exactly what a hiring manager would get. Use `--posting job.txt`
    to draft against a real posting.
+
+### Résumés made from your profile
+
+You don't need a résumé file. On the **Profile** page you enter:
+
+| Required | Optional |
+|---|---|
+| Name, job title, education (at least one school) | Gender, date of birth, location, phone, email, about you, tech stack, work experience, projects, languages |
+
+Each application then gets a **PDF résumé made for that job**, in this order:
+name → job title → personal introduction → tech stack → work experience →
+notable projects → education → languages. Sections you leave empty are left out.
+
+- **With AI on**, the AI writes the introduction and, for each job post, picks
+  and orders what's most relevant and polishes the wording, in your message
+  language (Chinese by default).
+- **It never invents anything.** For every skill and bullet point the AI must
+  quote the text on your Profile page it came from. Job Radar checks the quote,
+  and checks that any number (300万 → 3M is fine; a new "12" is not) is in it.
+  Anything that fails the check is replaced by your own wording. Employers,
+  schools and dates always come straight from your profile, and the AI never
+  sees your phone, email, birth date or gender.
+- **Without AI**, the résumé is your profile as you typed it, nicely laid out.
+- **Preview** on the Profile page makes it now (paste a job post to see the
+  tailored version). In dry run, every draft also comes with the résumé it
+  would send, and **Applications** links to the résumé each application sent.
+- **Fill in from an existing résumé:** the AI copies the facts from a PDF into
+  the fields for you to check. Nothing is saved until you press Save.
+- **Files:** `jobradar-data/resumes/<job>/陈美_简历.pdf` (`Mei_Chen_Resume.pdf`
+  in English). Your profile itself is stored in `jobradar.db` (`profile` table),
+  so it's in your backups. The generated PDFs aren't; they can be made again.
+- **Fonts:** Chinese text needs a Chinese font *embedded* in the PDF, so it
+  looks right on any phone. Job Radar finds one on your computer (Windows:
+  Microsoft YaHei / SimHei / SimSun; macOS: STHeiti; Linux: WenQuanYi) and
+  embeds only the characters used (a résumé is ~50–100 KB). If none is found,
+  put a `.ttf`/`.ttc` file in `jobradar-data/fonts`, or set `resume_font_path`.
+  Only TrueType fonts work (not CFF-based `.otf` such as Noto Sans CJK).
+- If a résumé can't be made (for example, no font), your uploaded PDF is sent
+  instead; with neither, nothing is sent.
+
+```bash
+python3 -m jobradar.cli resume                       # your general résumé
+python3 -m jobradar.cli resume --posting job.txt -o tailored.pdf
+```
 
 ### Message language: Chinese by default
 
@@ -541,6 +589,8 @@ jobradar/
   cli.py             entry point
   collectors/        one class per source type (Tier A + Tier B)
   delivery/          digest formatting + Telegram sender
+  resume/            résumés from your profile: profile rules, content (AI checks),
+                     fonts (find + subset TrueType), pdf (writer), render (layout), builder
   apply/             auto-apply: contacts, engine (gates/caps/queue), senders,
                      conversations (mirror + reply), language (zh/en)
   web/               the dashboard: app.py (server + API), index.html, configfile.py

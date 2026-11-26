@@ -7,6 +7,7 @@
     jobradar test-telegram  # send a test message to the configured chat
     jobradar telegram-login # log your own Telegram account in (for auto-apply)
     jobradar test-apply     # draft an application for a sample posting
+    jobradar resume         # make your résumé PDF from your profile
     jobradar applications   # list recent auto-apply results
 """
 
@@ -208,6 +209,34 @@ Requirements: 5+ years backend, Python, PostgreSQL, Docker/Kubernetes, AWS.
 Salary: $90k-$130k. Apply: Telegram @acme_hiring or jobs@acme.example"""
 
 
+def cmd_resume(args: argparse.Namespace) -> int:
+    """Make your résumé PDF from your profile, optionally tailored to a posting."""
+    from .resume.builder import make_builder
+    from .resume.profile import ProfileError, validate
+
+    svc = _service(args)
+    profile = svc.state.get_profile()
+    try:
+        validate(profile)
+    except ProfileError as e:
+        print(f"Your profile isn't complete: {e} Fill it in on the dashboard's Profile page.")
+        return 1
+    builder = make_builder(svc.config, svc.base_dir, profile)
+    text = Path(args.posting).read_text("utf-8") if args.posting else ""
+    try:
+        path = builder.build(text)
+    except Exception as e:  # noqa: BLE001
+        print(f"Couldn't make the résumé: {e}")
+        return 1
+    if args.output:
+        out = Path(args.output)
+        out.write_bytes(path.read_bytes())
+        path = out
+    how = "tailored by AI" if builder.tailor and text else "from your profile"
+    print(f"Résumé ({how}): {path}")
+    return 0
+
+
 def cmd_test_apply(args: argparse.Namespace) -> int:
     """Draft an application for a sample (or given) posting; optionally send it
     to YOURSELF (Telegram Saved Messages / your own email) to check the wiring."""
@@ -229,13 +258,13 @@ def cmd_test_apply(args: argparse.Namespace) -> int:
           f"{cfg.apply_min_score}) — {draft.fit_reason}" if draft.fit_score is not None else ""))
     print("\n--- Telegram message ---\n" + draft.message)
     print(f"\n--- Email ---\nSubject: {draft.email_subject}\n\n{draft.email_body}")
-    pdf = applier.resume_pdf
-    print(f"\nRésumé attachment: {pdf if pdf and pdf.exists() else 'NOT FOUND: ' + str(pdf)}")
+    pdf, _ = applier._resume_for("test-apply", {"title": title, "description": text})
+    print(f"\nRésumé attachment: {pdf if pdf else 'NONE — fill in your profile or upload a PDF'}")
     if not args.send:
         print("\n(Not sent. Add --send to deliver this to yourself: Telegram Saved Messages "
               "and your own email.)")
         return 0
-    attachment = pdf if pdf and pdf.exists() else None
+    attachment = pdf
     rc = 0
     for ch, sender in build_senders(cfg, svc.base_dir).items():
         to = "me" if ch == "telegram" else (cfg.smtp_from or cfg.smtp_user)
@@ -346,6 +375,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("test-telegram", help="send a test message").set_defaults(func=cmd_test_telegram)
     sub.add_parser("telegram-login", help="log your own Telegram account in (auto-apply)"
                    ).set_defaults(func=cmd_telegram_login)
+    rs = sub.add_parser("resume", help="make your résumé PDF from your profile")
+    rs.add_argument("--posting", help="a text file with a job post to tailor it to")
+    rs.add_argument("-o", "--output", help="where to save the PDF")
+    rs.set_defaults(func=cmd_resume)
     ta = sub.add_parser("test-apply", help="draft an application for a sample posting")
     ta.add_argument("--posting", help="text file with a real posting to draft for")
     ta.add_argument("--send", action="store_true",
