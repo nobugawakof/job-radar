@@ -4,6 +4,8 @@
 *.db-shm
 backups/
 config.toml
+# Everything Job Radar creates (settings + keys, database, Telegram login)
+jobradar-data/
 .env
 # Auto-apply: the Telegram session is full access to your account; keep your
 # résumé and the state file (application history, contacts) out of git too.

@@ -268,6 +268,16 @@ hr { border: 0; border-top: 1px solid var(--line); margin: .4rem 0; }
         <div class="card-head"><h3>Recently sent jobs</h3></div>
         <ul class="jobs" id="recent"></ul>
       </div>
+      <div class="card stack">
+        <div class="card-head"><h3>Backup &amp; restore</h3></div>
+        <p class="muted small">Everything Job Radar keeps is in one folder: <span class="mono" id="data-folder"></span>. A backup saves your settings, history and résumé as one file, to move to another computer or keep safe. It contains your keys, so keep it private.</p>
+        <label class="row small"><input type="checkbox" id="backup-login"> Include my Telegram login (full access to your Telegram account — only for moving to another computer)</label>
+        <div class="row">
+          <a class="btn" id="backup-link" href="/api/backup?login=0" download>Download backup</a>
+          <label class="btn" for="restore-file">Restore from a backup…</label>
+          <input type="file" id="restore-file" accept=".zip,application/zip" class="hidden">
+        </div>
+      </div>
     </section>
 
     <!-- ============================================================ TELEGRAM -->
@@ -964,6 +974,21 @@ async function pollLogs() {
   logTimer = setTimeout(pollLogs, 2000);
 }
 
+// ---------------------------------------------------------------- backup
+$("#backup-login").addEventListener("change", (e) => { $("#backup-link").href = "/api/backup?login=" + (e.target.checked ? "1" : "0"); });
+$("#restore-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0]; e.target.value = "";
+  if (!file) return;
+  const ok = await confirmBox("Restore this backup?",
+    "Your current settings, history and résumé will be replaced by the backup. They're not deleted: they're moved to a “before-restore” folder inside the data folder.");
+  if (!ok) return;
+  try {
+    const r = await api("PUT", "/api/restore", undefined, await file.arrayBuffer());
+    S = r; dirty = {}; updateSavebar(); render(true);
+    toast("Restored " + r.result.restored.join(", ") + (r.result.previous_files ? ". Previous files kept in " + r.result.previous_files : "") + ".");
+  } catch (err) { toast(err.message, "bad"); }
+});
+
 // ---------------------------------------------------------------- render
 function render(force) {
   if (!S) return;
@@ -973,6 +998,7 @@ function render(force) {
     : S.config.auto_run ? `Checking every ${Math.round(S.config.run_interval_hours)} h` : "Automatic checks off";
   $("#run-btn").disabled = S.running;
   $("#cfg-path").textContent = S.config_file;
+  $("#data-folder").textContent = S.data_folder;
   fillInputs(force); renderSites(force); renderSourceStatus(); renderOverview(); renderTelegram(); renderAI(); renderApply();
 }
 let wasRunning = false;
