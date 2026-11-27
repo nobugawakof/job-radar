@@ -11,6 +11,15 @@ undo it by accident.
   of all existing data) with no password. It's reserved at sign-up, so open
   sign-up can't steal it. Its password is set from this computer (Account
   dialog after the printed link, or `jobradar admin-password`).
+- Owner runs Job Radar on a machine whose screen they can't see, so the
+  first admin password is claimed remotely: while kof311 has no password, a
+  login as kof311 with a new password typed twice sets it (owner accepted the
+  risk that someone on the network could claim it first; recovery:
+  `jobradar admin-password` on the server). The login page and the console
+  say when it's unclaimed. Claims are logged with the client address.
+- "took too long to respond" from other computers = Windows Firewall on the
+  server (its prompt appears on the server's screen); the Overview card shows
+  the New-NetFirewallRule command with the real port.
 - The printed `?t=` link still logs in the admin, but only from loopback; on
   any other address it's ignored. The token cookie from loopback also counts
   as the admin (keeps local tools and tests working).

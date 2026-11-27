@@ -92,8 +92,18 @@ Job Radar keeps running on your computer; other devices just open its page.
 
 1. On the **Overview** page, turn on **Allow other devices to open this
    dashboard**, save, then restart Job Radar (close its window, open it again).
-2. If Windows asks whether to allow Job Radar on the network, allow it for
-   **Private networks** only (not Public).
+2. Windows asks *on the server's screen* whether to allow Job Radar on the
+   network; if nobody answers (or it's allowed for "Private" while the network
+   is "Public"), other computers get **"took too long to respond"**. Fix it
+   once in **PowerShell as administrator** on the server (8765 is the port the
+   dashboard shows):
+   ```powershell
+   New-NetFirewallRule -DisplayName "Job Radar" -Direction Inbound -Protocol TCP -LocalPort 8765 -RemoteAddress LocalSubnet -Action Allow -Profile Any
+   ```
+   Test from the other computer: `Test-NetConnection <server address> -Port 8765`.
+   If it still fails, the network blocks devices from reaching each other
+   (common on office and guest Wi-Fi): use Tailscale (below). The **Use on other
+   devices** card shows these steps with your address and port.
 3. The **Use on other devices** card now shows the address with a QR code.
    Scan it with your phone's camera, or type the address on the other computer,
    then log in (see **Accounts** below). The window also prints the address.
@@ -133,10 +143,13 @@ Job Radar can be shared: each person has an account with their own profile,
 Telegram account, job alerts, applications and conversations.
 
 **The administrator is `kof311`.** Nobody else can register that name.
-- On the computer that runs Job Radar, the link it prints logs you in as kof311
-  (as before).
-- To use kof311 from another device, set a password first: **Account** (top
-  right) → new password, or run `python3 -m jobradar.cli admin-password`.
+- **First login sets the password.** Until kof311 has a password, the first
+  person to log in as `kof311`, from any computer, chooses it (typed twice).
+  The login page says so. Do this right after you allow other devices, so no
+  one else on your network gets there first. After that it's a normal login.
+- On the computer that runs Job Radar, the link it prints also logs you in as
+  kof311. You can change the password under **Account** (top right), or reset
+  it on that computer with `python3 -m jobradar.cli admin-password`.
 - The administrator sees and manages everything: the bot, job search, AI keys,
   auto-apply settings, review queue, activity, everyone's applications, and
   the **Users** page.

@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import secrets
+import sys
 import threading
 import time
 import urllib.error
@@ -276,7 +277,8 @@ def _network(ctrl: Controller) -> dict[str, Any]:
     net = getattr(ctrl, "network", None) or {}
     allow = bool(ctrl.config.web_allow_network)
     out: dict[str, Any] = {"allow": allow, "listening": bool(net.get("listening_all")),
-                           "forced": bool(net.get("forced")), "addresses": []}
+                           "forced": bool(net.get("forced")), "addresses": [],
+                           "port": net.get("port"), "windows": sys.platform.startswith("win")}
     out["restart_needed"] = not out["forced"] and allow != out["listening"]
     if out["listening"]:
         from . import netinfo, qr
@@ -876,8 +878,13 @@ class Api:
         return self._state()
 
     # ------------------------------------------------------------ accounts
+    def _admin_unclaimed(self) -> bool:
+        admin = self.ctrl.service.state.user_get(1)
+        return bool(admin) and not admin.get("password_hash")
+
     def auth_me(self, _: Any) -> dict[str, Any]:
-        return {"user": _public_user(self.user), "signup": True, "version": __version__}
+        return {"user": _public_user(self.user), "signup": True, "version": __version__,
+                "admin_unclaimed": self._admin_unclaimed(), "admin_name": auth.ADMIN_USERNAME}
 
     def _session(self, user: dict[str, Any]) -> dict[str, Any]:
         token = auth.new_token()
@@ -893,6 +900,8 @@ class Api:
         wait = max(self.ctrl.throttle.wait(k) for k in keys)
         _require(not wait, f"Too many attempts. Try again in {int(wait) + 1} seconds.", 429)
         u = self.ctrl.service.state.user_by_name(name) if name else None
+        if u and acc.is_admin(u) and not u.get("password_hash"):
+            return self._claim_admin(u, password, str(body.get("confirm") or ""))
         if not u or not auth.verify_password(password, u.get("password_hash") or ""):
             for k in keys:
                 self.ctrl.throttle.failed(k)
@@ -902,6 +911,27 @@ class Api:
             self.ctrl.throttle.clear(k)
         log.info("a user logged in")
         return self._session(u)
+
+    def _claim_admin(self, u: dict[str, Any], password: str, confirm: str) -> dict[str, Any]:
+        """The administrator has no password yet: the first login as kof311
+        chooses it (typed twice), from any computer. Afterwards it's a normal
+        login; on the server, `jobradar admin-password` resets it."""
+        try:
+            auth.check_password(password)
+        except auth.AuthError as e:
+            raise ApiError(str(e)) from e
+        if password != confirm:
+            return {"claim": True, "error": "First login as the administrator: type the new password twice."} \
+                if not confirm else self._raise("The two passwords don't match.")
+        st = self.ctrl.service.state
+        st.user_update(u["id"], password_hash=auth.hash_password(password))
+        st.sessions_delete_for(u["id"])
+        log.warning("the administrator password was set by the first kof311 login (from %s)", self.client_ip)
+        return {**self._session(st.user_get(u["id"])), "claimed": True}
+
+    @staticmethod
+    def _raise(message: str) -> dict[str, Any]:
+        raise ApiError(message)
 
     def auth_signup(self, body: dict[str, Any]) -> dict[str, Any]:
         key = f"ip:{self.client_ip}"
@@ -1324,6 +1354,10 @@ def main(config_path: str, *, host: str | None = None, port: int = 8765,
         for a in addresses():
             where = "through Tailscale (from anywhere)" if a["kind"] == "tailscale" else "on your network"
             print(f"  From another device {where}:  http://{a['ip']}:{port_}/  (log in there)", flush=True)
+        admin = server.ctrl.service.state.user_get(1)
+        if admin and not admin.get("password_hash"):
+            print("\n  The administrator (kof311) has no password yet: log in as kof311 from any device,\n"
+                  "  and the password you type (twice) becomes the administrator password.", flush=True)
         print("\n  Other devices can reach the dashboard; people log in with their account.\n"
               "  Only allow this on networks you trust (home Wi-Fi, Tailscale).\n")
     if not path.exists():

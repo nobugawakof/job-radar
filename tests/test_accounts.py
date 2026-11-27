@@ -124,10 +124,29 @@ class SignupLoginTests(Server):
         self.assertEqual(status, 429)                         # slowed down after repeated failures
         self.assertIn("Too many attempts", body["error"])
 
-    def test_admin_password(self):
-        # kof311 has no password at first; it's set on this computer (the printed link logs it in)
-        status, body, _ = self.call("POST", "/api/auth/login", {"username": "kof311", "password": "anything1"})
+    def test_first_admin_login_sets_the_password(self):
+        # kof311 has no password yet: the first login as kof311, from any computer, chooses it
+        self.assertTrue(self.call("GET", "/api/auth/me")[1]["admin_unclaimed"])
+        status, body, headers = self.call("POST", "/api/auth/login", {"username": "kof311", "password": "admin-secret-1"})
+        self.assertEqual((status, body["claim"]), (200, True))           # asks to type it twice
+        self.assertNotIn("Set-Cookie", headers)
+        status, body, _ = self.call("POST", "/api/auth/login",
+                                    {"username": "kof311", "password": "admin-secret-1", "confirm": "typo"})
+        self.assertEqual(status, 400)
+        status, body, _ = self.call("POST", "/api/auth/login", {"username": "KOF311", "password": "short", "confirm": "short"})
+        self.assertEqual(status, 400)                                     # still the password rules
+        status, body, headers = self.call("POST", "/api/auth/login",
+                                          {"username": "kof311", "password": "admin-secret-1", "confirm": "admin-secret-1"})
+        self.assertEqual((status, body["claimed"], body["user"]["is_admin"]), (200, True, True))
+        self.assertIn("HttpOnly", headers["Set-Cookie"])
+        self.assertFalse(self.call("GET", "/api/auth/me")[1]["admin_unclaimed"])
+        # from now on it's a normal login: nobody can claim it again
+        status, _, _ = self.call("POST", "/api/auth/login",
+                                 {"username": "kof311", "password": "other-pass-2", "confirm": "other-pass-2"})
         self.assertEqual(status, 401)
+        self.assertEqual(self.call("POST", "/api/auth/login", {"username": "kof311", "password": "admin-secret-1"})[0], 200)
+
+    def test_admin_password_set_on_this_computer(self):
         status, body, _ = self.call("POST", "/api/auth/password", {"password": "admin-secret-1"}, cookie=self.admin)
         self.assertEqual(status, 200, body)
         status, body, _ = self.call("POST", "/api/auth/login", {"username": "kof311", "password": "admin-secret-1"})

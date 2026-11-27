@@ -276,6 +276,7 @@ input[type=password] { width: 100%; }
       <div class="field"><label for="auth-user">Username</label><input id="auth-user" type="text" autocomplete="username" required></div>
       <div class="field"><label for="auth-pass">Password</label><input id="auth-pass" type="password" autocomplete="current-password" required></div>
       <div class="field hidden" id="auth-pass2-row"><label for="auth-pass2">Password again</label><input id="auth-pass2" type="password" autocomplete="new-password"></div>
+      <div class="note small hidden" id="auth-claim">First time: the administrator <b>kof311</b> has no password yet. Log in as kof311 with the password you want (type it twice); it becomes the administrator password.</div>
       <div class="hint small muted hidden" id="auth-hint">3-32 letters, digits, dot, dash or underscore. Password: at least 8 characters.</div>
       <div class="note bad hidden" id="auth-error"></div>
       <button class="btn primary" type="submit" id="auth-submit">Log in</button>
@@ -1385,9 +1386,15 @@ function renderNetwork() {
   if (n.restart_needed) html += `<div class="note warn">${n.allow ? "Other devices will be able to connect" : "Other devices will be shut out"} after you restart Job Radar: close its window and open it again.</div>`;
   if (n.forced) html += `<div class="note">Started with <span class="mono">--host</span>, which overrides this switch.</div>`;
   if (n.listening && n.addresses.length) {
-    html += `<div class="note warn small">Each link below logs in whoever opens it, with full control of Job Radar and your Telegram account. Only open it on your own devices, and only on networks you trust.</div><div class="net-addrs">`
+    html += `<div class="note small">Other devices open this address and log in with their account. Anyone who can reach it can create an account, so only allow this on networks you trust.</div><div class="net-addrs">`
       + n.addresses.map((a) => `<div class="net-addr"><b>${a.kind === "tailscale" ? "Through Tailscale (from anywhere)" : "On this network (same Wi-Fi)"}</b><div class="net-qr">${a.qr}</div><span class="mono small">${esc(a.url)}</span><button class="btn small" type="button" data-copy="${esc(a.url)}">Copy link</button></div>`).join("")
-      + `</div><p class="muted small">Scan the code with your phone's camera. A Tailscale address only appears when Tailscale is running on this computer.</p>`;
+      + `</div><p class="muted small">Scan the code with your phone's camera. A Tailscale address only appears when Tailscale is running on this computer.</p>`
+      + `<details class="small"><summary><b>Another computer can't connect ("took too long to respond")?</b></summary><div class="stack" style="margin-top:.5rem">`
+      + (n.windows
+        ? `<p>Windows Firewall on this computer is blocking it (it asks on this screen the first time, and blocks if nobody answers). Open <b>PowerShell as administrator</b> here and run once:</p><div class="draft mono">New-NetFirewallRule -DisplayName "Job Radar" -Direction Inbound -Protocol TCP -LocalPort ${n.port} -RemoteAddress LocalSubnet -Action Allow -Profile Any</div>`
+        : `<p>Allow incoming TCP port <b>${n.port}</b> in this computer's firewall (for example <span class="mono">sudo ufw allow from 192.168.0.0/16 to any port ${n.port} proto tcp</span>).</p>`)
+      + `<p>Then test from the other computer${n.windows ? ` (PowerShell): <span class="mono">Test-NetConnection ${esc(n.addresses[0].ip)} -Port ${n.port}</span>` : "."}</p>`
+      + `<p>Still failing? Office and guest Wi-Fi networks often block devices from reaching each other; use Tailscale instead (README → "Open the dashboard on your phone or another computer").</p></div></details>`;
   } else if (n.listening) {
     html += `<div class="note warn">Listening for other devices, but this computer has no network address right now.</div>`;
   } else if (!n.restart_needed) {
@@ -1410,15 +1417,22 @@ function setRole() {
   $("#me-role").textContent = ME && ME.is_admin ? "admin" : "";
   $("#me-role").classList.toggle("hidden", !(ME && ME.is_admin));
 }
-let authMode = "login";
+let authMode = "login", adminUnclaimed = false;
+function claimView() {
+  const claiming = authMode === "login" && adminUnclaimed && $("#auth-user").value.trim().toLowerCase() === "kof311";
+  $("#auth-claim").classList.toggle("hidden", !(authMode === "login" && adminUnclaimed));
+  $("#auth-pass2-row").classList.toggle("hidden", !(authMode === "signup" || claiming));
+  $("#auth-pass").autocomplete = authMode === "signup" || claiming ? "new-password" : "current-password";
+  return claiming;
+}
+$("#auth-user").addEventListener("input", claimView);
 function showAuth(mode) {
   ME = null; S = null; setRole();
   if (mode) authMode = mode;
   $$("[data-auth]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.auth === authMode ? "true" : "false"));
   const signup = authMode === "signup";
-  $("#auth-pass2-row").classList.toggle("hidden", !signup);
   $("#auth-hint").classList.toggle("hidden", !signup);
-  $("#auth-pass").autocomplete = signup ? "new-password" : "current-password";
+  claimView();
   $("#auth-submit").textContent = signup ? "Create account" : "Log in";
   $("#auth-error").classList.add("hidden");
   setTimeout(() => $("#auth-user").focus(), 0);
@@ -1428,11 +1442,16 @@ $("#auth-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = $("#auth-error"); err.classList.add("hidden");
   const body = { username: $("#auth-user").value.trim(), password: $("#auth-pass").value };
-  if (authMode === "signup" && body.password !== $("#auth-pass2").value) { err.textContent = "The two passwords don't match."; err.classList.remove("hidden"); return; }
+  const claiming = claimView();
+  if ((authMode === "signup" || claiming) && body.password !== $("#auth-pass2").value) { err.textContent = "The two passwords don't match."; err.classList.remove("hidden"); return; }
+  if (claiming) body.confirm = $("#auth-pass2").value;
   const btn = $("#auth-submit"); btn.disabled = true;
   try {
     const r = await api("POST", authMode === "signup" ? "/api/auth/signup" : "/api/auth/login", body);
     $("#auth-pass").value = ""; $("#auth-pass2").value = "";
+    if (r.claim) { adminUnclaimed = true; claimView(); err.textContent = r.error; err.classList.remove("hidden"); return; }
+    if (r.claimed) toast("Administrator password set. Use it to log in as kof311 from any device.");
+    adminUnclaimed = false;
     ME = r.user; await start();
   } catch (x) { err.textContent = x.message; err.classList.remove("hidden"); }
   finally { btn.disabled = false; }
@@ -1637,7 +1656,7 @@ async function start() {
 (async function init() {
   bindInputs();
   setInterval(() => { if (!document.hidden && ME) refresh(); }, 4000);
-  try { ME = (await api("GET", "/api/auth/me")).user; } catch { ME = null; }
+  try { const m = await api("GET", "/api/auth/me"); ME = m.user; adminUnclaimed = !!m.admin_unclaimed; } catch { ME = null; }
   if (!ME) { showAuth("login"); return; }
   await start();
 })();
