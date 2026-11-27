@@ -47,7 +47,24 @@ undo it by accident.
   address and per name, then 30 s doubling to 15 min; sign-ups 5 per hour per
   address.
 
-## Dashboard on other devices (owner's request)
+## Port 80, open to every network (owner's request)
+- The owner's server is an AWS Windows VM reached over the internet; the
+  private 10.x address, an unopened security-group port and Windows Firewall
+  made 8765 a headache. Owner asked: port 80 by default, no port setting, and
+  reachable from external networks.
+- So: listen on 0.0.0.0:80 always (`--host 127.0.0.1` keeps it local; a
+  hidden `--port` exists for tests). No `web_port` / `web_allow_network`
+  settings any more (old configs' keys are ignored).
+- Port 80 busy (IIS) → 8080-8089, with a clear message on the card and in the
+  window; Job Radar never stops IIS.
+- On Windows, when run as administrator, Job Radar adds/updates the inbound
+  rule "Job Radar dashboard" for its port via netsh (`web/firewall.py`);
+  otherwise it shows the PowerShell command.
+- Security trade-off accepted: plain HTTP over the internet, open sign-up,
+  first kof311 login claims the admin password. The README says to claim it
+  first.
+
+## Dashboard on other devices (owner's request, superseded above)
 - Off by default; `web_allow_network` (Overview switch) binds 0.0.0.0 on the
   next start. `--host` on the command line wins over the switch.
 - Login stays the secret link → HttpOnly cookie; no Host check when listening

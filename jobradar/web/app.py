@@ -272,22 +272,18 @@ _QR_CACHE: dict[str, str] = {}
 
 
 def _network(ctrl: Controller) -> dict[str, Any]:
-    """Whether other devices can open the dashboard, and the links (with QR
-    codes) to do it. Only ever sent to a logged-in browser."""
+    """How other computers open the dashboard (addresses with QR codes), the
+    port, and the Windows Firewall result. Only ever sent to a logged-in browser."""
     net = getattr(ctrl, "network", None) or {}
-    allow = bool(ctrl.config.web_allow_network)
-    out: dict[str, Any] = {"allow": allow, "listening": bool(net.get("listening_all")),
-                           "forced": bool(net.get("forced")), "addresses": [],
-                           "port": net.get("port"), "windows": sys.platform.startswith("win")}
-    out["restart_needed"] = not out["forced"] and allow != out["listening"]
-    out["port_setting"] = int(ctrl.config.web_port or 8765)
-    out["port_busy"] = bool(net.get("wanted_port")) and net.get("port") != net.get("wanted_port")
-    out["port_restart"] = bool(net) and not out["port_busy"] and out["port_setting"] != net.get("port")
+    out: dict[str, Any] = {"listening": bool(net.get("listening_all")), "forced": bool(net.get("forced")),
+                           "addresses": [], "port": net.get("port"), "windows": sys.platform.startswith("win"),
+                           "port_busy": bool(net.get("wanted_port")) and net.get("port") != net.get("wanted_port"),
+                           "firewall": net.get("firewall")}
     if out["listening"]:
         from . import netinfo, qr
 
         for a in netinfo.addresses():
-            url = f"http://{a['ip']}:{net['port']}/"
+            url = f"http://{a['ip']}/" if net["port"] == 80 else f"http://{a['ip']}:{net['port']}/"
             if url not in _QR_CACHE:
                 _QR_CACHE[url] = qr.svg(url, scale=4)
             out["addresses"].append({**a, "url": url, "qr": _QR_CACHE[url]})
@@ -1317,21 +1313,27 @@ def _load_token(base_dir: Path) -> str:
     return tok
 
 
+DEFAULT_PORT = 80
+
+
 def make_server(config_path: Path, *, host: str | None = None, port: int | None = None,
                 logs: LogBuffer | None = None) -> DashboardServer:
-    """``host`` None follows the "Allow other devices" setting; a host given on
-    the command line wins over it."""
+    """Listens on every network on port 80, so other computers (and the
+    internet, where the server's firewall allows) can open it. ``host`` /
+    ``port`` are for tests and emergencies. If port 80 is taken (IIS holds it
+    unless its site is moved), 8080-8089 are tried and the dashboard says so."""
     ctrl = Controller(config_path, logs)
     token = _load_token(ctrl.base_dir)
     forced = host is not None
     if host is None:
-        host = "0.0.0.0" if ctrl.config.web_allow_network else "127.0.0.1"
+        host = "0.0.0.0"
     local = host in ("127.0.0.1", "localhost", "::1")
     if port is None:
-        port = int(ctrl.config.web_port or 8765)
+        port = DEFAULT_PORT
     wanted = port
     last_err: OSError | None = None
-    for p in ([port] + list(range(port + 1, port + 11)) if port else [0]):
+    tries = [0] if not port else [port] + [p for p in range(8080, 8090) if p != port]
+    for p in tries:
         try:
             server = DashboardServer((host, p), ctrl, token, local_only=local)
         except OSError as e:  # port in use: try the next one
@@ -1340,8 +1342,8 @@ def make_server(config_path: Path, *, host: str | None = None, port: int | None 
         ctrl.network = {"listening_all": not local, "forced": forced, "wanted_port": wanted,
                         "port": server.server_address[1], "token": token}
         if wanted and server.server_address[1] != wanted:
-            log.warning("port %s is in use by another program; the dashboard uses %s instead",
-                        wanted, server.server_address[1])
+            log.warning("port %s is in use by another program (or needs more rights); the dashboard uses %s "
+                        "instead", wanted, server.server_address[1])
         return server
     raise OSError(f"no free port near {port}: {last_err}")
 
@@ -1354,21 +1356,30 @@ def main(config_path: str, *, host: str | None = None, port: int | None = None,
     server = make_server(path, host=host, port=port, logs=logs)
     ctrl = server.ctrl
     port_ = server.server_address[1]
-    url = f"http://127.0.0.1:{port_}/?t={server.token}"
+    shown = "" if port_ == 80 else f":{port_}"
+    url = f"http://127.0.0.1{shown}/?t={server.token}"
     print("\n  Job Radar dashboard:  " + url, flush=True)
     print("  Keep this window open — closing it stops Job Radar.\n", flush=True)
+    if server.ctrl.network.get("wanted_port") == DEFAULT_PORT and port_ != DEFAULT_PORT:
+        print(f"  Port 80 is taken by another program (IIS, if installed), so the dashboard is on port {port_}.\n"
+              "  To use port 80, stop or move IIS's site on port 80, then restart Job Radar.\n", flush=True)
     if not server.local_only:
+        from .firewall import ensure_open
         from .netinfo import addresses
 
+        fw = ensure_open(port_)
+        server.ctrl.network["firewall"] = fw
+        print(f"  {fw['message']}" + (f"\n    {fw['command']}" if fw.get("command") else ""), flush=True)
         for a in addresses():
-            where = "through Tailscale (from anywhere)" if a["kind"] == "tailscale" else "on your network"
-            print(f"  From another device {where}:  http://{a['ip']}:{port_}/  (log in there)", flush=True)
+            where = "through Tailscale (from anywhere)" if a["kind"] == "tailscale" else "on this network"
+            print(f"  From another computer {where}:  http://{a['ip']}{shown}/  (log in there)", flush=True)
+        print(f"  From the internet: http://<this server's public address>{shown}/ (on a cloud server, also open\n"
+              f"  port {port_} in its cloud firewall / security group)", flush=True)
         admin = server.ctrl.service.state.user_get(1)
         if admin and not admin.get("password_hash"):
             print("\n  The administrator (kof311) has no password yet: log in as kof311 from any device,\n"
                   "  and the password you type (twice) becomes the administrator password.", flush=True)
-        print("\n  Other devices can reach the dashboard; people log in with their account.\n"
-              "  Only allow this on networks you trust (home Wi-Fi, Tailscale).\n")
+        print("\n  Anyone who can reach this page can sign up; people log in with their account.\n")
     if not path.exists():
         log.info("no config file yet at %s — it will be created when you save settings", path)
     ctrl.start()

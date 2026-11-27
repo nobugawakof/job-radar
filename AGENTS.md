@@ -28,8 +28,9 @@ match to the owner's Telegram bot chat. Optional extras:
   required); a PDF résumé is made per application, tailored to the job by AI.
   The PDF writer is in-house (stdlib), embedding a subset TrueType font for Chinese.
 - **Conversations:** one thread per recruiter, mirrored from that Telegram account.
-- **Dashboard:** a local web page for all setup; optionally reachable from
-  the owner's other devices (home network or Tailscale), with a QR code.
+- **Dashboard:** a web page for all setup on port 80, listening on every
+  network (the owner uses it over the internet); Windows Firewall rule added
+  automatically when run as administrator; QR codes for the addresses.
 - **Accounts:** open sign-up; the administrator is `kof311` (user id 1, owns
   all pre-account data). Users get their own profile, Telegram login, alerts
   chat, applications and messages; settings stay admin-only.

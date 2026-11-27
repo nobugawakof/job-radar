@@ -369,8 +369,7 @@ input[type=password] { width: 100%; }
       </div>
       <div class="card stack">
         <div class="card-head"><h3>Use on other devices</h3></div>
-        <label class="switch"><input type="checkbox" data-k="web_allow_network"><span><b>Allow other devices to open this dashboard</b><span class="muted small">A phone or laptop on your home Wi-Fi, or anywhere through Tailscale (see the README). Takes effect when Job Radar restarts.</span></span></label>
-        <div class="field" style="max-width:16rem"><label for="web-port">Dashboard port</label><input id="web-port" type="number" min="1" max="65535" data-k="web_port"><span class="hint">Default 8765. Takes effect when Job Radar restarts. If another program uses it, the next free one is used.</span></div>
+        <p class="muted small">Job Radar listens on every network on port 80, so other computers, and the internet where this server's firewall allows it, can open this page. People log in with their own account.</p>
         <div id="net-status"></div>
       </div>
       <div class="card stack">
@@ -1384,23 +1383,24 @@ function renderNetwork() {
   const n = S.network; if (!n) return;
   const key = JSON.stringify(n); if (key === netKey) return; netKey = key;   // don't redraw the QR codes on every poll
   let html = "";
-  if (n.restart_needed) html += `<div class="note warn">${n.allow ? "Other devices will be able to connect" : "Other devices will be shut out"} after you restart Job Radar: close its window and open it again.</div>`;
-  if (n.forced) html += `<div class="note">Started with <span class="mono">--host</span>, which overrides this switch.</div>`;
-  if (n.port_busy) html += `<div class="note warn">Port ${n.port_setting} is used by another program (IIS uses 80 and 443, for example), so Job Radar is on port <b>${n.port}</b>. Choose a free port above, or open ${n.port} in the firewall.</div>`;
-  else if (n.port_restart) html += `<div class="note warn">Job Radar will use port <b>${n.port_setting}</b> after you restart it (now ${n.port}). Update the firewall rule to the new port too.</div>`;
+  if (n.forced && !n.listening) html += `<div class="note">Started with <span class="mono">--host 127.0.0.1</span>: only this computer can open it.</div>`;
+  if (n.port_busy) html += `<div class="note warn">Port 80 is taken by another program, usually IIS, so Job Radar is on port <b>${n.port}</b>. To use port 80, stop or move IIS's site on port 80 (IIS Manager → Sites → Default Web Site → Bindings, or Stop), then restart Job Radar.</div>`;
+  const fw = n.firewall;
+  if (fw && fw.status === "open") html += `<div class="note ok small">✓ ${esc(fw.message)}</div>`;
+  if (fw && fw.status === "manual") html += `<div class="note warn small">${esc(fw.message)}<div class="draft mono" style="margin-top:.4rem">${esc(fw.command)}</div></div>`;
   if (n.listening && n.addresses.length) {
     html += `<div class="note small">Other devices open this address and log in with their account. Anyone who can reach it can create an account, so only allow this on networks you trust.</div><div class="net-addrs">`
       + n.addresses.map((a) => `<div class="net-addr"><b>${a.kind === "tailscale" ? "Through Tailscale (from anywhere)" : "On this network (same Wi-Fi)"}</b><div class="net-qr">${a.qr}</div><span class="mono small">${esc(a.url)}</span><button class="btn small" type="button" data-copy="${esc(a.url)}">Copy link</button></div>`).join("")
       + `</div><p class="muted small">Scan the code with your phone's camera. A Tailscale address only appears when Tailscale is running on this computer.</p>`
       + `<details class="small"><summary><b>Another computer can't connect ("took too long to respond")?</b></summary><div class="stack" style="margin-top:.5rem">`
       + (n.windows
-        ? `<p>Windows Firewall on this computer is blocking it (it asks on this screen the first time, and blocks if nobody answers). Open <b>PowerShell as administrator</b> here and run once:</p><div class="draft mono">New-NetFirewallRule -DisplayName "Job Radar" -Direction Inbound -Protocol TCP -LocalPort ${n.port} -Action Allow -Profile Any</div><p class="muted">Already made one? Fix its port and let every network in: <span class="mono">Set-NetFirewallRule -DisplayName "Job Radar" -LocalPort ${n.port} -RemoteAddress Any</span></p>`
+        ? `<p>1. <b>Windows Firewall</b>: Job Radar opens port ${n.port} itself when it runs as administrator (see the line above). Otherwise run this once in <b>PowerShell as administrator</b>:</p><div class="draft mono">New-NetFirewallRule -DisplayName "Job Radar dashboard" -Direction Inbound -Protocol TCP -LocalPort ${n.port} -Action Allow -Profile Any</div><p>2. <b>Cloud server</b> (AWS, Azure, Google Cloud…): the address above is the server's private one; from outside use its <b>public</b> address (the one you use for Remote Desktop), and allow port ${n.port} in the cloud firewall (AWS: EC2 → Instances → Security → security group → Edit inbound rules).</p>`
         : `<p>Allow incoming TCP port <b>${n.port}</b> in this computer's firewall (for example <span class="mono">sudo ufw allow from 192.168.0.0/16 to any port ${n.port} proto tcp</span>).</p>`)
       + `<p>Then test from the other computer${n.windows ? ` (PowerShell): <span class="mono">Test-NetConnection ${esc(n.addresses[0].ip)} -Port ${n.port}</span>` : "."}</p>`
       + `<p>Still failing? Office and guest Wi-Fi networks often block devices from reaching each other; use Tailscale instead (README → "Open the dashboard on your phone or another computer").</p></div></details>`;
   } else if (n.listening) {
     html += `<div class="note warn">Listening for other devices, but this computer has no network address right now.</div>`;
-  } else if (!n.restart_needed) {
+  } else if (!n.listening) {
     html += `<p class="muted small">Only this computer can open the dashboard now.</p>`;
   }
   $("#net-status").innerHTML = html;

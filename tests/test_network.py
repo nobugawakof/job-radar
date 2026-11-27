@@ -9,7 +9,6 @@ from pathlib import Path
 from threading import Thread
 from unittest import mock
 
-from jobradar.config import Config
 from jobradar.web import app as web
 from jobradar.web import netinfo, qr
 
@@ -65,63 +64,85 @@ class DashboardNetworkTests(unittest.TestCase):
         with urllib.request.urlopen(r, timeout=10) as resp:
             return json.loads(resp.read())["network"]
 
-    def test_local_only_by_default(self):
-        server = self.serve("")
-        self.assertTrue(server.local_only)
-        n = self.state(server)
-        self.assertEqual((n["allow"], n["listening"], n["restart_needed"], n["addresses"]), (False, False, False, []))
-
-    def test_switch_on_listens_and_shows_links(self):
+    def test_open_to_other_computers_by_default(self):
         with mock.patch.object(netinfo, "addresses", return_value=[{"ip": "192.168.1.20", "kind": "network"}]):
-            server = self.serve("web_allow_network = true\n")
+            server = self.serve("")
             self.assertFalse(server.local_only)
             self.assertEqual(server.server_address[0], "0.0.0.0")
             n = self.state(server)
-        self.assertTrue(n["listening"] and not n["restart_needed"])
+        self.assertTrue(n["listening"])
         a = n["addresses"][0]
         self.assertEqual(a["url"], f"http://192.168.1.20:{server.server_address[1]}/")   # no secret: people log in
         self.assertTrue(a["qr"].startswith("<svg"))
+        self.assertEqual(web.DEFAULT_PORT, 80)
 
-    def test_changing_the_switch_needs_a_restart(self):
-        server = self.serve("")
-        with mock.patch.object(web.Controller, "config", property(lambda self: Config(web_allow_network=True))):
-            self.assertTrue(self.state(server)["restart_needed"])
-
-    def test_port_setting(self):
+    def test_busy_port_falls_back_to_8080(self):
         import socket
 
         busy = socket.socket()
-        busy.bind(("127.0.0.1", 0))
+        busy.bind(("0.0.0.0", 0))
         busy.listen(1)
         self.addCleanup(busy.close)
         taken = busy.getsockname()[1]
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         cfg = Path(d.name) / "config.toml"
-        cfg.write_text(f"web_port = {taken}\n", "utf-8")
-        server = web.make_server(cfg)                       # no port given: the setting decides
+        cfg.write_text("", "utf-8")
+        server = web.make_server(cfg, port=taken)
         Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        self.assertNotEqual(server.server_address[1], taken)  # busy: the next free one
-        n = self.state(server)
-        self.assertEqual((n["port_setting"], n["port_busy"], n["port_restart"]), (taken, True, False))
+        self.assertIn(server.server_address[1], range(8080, 8090))
+        self.assertTrue(self.state(server)["port_busy"])
 
-    def test_port_validation_and_command_line(self):
-        from jobradar.web import configfile as cf
+    def test_old_settings_are_ignored(self):
+        server = self.serve("web_allow_network = false\nweb_port = 8765\n")   # from older versions
+        self.assertFalse(server.local_only)
 
-        with self.assertRaises(cf.ConfigError):
-            cf.coerce("web_port", 70000)
-        self.assertEqual(cf.coerce("web_port", "8080"), 8080)
-        server = self.serve("web_port = 8080\n")         # serve() passes port=0: the command line wins
-        self.assertNotEqual(server.server_address[1], 8080)
-
-    def test_command_line_host_wins(self):
-        server = self.serve("web_allow_network = true\n", host="127.0.0.1")
+    def test_command_line_host_keeps_it_local(self):
+        server = self.serve("", host="127.0.0.1")
         self.assertTrue(server.local_only)
         n = self.state(server)
-        self.assertTrue(n["forced"])
-        self.assertFalse(n["restart_needed"])
+        self.assertEqual((n["forced"], n["listening"], n["addresses"]), (True, False, []))
+
+
+class FirewallTests(unittest.TestCase):
+    def run_fw(self, show_rc, show_out, add_rc):
+        from jobradar.web import firewall
+
+        calls = []
+
+        def fake(*args):
+            calls.append(args)
+            rc, out = ((show_rc, show_out) if args[0] == "show" else (add_rc, "") if args[0] == "add" else (0, ""))
+            return mock.Mock(returncode=rc, stdout=out)
+
+        with mock.patch.object(firewall.sys, "platform", "win32"), mock.patch.object(firewall, "_netsh", fake):
+            return firewall.ensure_open(80), calls
+
+    def test_adds_the_rule(self):
+        r, calls = self.run_fw(1, "No rules match", 0)
+        self.assertEqual(r["status"], "open")
+        self.assertIn("localport=80", calls[-1])
+
+    def test_rule_already_there(self):
+        r, calls = self.run_fw(0, "Rule Name: Job Radar dashboard\nLocalPort: 80\nAction: Allow", 0)
+        self.assertEqual((r["status"], len(calls)), ("open", 1))
+
+    def test_old_port_rule_is_replaced(self):
+        r, calls = self.run_fw(0, "Rule Name: Job Radar dashboard\nLocalPort: 8765\nAction: Allow", 0)
+        self.assertEqual([c[0] for c in calls], ["show", "delete", "add"])
+
+    def test_without_admin_rights(self):
+        r, _ = self.run_fw(1, "", 1)
+        self.assertEqual(r["status"], "manual")
+        self.assertIn("-LocalPort 80", r["command"])
+
+    def test_not_windows(self):
+        from jobradar.web import firewall
+
+        with mock.patch.object(firewall.sys, "platform", "linux"):
+            self.assertEqual(firewall.ensure_open(80)["status"], "skipped")
 
 
 if __name__ == "__main__":

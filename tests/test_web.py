@@ -139,6 +139,9 @@ class ServerTests(unittest.TestCase):
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 
     def test_dns_rebinding_host_refused(self):
+        # (applies when started local-only with --host 127.0.0.1; on the network, the login cookie protects it)
+        self.server.local_only = True
+        self.addCleanup(setattr, self.server, "local_only", False)
         self.assertEqual(self.call("GET", "/api/state", host=f"evil.example:{self.port}")[0], 403)
 
     def test_csrf_protection(self):

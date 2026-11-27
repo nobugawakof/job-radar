@@ -80,8 +80,6 @@ class Config:
     apply_contact_cooldown_days: int = 30       # never message the same person twice within this
     apply_max_age_days: int = 7                 # don't apply to postings older than this
     applicant_name: str = ""
-    web_allow_network: bool = False             # dashboard reachable from other devices (applies on restart)
-    web_port: int = 8765                        # dashboard port (applies on restart; next free one if taken)
     resume_source: str = "generated"            # "generated" (from your profile, tailored per job) | "uploaded"
     resume_font_path: str = ""                  # font for the generated PDF; empty = find one on this computer
     resume_page_size: str = "letter"            # "letter" | "a4" | "auto" (Letter for US/Canada jobs, else A4)

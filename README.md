@@ -79,67 +79,46 @@ Optional tabs: **AI** (paste a free Gemini key, then click **Test**) and
 code, set up email, and preview drafts). **Applications** and **Activity** show
 what happened and why.
 
-Keep the window open: closing it stops Job Radar. By default the dashboard only
-accepts connections from your own computer (to open it on your phone or another
-computer, see below). Opening it needs the link the program prints, which logs
-your browser in with a private cookie, and secrets are never shown back in full.
+Keep the window open: closing it stops Job Radar. The dashboard is on port 80
+and other computers can open it too (see below); everyone logs in with an
+account. On the server itself, the link the program prints logs you in as the
+administrator. Secrets are never shown back in full.
 
-### Open the dashboard on your phone or another computer
+### Open the dashboard from other computers and the internet
 
-Job Radar keeps running on your computer; other devices just open its page.
+Job Radar listens on **port 80 on every network**, so other computers open it
+at `http://<server address>/` and log in (see **Accounts** below). There's
+nothing to switch on. The window prints the addresses; the Overview page shows
+them with a QR code.
 
-**On the same Wi-Fi (home network)**
+**What has to let it through**
+1. **Windows Firewall.** When Job Radar runs **as administrator**, it opens
+   port 80 in Windows Firewall itself (rule "Job Radar dashboard") and says so
+   on the Overview page. Otherwise it shows the one command to run in
+   PowerShell as administrator.
+2. **Port 80 must be free.** IIS uses port 80 when it's installed. If so, Job
+   Radar starts on 8080 instead and says so. To get port 80, stop or move IIS's
+   site: IIS Manager → Sites → **Default Web Site** → Bindings (change 80 to
+   another port) or **Stop**, then restart Job Radar.
+3. **On a cloud server** (AWS, Azure, Google Cloud…), the address Windows
+   knows (e.g. `10.x.x.x`) is private. From outside use the server's
+   **public** address, the one you use for Remote Desktop, and allow port 80
+   in the cloud's own firewall (AWS: EC2 → Instances → Security → security
+   group → Edit inbound rules; often already open for IIS).
 
-1. On the **Overview** page, turn on **Allow other devices to open this
-   dashboard**, save, then restart Job Radar (close its window, open it again).
-2. Windows asks *on the server's screen* whether to allow Job Radar on the
-   network; if nobody answers (or it's allowed for "Private" while the network
-   is "Public"), other computers get **"took too long to respond"**. Fix it
-   once in **PowerShell as administrator** on the server (8765 is the port the
-   dashboard shows):
-   ```powershell
-   New-NetFirewallRule -DisplayName "Job Radar" -Direction Inbound -Protocol TCP -LocalPort 8765 -Action Allow -Profile Any
-   ```
-   (Don't add `-RemoteAddress LocalSubnet`: it shuts out computers on other
-   subnets of an office network.) Test from the other computer:
-   `Test-NetConnection <server address> -Port 8765`.
-   To use another port, set **Dashboard port** on the Overview page (or
-   `web_port` in config.toml) and restart; IIS already uses 80 and 443.
-   If it still fails, the network blocks devices from reaching each other
-   (common on office and guest Wi-Fi): use Tailscale (below). The **Use on other
-   devices** card shows these steps with your address and port.
-3. The **Use on other devices** card now shows the address with a QR code.
-   Scan it with your phone's camera, or type the address on the other computer,
-   then log in (see **Accounts** below). The window also prints the address.
+**Tailscale (optional)** is a free, encrypted private network between your
+own devices, for when you can't open ports: install it on the server and your
+PC with the same account, and the Overview page shows a **Through Tailscale**
+address (`100.…`).
 
-**From anywhere, safely: Tailscale**
-
-[Tailscale](https://tailscale.com) is a free, encrypted private network
-between your own devices. Nothing is opened to the internet, and you don't
-change any router settings.
-
-1. Install Tailscale on the computer that runs Job Radar and on your phone or
-   laptop, and sign in to the **same account** on both.
-2. Turn on **Allow other devices** in Job Radar and restart it, as above.
-3. The **Use on other devices** card now also shows a **Through Tailscale**
-   link (an address starting with `100.`). Open it from your phone, wherever
-   you are, as long as Tailscale is connected on both devices.
-4. Optional: in the Tailscale admin console you can restrict which of your
-   devices may reach this computer.
-
-**Keep it safe**
-
-- Other devices must log in. The secret link Job Radar prints logs in the
-  administrator only on the computer that runs it.
-- Anyone who can open the page can create an account (see **Accounts**), so
-  only allow other devices on networks where you know who's there.
-- On the home network, the page travels unencrypted (plain HTTP), so allow it
-  only on a network you trust. Leave the switch off on public Wi-Fi. Tailscale
-  encrypts everything.
-- **Don't forward a port on your router** to expose Job Radar to the internet;
-  use Tailscale instead.
-- Command line: `python3 -m jobradar.cli web --host 0.0.0.0` does the same for
-  one run; `--host 127.0.0.1` keeps it local whatever the switch says.
+**Keep it safe on the internet**
+- Set the administrator password **first**: log in as `kof311` (password typed
+  twice) right after starting Job Radar, before anyone else does.
+- Anyone who can reach the page can create an account; restrict or delete
+  accounts on the **Users** page.
+- The page uses plain HTTP, so passwords cross the internet unencrypted. Use
+  only for accounts you'd accept that for, or put it behind HTTPS.
+- `python3 -m jobradar.cli web --host 127.0.0.1` keeps it to this computer only.
 
 ### Accounts: administrator and users
 
@@ -149,8 +128,8 @@ Telegram account, job alerts, applications and conversations.
 **The administrator is `kof311`.** Nobody else can register that name.
 - **First login sets the password.** Until kof311 has a password, the first
   person to log in as `kof311`, from any computer, chooses it (typed twice).
-  The login page says so. Do this right after you allow other devices, so no
-  one else on your network gets there first. After that it's a normal login.
+  The login page says so. Do this right after starting Job Radar, so no one
+  else gets there first. After that it's a normal login.
 - On the computer that runs Job Radar, the link it prints also logs you in as
   kof311. You can change the password under **Account** (top right), or reset
   it on that computer with `python3 -m jobradar.cli admin-password`.
@@ -268,7 +247,7 @@ export JOBRADAR_TELEGRAM_CHAT_ID=987654321
 
 | Command | Does |
 |---|---|
-| `web [--port N] [--no-browser]` | Open the dashboard (set up, run and watch everything in your browser) |
+| `web [--no-browser]` | Open the dashboard (port 80, reachable from other computers; `--host 127.0.0.1` = this computer only) |
 | `run` | One collection cycle → one Telegram digest |
 | `serve` | Loop forever, running every `run_interval_hours` |
 | `sources` | List configured sources and their state |

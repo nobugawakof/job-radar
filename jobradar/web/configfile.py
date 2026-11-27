@@ -47,7 +47,6 @@ SECTIONS: list[tuple[str, list[str]]] = [
      ["keywords", "exclude_keywords", "remote_only", "regions", "unknown_location", "review_expiry_days", "min_salary_usd",
       "require_salary", "max_posting_age_days", "repost_window_days"]),
     ("Schedule", ["auto_run", "run_interval_hours", "max_messages_per_run"]),
-    ("Dashboard", ["web_allow_network", "web_port"]),
     ("AI (optional)", ["use_ai", "ai_provider", "ai_model", "gemini_api_key", "anthropic_api_key"]),
     ("Auto-apply (optional)",
      ["apply_mode", "apply_channels", "applicant_name", "resume_source", "resume_page_size", "resume_max_pages",
@@ -114,8 +113,6 @@ def coerce(key: str, value: Any) -> Any:
             n = int(str(value).strip())
             if n < 0:
                 raise ConfigError(f"{label} can't be negative")
-            if key == "web_port" and not 1 <= n <= 65535:
-                raise ConfigError("The dashboard port must be between 1 and 65535 (default 8765).")
             return n
         if kind == "float":
             n = float(str(value).strip())
