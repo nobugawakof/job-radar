@@ -393,7 +393,8 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--host", default=None,
                      help="interface to listen on, e.g. 0.0.0.0 for other devices (default: this computer "
                           "only, unless \"Allow other devices\" is on in the dashboard)")
-    web.add_argument("--port", type=int, default=8765)
+    web.add_argument("--port", type=int, default=None,
+                     help="port to use (default: the Dashboard port setting, 8765)")
     web.add_argument("--no-browser", action="store_true", help="don't open a browser window")
     web.set_defaults(func=cmd_web)
     sub.add_parser("run", help="one collection cycle + Telegram digest").set_defaults(func=cmd_run)

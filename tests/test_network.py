@@ -87,6 +87,35 @@ class DashboardNetworkTests(unittest.TestCase):
         with mock.patch.object(web.Controller, "config", property(lambda self: Config(web_allow_network=True))):
             self.assertTrue(self.state(server)["restart_needed"])
 
+    def test_port_setting(self):
+        import socket
+
+        busy = socket.socket()
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        self.addCleanup(busy.close)
+        taken = busy.getsockname()[1]
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        cfg = Path(d.name) / "config.toml"
+        cfg.write_text(f"web_port = {taken}\n", "utf-8")
+        server = web.make_server(cfg)                       # no port given: the setting decides
+        Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.assertNotEqual(server.server_address[1], taken)  # busy: the next free one
+        n = self.state(server)
+        self.assertEqual((n["port_setting"], n["port_busy"], n["port_restart"]), (taken, True, False))
+
+    def test_port_validation_and_command_line(self):
+        from jobradar.web import configfile as cf
+
+        with self.assertRaises(cf.ConfigError):
+            cf.coerce("web_port", 70000)
+        self.assertEqual(cf.coerce("web_port", "8080"), 8080)
+        server = self.serve("web_port = 8080\n")         # serve() passes port=0: the command line wins
+        self.assertNotEqual(server.server_address[1], 8080)
+
     def test_command_line_host_wins(self):
         server = self.serve("web_allow_network = true\n", host="127.0.0.1")
         self.assertTrue(server.local_only)

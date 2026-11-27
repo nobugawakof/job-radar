@@ -98,9 +98,13 @@ Job Radar keeps running on your computer; other devices just open its page.
    once in **PowerShell as administrator** on the server (8765 is the port the
    dashboard shows):
    ```powershell
-   New-NetFirewallRule -DisplayName "Job Radar" -Direction Inbound -Protocol TCP -LocalPort 8765 -RemoteAddress LocalSubnet -Action Allow -Profile Any
+   New-NetFirewallRule -DisplayName "Job Radar" -Direction Inbound -Protocol TCP -LocalPort 8765 -Action Allow -Profile Any
    ```
-   Test from the other computer: `Test-NetConnection <server address> -Port 8765`.
+   (Don't add `-RemoteAddress LocalSubnet`: it shuts out computers on other
+   subnets of an office network.) Test from the other computer:
+   `Test-NetConnection <server address> -Port 8765`.
+   To use another port, set **Dashboard port** on the Overview page (or
+   `web_port` in config.toml) and restart; IIS already uses 80 and 443.
    If it still fails, the network blocks devices from reaching each other
    (common on office and guest Wi-Fi): use Tailscale (below). The **Use on other
    devices** card shows these steps with your address and port.

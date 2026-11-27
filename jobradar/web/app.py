@@ -280,6 +280,9 @@ def _network(ctrl: Controller) -> dict[str, Any]:
                            "forced": bool(net.get("forced")), "addresses": [],
                            "port": net.get("port"), "windows": sys.platform.startswith("win")}
     out["restart_needed"] = not out["forced"] and allow != out["listening"]
+    out["port_setting"] = int(ctrl.config.web_port or 8765)
+    out["port_busy"] = bool(net.get("wanted_port")) and net.get("port") != net.get("wanted_port")
+    out["port_restart"] = bool(net) and not out["port_busy"] and out["port_setting"] != net.get("port")
     if out["listening"]:
         from . import netinfo, qr
 
@@ -1314,7 +1317,7 @@ def _load_token(base_dir: Path) -> str:
     return tok
 
 
-def make_server(config_path: Path, *, host: str | None = None, port: int = 8765,
+def make_server(config_path: Path, *, host: str | None = None, port: int | None = None,
                 logs: LogBuffer | None = None) -> DashboardServer:
     """``host`` None follows the "Allow other devices" setting; a host given on
     the command line wins over it."""
@@ -1324,6 +1327,9 @@ def make_server(config_path: Path, *, host: str | None = None, port: int = 8765,
     if host is None:
         host = "0.0.0.0" if ctrl.config.web_allow_network else "127.0.0.1"
     local = host in ("127.0.0.1", "localhost", "::1")
+    if port is None:
+        port = int(ctrl.config.web_port or 8765)
+    wanted = port
     last_err: OSError | None = None
     for p in ([port] + list(range(port + 1, port + 11)) if port else [0]):
         try:
@@ -1331,13 +1337,16 @@ def make_server(config_path: Path, *, host: str | None = None, port: int = 8765,
         except OSError as e:  # port in use: try the next one
             last_err = e
             continue
-        ctrl.network = {"listening_all": not local, "forced": forced,
+        ctrl.network = {"listening_all": not local, "forced": forced, "wanted_port": wanted,
                         "port": server.server_address[1], "token": token}
+        if wanted and server.server_address[1] != wanted:
+            log.warning("port %s is in use by another program; the dashboard uses %s instead",
+                        wanted, server.server_address[1])
         return server
     raise OSError(f"no free port near {port}: {last_err}")
 
 
-def main(config_path: str, *, host: str | None = None, port: int = 8765,
+def main(config_path: str, *, host: str | None = None, port: int | None = None,
          open_browser: bool = True) -> int:
     logs = LogBuffer()
     logging.getLogger().addHandler(logs)

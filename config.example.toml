@@ -84,6 +84,7 @@ applicant_name = ""                      # signs the message
 # People log in there; anyone who can reach it can create an account.
 # Applies when Job Radar restarts. See README → "Open the dashboard on your phone".
 web_allow_network = false
+web_port = 8765          # dashboard port; applies on restart (IIS uses 80/443)
 
 # Your résumé is made from your Profile (dashboard → Profile), tailored to each
 # job when AI is on. "uploaded" sends your own resume.pdf instead.

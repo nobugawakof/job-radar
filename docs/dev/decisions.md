@@ -19,7 +19,14 @@ undo it by accident.
   say when it's unclaimed. Claims are logged with the client address.
 - "took too long to respond" from other computers = Windows Firewall on the
   server (its prompt appears on the server's screen); the Overview card shows
-  the New-NetFirewallRule command with the real port.
+  the New-NetFirewallRule command with the real port. No
+  `-RemoteAddress LocalSubnet`: on the owner's office network the client was
+  likely on another subnet, so that restriction blocked it while IIS/SQL
+  Server (rules for any address) worked.
+- `web_port` (Dashboard port) is a setting so the double-clicked .exe can use
+  another port; a busy port falls back to the next free one and the card says
+  so. Port 80 isn't a shortcut: IIS holds it, and Windows' IIS rule only
+  covers IIS itself.
 - The printed `?t=` link still logs in the admin, but only from loopback; on
   any other address it's ignored. The token cookie from loopback also counts
   as the admin (keeps local tools and tests working).
